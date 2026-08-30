@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/pedrofariasx/qwenproxy/compare/v1.20.2...v1.21.0) (2026-08-30)
+
+
+### Features
+
+* per-account isolation, fingerprint personalization and dashboard UX ([2665d17](https://github.com/pedrofariasx/qwenproxy/commit/2665d17b529c2308c2bfb577e448fe32180d4084))
+
 ## [1.20.2](https://github.com/pedrofariasx/qwenproxy/compare/v1.20.1...v1.20.2) (2026-08-30)
 
 

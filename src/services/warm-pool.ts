@@ -1,5 +1,5 @@
 import { getBasicHeaders, waitForAccountPage } from './playwright.js';
-import { markAccountRateLimited } from '../core/account-manager.js';
+import { recordAccountBlock } from '../core/account-isolation.js';
 import { config } from '../core/config.js';
 import { getRuntimeInt } from '../core/runtime-config.js';
 import { QwenUpstreamError } from './error-handler.js';
@@ -251,8 +251,8 @@ async function refillPoolForAccount(accountId: string) {
         if (err.upstreamCode === 'RateLimited' || err.upstreamStatus === 429) {
           const hourHint = err.message?.match(/Wait about (\d+) hour/);
           const cooldownMs = hourHint ? parseInt(hourHint[1]) * 60 * 60 * 1000 : undefined;
-          markAccountRateLimited(accountId, cooldownMs, 'RateLimited');
-          console.warn(`[WarmPool] Account ${accountId} rate-limited during chat creation. Marked for cooldown.`);
+          recordAccountBlock(accountId, 'rate-limited', err.message, { cooldownMs });
+          console.warn(`[WarmPool] Account ${accountId} rate-limited during chat creation. Quarantined.`);
           break;
         }
       }

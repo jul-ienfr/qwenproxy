@@ -67,6 +67,21 @@ function runMigrations(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_sessions_chat_id ON sessions(chat_id);
+
+    CREATE TABLE IF NOT EXISTS fingerprint_salts (
+      id TEXT PRIMARY KEY,
+      salt INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_fingerprint_salts_id ON fingerprint_salts(id);
+
+    CREATE TABLE IF NOT EXISTS personalization (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      style TEXT NOT NULL DEFAULT 'Default',
+      instruction TEXT NOT NULL DEFAULT ''
+    );
   `)
 
   try {
@@ -234,4 +249,58 @@ export function upsertSession(row: SessionRow): void {
 
 export function deleteSession(sessionKey: string): void {
   getDatabase().prepare('DELETE FROM sessions WHERE session_key = ?').run(sessionKey)
+}
+
+// --- Per-account fingerprint salts (rotatable device identity) ----------------
+// A per-account salt is XORed into the deterministic fingerprint seed so that a
+// "flagged" account can be given a FRESH device identity on recovery (rotation)
+// without affecting any other account. Persisted so the rotation survives a
+// restart instead of immediately re-triggering the same fingerprint-based flag.
+
+export function getFingerprintSalt(id: string): number {
+  const row = getDatabase()
+    .prepare('SELECT salt FROM fingerprint_salts WHERE id = ?')
+    .get(id) as { salt: number } | undefined
+  return row?.salt ?? 0
+}
+
+export function setFingerprintSalt(id: string, salt: number): void {
+  getDatabase()
+    .prepare(`
+      INSERT INTO fingerprint_salts (id, salt) VALUES (?, ?)
+      ON CONFLICT(id) DO UPDATE SET salt = excluded.salt
+    `)
+    .run(id, salt >>> 0)
+}
+
+// --- Global Qwen personalization (applied to every account) ------------------
+// A single row (id='global') holds the shared "Como gostaria que o Qwen o
+// chamasse / saiba sobre si / estilo / instrução personalizada" config.
+
+export interface PersonalizationRow {
+  name: string
+  description: string
+  style: string
+  instruction: string
+}
+
+export function getPersonalizationRow(): PersonalizationRow | null {
+  const row = getDatabase()
+    .prepare('SELECT name, description, style, instruction FROM personalization WHERE id = ?')
+    .get('global') as PersonalizationRow | undefined
+  return row ?? null
+}
+
+export function savePersonalizationRow(row: PersonalizationRow): void {
+  getDatabase()
+    .prepare(`
+      INSERT INTO personalization (id, name, description, style, instruction)
+      VALUES ('global', ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        description = excluded.description,
+        style = excluded.style,
+        instruction = excluded.instruction
+    `)
+    .run(row.name, row.description, row.style, row.instruction)
 }

@@ -125,6 +125,54 @@ export interface ModelInfo {
   requestCount: number
 }
 
+export interface FingerprintProfile {
+  accountId: string
+  userAgent: string
+  appVersion: string
+  chromeVersion: string
+  chromeMajor: number
+  platform: string
+  platformVersion: string
+  architecture: string
+  bitness: string
+  viewport: { width: number; height: number }
+  hardwareConcurrency: number
+  deviceMemory: number
+  languages: string[]
+  webglVendor: string
+  webglRenderer: string
+  colorDepth: number
+  pixelDepth: number
+  canvasNoiseSeed: number
+  audioNoiseSeed: number
+  webglNoiseSeed: number
+  outerWidthOffset: number
+  outerHeightOffset: number
+}
+
+export interface AccountFingerprint {
+  accountId: string
+  salt: number
+  resourceVersion: number
+  profile: FingerprintProfile
+  lanes?: Array<{ lane: number; id: string; profile: FingerprintProfile }>
+}
+
+export interface PersonalizationConfig {
+  name: string
+  description: string
+  style: string
+  instruction: string
+}
+
+export interface PersonalizationApplyResult {
+  accountId: string
+  email?: string
+  ok: boolean
+  status?: number
+  error?: string
+}
+
 export interface CatalogModel {
   id: string
   name?: string
@@ -160,6 +208,10 @@ export const api = {
   removeAccount: (id: string) => request(`/accounts/${id}`, { method: 'DELETE' }),
   clearCooldown: (id: string) => request(`/accounts/${id}/clear-cooldown`, { method: 'POST' }),
   refreshHeaders: (id: string) => request(`/accounts/${id}/refresh`, { method: 'POST' }),
+  accountFingerprint: (id: string) => request<AccountFingerprint>(`/accounts/${id}/fingerprint`),
+  personalization: () => request<PersonalizationConfig>('/personalization'),
+  savePersonalization: (cfg: PersonalizationConfig) => request<{ ok: boolean; config: PersonalizationConfig }>('/personalization', { method: 'POST', body: JSON.stringify(cfg) }),
+  applyPersonalization: (accountId?: string) => request<{ ok: boolean; applied: number; succeeded: number; failed: number; results: PersonalizationApplyResult[] }>('/personalization/apply', { method: 'POST', body: JSON.stringify({ accountId }) }),
   users: () => request<AdminUser[]>('/users'),
   createUser: (u: { email?: string; apiKey: string; rateLimitRpm: number; maxConcurrency: number }) => request('/users', { method: 'POST', body: JSON.stringify(u) }),
   updateUser: (id: string, u: Partial<{ email: string; apiKey: string; rateLimitRpm: number; maxConcurrency: number }>) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(u) }),

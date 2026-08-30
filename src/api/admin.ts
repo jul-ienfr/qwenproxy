@@ -23,6 +23,10 @@ import {
   isAccountReady,
   getReadyAccountCount,
 } from '../core/account-manager.js'
+import { getIsolationStatus, getFingerprintSalt, getResourceVersion } from '../core/account-isolation.js'
+import { getFingerprintProfile } from '../services/fingerprint.js'
+import { makeAccountLaneId } from '../core/account-lanes.js'
+import { getPersonalization, savePersonalization, applyPersonalizationToAccount, applyPersonalizationToAll, hasPersonalization } from '../services/personalization.js'
 import { listUsers, upsertUser, deleteUserById, getUserById, listSessions } from '../core/database.js'
 import { getUserActiveStreams } from '../core/user-manager.js'
 import { getSessionCount, removeSession, resetAllSessions } from '../services/session-manager.js'
@@ -35,6 +39,13 @@ import { logBuffer } from '../core/log-buffer.js'
 import { getTopUsers, getModelUsage } from '../core/usage-tracker.js'
 import { getModelContextWindow } from '../core/model-registry.js'
 import { fetchFullModelCatalog } from './models.js'
+import { sleep } from '../utils/sleep.js'
+
+function randomDelay(minMs: number, maxMs: number): number {
+  const min = Math.max(0, Math.min(minMs, maxMs))
+  const max = Math.max(min, maxMs)
+  return min + Math.floor(Math.random() * (max - min + 1))
+}
 
 export const adminApp = new Hono()
 
@@ -250,6 +261,7 @@ async function buildOverview(): Promise<any> {
     maxStreamsPerAccount: config.accounts.maxStreamsPerAccount,
     streamSlotWaitMs: config.accounts.streamSlotWaitMs,
     readyAccountCount: getReadyAccountCount(),
+    isolation: getIsolationStatus(),
     userRateLimitRpm: config.users.defaultRateLimitRpm,
     userMaxConcurrency: config.users.defaultMaxConcurrency,
     hybridVerify: config.hybridSessions.verify,
@@ -299,6 +311,53 @@ adminApp.get('/api/accounts', adminGuard, (c) => {
   return c.json({ accounts, inUse: [...getInUseAccounts()], maxStreamsPerAccount: config.accounts.maxStreamsPerAccount })
 })
 
+// Brings a freshly-added account online IMMEDIATELY (browser context + anti-bot
+// header precapture + warm pool) so it is usable the moment the dashboard call
+// returns — no server restart required. Mirrors the per-account startup path in
+// server.ts but for a single account, launched in the background.
+async function kickoffAccountInitialization(account: { id: string; email: string }): Promise<void> {
+  const { getAccountCredentials } = await import('../core/accounts.js')
+  const { initPlaywrightForAccount, getQwenHeaders } = await import('../services/playwright.js')
+  const creds = getAccountCredentials(account.id)
+  if (!creds) return
+
+  const stagger = randomDelay(config.accounts.initStaggerMinMs, config.accounts.initStaggerMaxMs)
+  if (stagger > 0) await sleep(stagger)
+
+  try {
+    await initPlaywrightForAccount({ ...creds, id: account.id, email: account.email }, config.browser.headless)
+    console.log(`[Admin] Browser context initialized for new account ${account.email}`)
+  } catch (err: any) {
+    console.error(`[Admin] Failed to initialize browser context for ${account.email}:`, err.message)
+  }
+
+  if (config.precapture.headersStartup) {
+    try {
+      await getQwenHeaders(false, account.id)
+      console.log(`[Admin] Anti-bot headers pre-captured for ${account.email}`)
+    } catch (err: any) {
+      console.warn(`[Admin] Header pre-capture failed for ${account.email}:`, err.message)
+    }
+  }
+
+  if (config.warmPool.startup) {
+    const { warmAllPools } = await import('../services/qwen.js')
+    warmAllPools([account.id]).catch(() => {})
+  }
+
+  // If a shared personalization is configured, push it to the new account so it
+  // immediately matches every other account's identity/voice.
+  if (hasPersonalization()) {
+    try {
+      const r = await applyPersonalizationToAccount(account.id)
+      if (r.ok) console.log(`[Admin] Personalization applied to new account ${account.email}`)
+      else console.warn(`[Admin] Personalization skipped for ${account.email}: ${r.error}`)
+    } catch (err: any) {
+      console.warn(`[Admin] Personalization failed for ${account.email}:`, err?.message)
+    }
+  }
+}
+
 adminApp.post('/api/accounts', adminGuard, async (c) => {
   const body: any = await c.req.json().catch(() => null)
   const email = String(body?.email || '').trim()
@@ -306,7 +365,11 @@ adminApp.post('/api/accounts', adminGuard, async (c) => {
   if (!email || !password) return c.json({ error: 'email e password são obrigatórios' }, 400)
   try {
     const account = addAccount(email, password)
-    return c.json({ ok: true, account: { ...account, password: '***' } })
+    // Proactively bring the account online so it is usable immediately (no restart).
+    kickoffAccountInitialization(account).catch((err) => {
+      console.error(`[Admin] Account initialization failed for ${email}:`, err?.message)
+    })
+    return c.json({ ok: true, account: { ...account, password: '***' }, initializing: true })
   } catch (err: any) {
     return c.json({ error: err.message }, 400)
   }
@@ -334,6 +397,54 @@ adminApp.post('/api/accounts/:id/refresh', adminGuard, async (c) => {
   } catch (err: any) {
     return c.json({ error: err.message }, 400)
   }
+})
+
+adminApp.get('/api/accounts/:id/fingerprint', adminGuard, async (c) => {
+  const id = c.req.param('id')
+  const salt = getFingerprintSalt(id)
+  const resourceVersion = getResourceVersion(id)
+  const profile = getFingerprintProfile(id)
+  // In single-account mode each account is expanded into isolated lanes, and
+  // every lane gets its OWN distinct device fingerprint — surface them too.
+  const lanes = config.accounts.singleAccountMode
+    ? Array.from({ length: config.accounts.lanes }, (_, i) => {
+        const laneId = makeAccountLaneId(id, i + 1)
+        return { lane: i + 1, id: laneId, profile: getFingerprintProfile(laneId) }
+      })
+    : []
+  return c.json({ accountId: id, salt, resourceVersion, profile, lanes })
+})
+
+// --- Qwen personalization (shared across all accounts) ----------------------
+
+adminApp.get('/api/personalization', adminGuard, (c) => {
+  return c.json(getPersonalization())
+})
+
+adminApp.post('/api/personalization', adminGuard, async (c) => {
+  const body = await c.req.json().catch(() => null)
+  if (!body || typeof body !== 'object') return c.json({ error: 'payload inválido' }, 400)
+  const saved = savePersonalization(body)
+  return c.json({ ok: true, config: saved })
+})
+
+adminApp.post('/api/personalization/apply', adminGuard, async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const accountId = body?.accountId ? String(body.accountId) : undefined
+  let results
+  if (accountId) {
+    results = [await applyPersonalizationToAccount(accountId)]
+  } else {
+    results = await applyPersonalizationToAll()
+  }
+  const succeeded = results.filter((r) => r.ok).length
+  return c.json({
+    ok: true,
+    applied: results.length,
+    succeeded,
+    failed: results.length - succeeded,
+    results,
+  })
 })
 
 // --- Active streams -------------------------------------------------------

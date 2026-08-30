@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Plus, RefreshCw, Trash2, X } from 'lucide-react'
-import { api, fmtSec, type Account } from '@/lib/api'
+import { Fingerprint, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { api, fmtSec, type Account, type AccountFingerprint, type FingerprintProfile } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 export function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -16,6 +17,8 @@ export function AccountsPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
+  const [fp, setFp] = useState<AccountFingerprint | null>(null)
+  const [fpLoading, setFpLoading] = useState(false)
 
   function LoadBar({ value }: { value: number }) {
     const pct = Math.min(100, (value / Math.max(1, maxLoad)) * 100)
@@ -70,6 +73,17 @@ export function AccountsPage() {
     load()
   }
 
+  async function showFp(id: string) {
+    setFpLoading(true)
+    try {
+      setFp(await api.accountFingerprint(id))
+    } catch (err: any) {
+      toast.error(err?.message || 'Falha ao carregar fingerprint')
+    } finally {
+      setFpLoading(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <Card>
@@ -87,13 +101,14 @@ export function AccountsPage() {
                 <TableHead className="w-20">Streams</TableHead>
                 <TableHead>Cooldown</TableHead>
                 <TableHead>Em uso</TableHead>
+                <TableHead className="w-28">Fingerprint</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {accounts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-muted-foreground">
+                  <TableCell colSpan={8} className="text-muted-foreground">
                     Nenhuma conta — adicione abaixo
                   </TableCell>
                 </TableRow>
@@ -127,6 +142,18 @@ export function AccountsPage() {
                           {a.ready ? 'pronta' : 'aquecendo'}
                         </Badge>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-2"
+                        title="Ver fingerprint do dispositivo"
+                        onClick={() => showFp(a.id)}
+                      >
+                        <Fingerprint className={a.cooldownReason === 'CaptchaBlocked' || a.cooldownReason === 'Flagged' ? 'text-amber-400' : 'text-sky-400'} />
+                        ver
+                      </Button>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
@@ -169,6 +196,72 @@ export function AccountsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={fp !== null} onOpenChange={(o) => { if (!o) setFp(null) }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Fingerprint className="text-sky-400" /> Fingerprint do dispositivo
+            </DialogTitle>
+            <DialogDescription>
+              Identidade do navegador usada por esta conta para driblar a detecção de automação.
+              {fp && fp.salt > 0 && ' Sal já rotacionado — esta identidade foi renovada por contingência de bloqueio.'}
+            </DialogDescription>
+          </DialogHeader>
+          {fpLoading || !fp ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">Carregando fingerprint…</div>
+          ) : (
+            <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto pr-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">salt: {fp.salt}</Badge>
+                <Badge variant="outline">versão de identidade: {fp.resourceVersion}</Badge>
+              </div>
+              <FpProfile profile={fp.profile} />
+              {fp.lanes && fp.lanes.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Lanes isoladas ({fp.lanes.length}) — cada uma com fingerprint próprio
+                  </div>
+                  {fp.lanes.map((l) => (
+                    <div key={l.lane} className="rounded-md border p-3">
+                      <div className="mb-2 text-xs font-medium text-muted-foreground">Lane {l.lane} · {l.id}</div>
+                      <FpProfile profile={l.profile} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function FpRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b py-1.5 last:border-0">
+      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
+      <span className="text-right font-mono text-xs break-all">{value}</span>
+    </div>
+  )
+}
+
+function FpProfile({ profile }: { profile: FingerprintProfile }) {
+  return (
+    <div className="rounded-md border p-3">
+      <FpRow label="User-Agent" value={profile.userAgent} />
+      <FpRow label="Plataforma" value={`${profile.platform} ${profile.platformVersion} (${profile.architecture} ${profile.bitness})`} />
+      <FpRow label="Chrome" value={`${profile.chromeVersion} (major ${profile.chromeMajor})`} />
+      <FpRow label="Viewport" value={`${profile.viewport.width}×${profile.viewport.height} (outer +${profile.outerWidthOffset}/+${profile.outerHeightOffset})`} />
+      <FpRow label="Hardware Concurrency" value={profile.hardwareConcurrency} />
+      <FpRow label="Device Memory" value={`${profile.deviceMemory} GB`} />
+      <FpRow label="Idiomas" value={profile.languages.join(', ')} />
+      <FpRow label="WebGL" value={`${profile.webglVendor} / ${profile.webglRenderer}`} />
+      <FpRow label="Color / Pixel depth" value={`${profile.colorDepth} / ${profile.pixelDepth}`} />
+      <FpRow label="Canvas noise seed" value={profile.canvasNoiseSeed} />
+      <FpRow label="Audio noise seed" value={profile.audioNoiseSeed} />
+      <FpRow label="WebGL noise seed" value={profile.webglNoiseSeed} />
     </div>
   )
 }

@@ -1,10 +1,11 @@
 import type { Context } from 'hono';
 import crypto from 'crypto';
-import { createQwenStream, RetryableQwenStreamError } from '../services/qwen.js';
+import { createQwenStream, RetryableQwenStreamError, QwenUpstreamError } from '../services/qwen.js';
+import { recordAccountBlock, requiresCrossAccountBootstrap, noteAccountRecovery } from '../core/account-isolation.js';
 import type { OpenAIRequest } from '../utils/types.js';
 import { getModelContextWindow } from '../core/model-registry.js'
 import { truncateMessages, estimateTokenCount } from '../utils/context-truncation.js';
-import { getNextAccount, getNextAvailableAccount, getAccountById, onAccountFreed, markAccountRateLimited, getAccountCooldownInfo, markAccountInUse, releaseAccountInUse, getInUseAccounts } from '../core/account-manager.js';
+import { getNextAccount, getNextAvailableAccount, getAccountById, onAccountFreed, getAccountCooldownInfo, markAccountInUse, releaseAccountInUse, getInUseAccounts } from '../core/account-manager.js';
 import { loadAccounts } from '../core/accounts.js';
 import { registerStream, removeStream, getStream } from '../core/stream-registry.js';
 import { metrics } from '../core/metrics.js'
@@ -499,6 +500,12 @@ export async function chatCompletions(c: Context) {
         const accountId = account.id;
         const accountEmail = account.email;
 
+        // Session-state isolation guard: if this request's pinned session belongs
+        // to a DIFFERENT account than the one we are about to route to (e.g. the
+        // pinned account is on cooldown), do NOT reuse the cross-account chat —
+        // force a fresh bootstrap on the selected account and re-pin there.
+        const mustBootstrap = requiresCrossAccountBootstrap(accountId, session?.accountId);
+
         if (triedAccountIds.has(accountId)) {
           account = getNextAvailableAccount(triedAccountIds);
           continue;
@@ -532,7 +539,7 @@ export async function chatCompletions(c: Context) {
                 accountId === 'global' ? undefined : accountId,
                 undefined,
                 pendingMultimodal.length > 0 ? pendingMultimodal : undefined,
-                { ...baseStreamOptions, forceBootstrap: forceBootstrapOverride || attempt > 1 }
+                { ...baseStreamOptions, forceBootstrap: forceBootstrapOverride || attempt > 1 || mustBootstrap }
               );
               registerStream(completionId, {
                 abortController: result.controller,
@@ -544,6 +551,7 @@ export async function chatCompletions(c: Context) {
               });
               success = true;
               releaseAccountInUse(accountId);
+              noteAccountRecovery(accountId);
               return { stream: result.stream, uiSessionId: result.uiSessionId };
             } catch (err: any) {
               retries--;
@@ -552,15 +560,25 @@ export async function chatCompletions(c: Context) {
                 const hourHint = err.message?.match(/Wait about (\d+) hour/);
                 const hours = hourHint ? parseInt(hourHint[1]) : 24;
                 const cooldownMs = hours * 60 * 60 * 1000;
-                markAccountRateLimited(accountId, cooldownMs, 'RateLimited');
+                recordAccountBlock(accountId, 'rate-limited', err.message, { cooldownMs });
                 console.warn(`[Chat] Account ${accountEmail} (${accountId}) rate-limited. Entering cooldown for ${hours} hours.`);
                 lastError = err;
                 break;
               }
 
+              // Hard anti-bot block (captcha / TMD challenge). Quarantine AND rotate
+              // the account's fingerprint + reset its browser context so recovery is
+              // as a fresh device — this prevents the flag from re-propagating.
+              if (err instanceof QwenUpstreamError && err.upstreamStatus === 403) {
+                recordAccountBlock(accountId, 'captcha', err.message);
+                console.warn(`[Chat] Account ${accountEmail} (${accountId}) hit an anti-bot challenge. Quarantined with fingerprint rotation.`);
+                lastError = err;
+                break;
+              }
+
               if (retries === 0) {
-                if (err.upstreamStatus && err.upstreamStatus >= 500) {
-                  markAccountRateLimited(accountId, undefined, 'ServerError');
+                if (err instanceof QwenUpstreamError && err.upstreamStatus && err.upstreamStatus >= 500) {
+                  recordAccountBlock(accountId, 'server-error', err.message);
                   console.warn(`[Chat] Account ${accountEmail} (${accountId}) returned server error. Marked for cooldown.`);
                 }
                 lastError = err;

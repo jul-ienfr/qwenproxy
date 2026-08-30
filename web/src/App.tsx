@@ -3,9 +3,10 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import {
   Activity, KeyRound, Layers, LogOut, Server, Settings, TerminalSquare,
   ScrollText, Database, Box, Terminal, TrendingUp, Waves,
-  Sun, Moon, Menu, Search, RefreshCw, Snowflake, Download
+  Sun, Moon, Menu, Search, RefreshCw, Snowflake, Download, Sparkles
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Toaster } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -27,19 +28,21 @@ import { ModelsPage } from '@/pages/models'
 import { PlaygroundPage } from '@/pages/playground'
 import { UsagePage } from '@/pages/usage'
 import { StreamsPage } from '@/pages/streams'
+import { PersonalizationPage } from '@/pages/personalization'
 
 const NAV = [
   { path: '/overview', label: 'Visão geral', icon: Activity },
   { path: '/accounts', label: 'Contas', icon: Server },
   { path: '/users', label: 'API Keys', icon: KeyRound },
   { path: '/streams', label: 'Streams', icon: Waves },
-  { path: '/settings', label: 'Configuração', icon: Settings },
-  { path: '/metrics', label: 'Métricas', icon: TerminalSquare },
-  { path: '/logs', label: 'Logs', icon: ScrollText },
-  { path: '/sessions', label: 'Sessões', icon: Database },
   { path: '/models', label: 'Modelos', icon: Box },
+  { path: '/sessions', label: 'Sessões', icon: Database },
   { path: '/playground', label: 'Playground', icon: Terminal },
   { path: '/usage', label: 'Uso', icon: TrendingUp },
+  { path: '/metrics', label: 'Métricas', icon: TerminalSquare },
+  { path: '/logs', label: 'Logs', icon: ScrollText },
+  { path: '/personalization', label: 'Personalização', icon: Sparkles },
+  { path: '/settings', label: 'Configuração', icon: Settings },
 ]
 
 const ACTIONS = [
@@ -177,9 +180,29 @@ export function App() {
         </div>
         <Separator />
         <nav className="flex flex-1 flex-col gap-1 p-2">
-          {NAV.map((item) => {
+          {NAV.slice(0, -2).map((item) => {
             const Icon = item.icon
             const active = location.pathname === item.path || (item.path === '/overview' && location.pathname === '/')
+            return (
+              <button
+                key={item.path}
+                className={cn(
+                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground text-muted-foreground',
+                  active && 'bg-accent text-accent-foreground',
+                  collapsed && 'justify-center px-2'
+                )}
+                onClick={() => navigate(item.path)}
+                title={collapsed ? item.label : undefined}
+              >
+                <Icon className="size-4 shrink-0" />
+                {!collapsed && item.label}
+              </button>
+            )
+          })}
+          <Separator className="my-1" />
+          {NAV.slice(-2).map((item) => {
+            const Icon = item.icon
+            const active = location.pathname === item.path
             return (
               <button
                 key={item.path}
@@ -269,9 +292,12 @@ export function App() {
             <Route path="/models" element={<ErrorBoundary><ModelsPage /></ErrorBoundary>} />
             <Route path="/playground" element={<ErrorBoundary><PlaygroundPage /></ErrorBoundary>} />
             <Route path="/usage" element={<ErrorBoundary><UsagePage /></ErrorBoundary>} />
+            <Route path="/personalization" element={<ErrorBoundary><PersonalizationPage /></ErrorBoundary>} />
           </Routes>
         </div>
       </main>
+
+      <Toaster position="top-center" theme={dark ? 'dark' : 'light'} />
 
       <CommandDialog open={cmdOpen} onOpenChange={setCmdOpen} title="Command Palette" description="Buscar comando ou página...">
         <CommandInput placeholder="Buscar..." />

@@ -10,6 +10,7 @@ import { markAccountNotReady } from '../core/account-manager.js';
 import { getRuntimeInt, getRuntimeBool } from '../core/runtime-config.js';
 import { getStealthScript } from './stealth.js';
 import { getFingerprintProfile, type FingerprintProfile } from './fingerprint.js';
+import { setFingerprintRotationListener } from '../core/account-isolation.js';
 import { sleep } from '../utils/sleep.js';
 
 export { sleep };
@@ -171,6 +172,11 @@ export function getAccountHeaderCache(accountId: string): AccountHeaderCache {
     accountHeaderCaches.set(accountId, cache);
   }
   return cache;
+}
+
+/** Returns the account/lane ids that currently have cached anti-bot headers. */
+export function listHeaderAccountIds(): string[] {
+  return [...accountHeaderCaches.keys()];
 }
 
 export function storageStatePath(accountId: string): string {
@@ -688,6 +694,24 @@ export function getPageForAccount(accountId?: string): Page | null {
   if (accountId) return accountPages.get(accountId) || null;
   return activePage;
 }
+
+// Contingency hook: when the isolation system rotates an account's device
+// fingerprint (hard block — captcha/flagged/cookie-invalid), close that
+// account's Playwright context(s) — including every lane — and drop its cached
+// headers/cookies so the next request rebuilds a brand-new context carrying the
+// freshly rotated fingerprint. This is strictly scoped to the base account id, so
+// a blocked account never disturbs any other account's browser resources.
+setFingerprintRotationListener((baseId) => {
+  for (const key of [...accountContexts.keys()]) {
+    const keyBase = getBaseAccountId(key) || key;
+    if (keyBase === baseId) {
+      closePlaywrightForAccount(key).catch(() => { /* ignore */ });
+    }
+  }
+  accountHeaderCaches.delete(baseId);
+  cookieCaches.delete(baseId);
+  cachedUserAgents.delete(baseId);
+});
 
 /**
  * Returns the account's page once it is actually on the chat.qwen.ai origin.

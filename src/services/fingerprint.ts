@@ -1,3 +1,6 @@
+import { getBaseAccountId } from '../core/account-lanes.js';
+import { getFingerprintSalt, setFingerprintSalt } from '../core/database.js';
+
 function mulberry32(seed: number): () => number {
   return () => {
     seed |= 0;
@@ -118,11 +121,66 @@ export interface FingerprintProfile {
 
 const profileCache = new Map<string, FingerprintProfile>();
 
+// Per-account fingerprint salts. The salt is XORed into the deterministic seed
+// so a "flagged" account can be rotated to a fresh device identity on recovery
+// without changing any other account's fingerprint. Persisted in SQLite
+// (fingerprint_salts) so the rotation survives a restart.
+const saltCache = new Map<string, number>();
+
+function loadSalt(baseAccountId: string): number {
+  if (saltCache.has(baseAccountId)) return saltCache.get(baseAccountId)!;
+  let salt = 0;
+  try {
+    salt = getFingerprintSalt(baseAccountId);
+  } catch {
+    /* database unavailable — fall back to salt 0 for this process */
+  }
+  saltCache.set(baseAccountId, salt);
+  return salt;
+}
+
+/**
+ * Returns the current fingerprint salt for an account. A non-zero salt means
+ * this account's device identity has been rotated (contingency for a flag/block).
+ */
+export function getFingerprintSaltValue(accountId: string): number {
+  const base = getBaseAccountId(accountId) || accountId;
+  return loadSalt(base);
+}
+
+/**
+ * Rotates the account's device identity: bumps the persisted salt and drops the
+ * cached fingerprint profile so the NEXT context created for this account (or any
+ * of its lanes) uses a fresh, distinct fingerprint. This is the core fingerprint
+ * contingency — it lets a flagged/blocked account recover as a "new device"
+ * instead of being re-linked and re-flagged by the same fingerprint.
+ */
+export function rotateFingerprintSeed(accountId: string): number {
+  const base = getBaseAccountId(accountId) || accountId;
+  const next = (loadSalt(base) + 1) >>> 0;
+  saltCache.set(base, next);
+  try {
+    setFingerprintSalt(base, next);
+  } catch {
+    /* database unavailable — in-memory salt still applies for this process */
+  }
+  // Invalidate cached profiles for the account and every lane derived from it.
+  for (const key of [...profileCache.keys()]) {
+    const keyBase = getBaseAccountId(key) || key;
+    if (keyBase === base) profileCache.delete(key);
+  }
+  return next;
+}
+
 export function getFingerprintProfile(accountId: string): FingerprintProfile {
   const cached = profileCache.get(accountId);
   if (cached) return cached;
 
-  const seed = seedFromString(accountId);
+  const base = getBaseAccountId(accountId) || accountId;
+  const salt = loadSalt(base);
+  // XOR the deterministic account hash with the per-account salt. A fresh salt
+  // yields an entirely different PRNG stream → a different device fingerprint.
+  const seed = (seedFromString(accountId) ^ salt) >>> 0;
   const rng = mulberry32(seed);
 
   const chromeVersion = generateChromeVersion(rng);
@@ -188,8 +246,13 @@ export function getFingerprintProfile(accountId: string): FingerprintProfile {
 
 export function clearFingerprintCache(accountId?: string): void {
   if (accountId) {
-    profileCache.delete(accountId);
+    const base = getBaseAccountId(accountId) || accountId;
+    for (const key of [...profileCache.keys()]) {
+      const keyBase = getBaseAccountId(key) || key;
+      if (keyBase === base) profileCache.delete(key);
+    }
   } else {
     profileCache.clear();
+    saltCache.clear();
   }
 }

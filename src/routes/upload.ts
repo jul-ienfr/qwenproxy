@@ -8,6 +8,7 @@ import type { Context } from "hono";
 import type OSSType from "ali-oss";
 import { getQwenHeaders } from "../services/playwright.js";
 import { config } from "../core/config.js";
+import { cache } from "../cache/memory-cache.js";
 import crypto from "crypto";
 
 interface STSResponse {
@@ -776,17 +777,30 @@ const LARGE_PROMPT_THRESHOLD = config.largePromptThreshold;
 export async function uploadLargePromptAsFile(
   promptText: string,
   headers: Record<string, string>,
+  accountId?: string,
 ): Promise<QwenFileEntry | null> {
   const byteLength = Buffer.byteLength(promptText, "utf-8");
   if (byteLength <= LARGE_PROMPT_THRESHOLD) return null;
 
-  const filename = `prompt_${Date.now()}.txt`;
+  const cacheTtlMs = config.largePromptUploadCacheTtlMs;
+  const hash = crypto.createHash("sha256").update(promptText, "utf-8").digest("hex");
+  const cacheKey = `prompt:upload:${accountId || "global"}:${hash}` as const;
+
+  if (cacheTtlMs > 0) {
+    const cached = await cache.get<QwenFileEntry>(cacheKey);
+    if (cached) {
+      console.log(`[Upload] Large prompt cache hit (${hash.slice(0, 12)}…), reusing ${cached.name}`);
+      return { ...cached, itemId: crypto.randomUUID(), uploadTaskId: crypto.randomUUID() };
+    }
+  }
+
+  const filename = `prompt_${Date.now()}.md`;
   const buffer = Buffer.from(promptText, "utf-8");
 
   const stsData = await getSTSToken(filename, buffer.length, "file", headers);
   const fileUrl = await uploadToOSS(buffer.buffer, stsData, filename);
 
-  return {
+  const entry: QwenFileEntry = {
     type: "file",
     file: {
       created_at: Date.now(),
@@ -795,13 +809,13 @@ export async function uploadLargePromptAsFile(
       hash: null,
       id: stsData.file_id,
       user_id: "proxy-user",
-      meta: { name: filename, size: buffer.length, content_type: "text/plain" },
+      meta: { name: filename, size: buffer.length, content_type: "text/markdown" },
       update_at: Date.now(),
       lastModified: Date.now(),
       name: filename,
       webkitRelativePath: "",
       size: buffer.length,
-      type: "text/plain",
+      type: "text/markdown",
     },
     id: stsData.file_id,
     url: fileUrl,
@@ -813,9 +827,16 @@ export async function uploadLargePromptAsFile(
     size: buffer.length,
     error: "",
     itemId: crypto.randomUUID(),
-    file_type: "text/plain",
+    file_type: "text/markdown",
     showType: "file",
     file_class: "file",
     uploadTaskId: crypto.randomUUID(),
   };
+
+  if (cacheTtlMs > 0) {
+    await cache.set(cacheKey, entry, Math.ceil(cacheTtlMs / 1000));
+    console.log(`[Upload] Large prompt uploaded and cached (${hash.slice(0, 12)}…, TTL ${cacheTtlMs}ms)`);
+  }
+
+  return entry;
 }

@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { getNextAccount, getNextAvailableAccount, markAccountRateLimited, clearAccountCooldown, invalidateAccountsCache } from '../core/account-manager.ts';
+import {
+  getNextAccount,
+  getNextAvailableAccount,
+  markAccountRateLimited,
+  clearAccountCooldown,
+  invalidateAccountsCache,
+  markAccountReady,
+  markAccountNotReady,
+  markAccountInUse,
+  releaseAccountInUse,
+} from '../core/account-manager.ts';
 import { addAccount, removeAccount, loadAccounts } from '../core/accounts.ts';
 
 test('Account Rotation: Round-Robin rotation cycle', async () => {
@@ -98,6 +108,53 @@ test('Account Cooldown: Database persistence and recovery', async () => {
   } finally {
     if (accountId) {
       removeAccount(accountId);
+    }
+    invalidateAccountsCache();
+  }
+});
+
+test('Account Cooldown: recovered account becomes selectable after cooldown', async () => {
+  const emails = ['cooldown-recov-1@test.com', 'cooldown-recov-2@test.com'];
+  const ids: string[] = [];
+
+  try {
+    for (const email of emails) {
+      ids.push(addAccount(email, 'password123').id);
+    }
+    invalidateAccountsCache();
+
+    const [readyId, recoveredId] = ids;
+    // Isolate the test: mark every pre-existing (real) account as busy so the
+    // router can only consider our two test accounts.
+    for (const a of loadAccounts()) {
+      if (!ids.includes(a.id)) markAccountInUse(a.id);
+    }
+
+    // `readyId` is a healthy, ready account that is currently busy.
+    markAccountReady(readyId);
+    markAccountInUse(readyId);
+    // `recoveredId` was on cooldown (simulating startup-cooldown or an expired
+    // 429) and its browser context was never initialized -> not ready.
+    markAccountNotReady(recoveredId);
+    markAccountRateLimited(recoveredId, 10, 'RateLimited');
+
+    // While still on cooldown it must NOT be selected.
+    const duringCooldown = getNextAccount(true);
+    assert.ok(!duringCooldown || duringCooldown.id !== recoveredId,
+      'account still on cooldown should not be selected');
+
+    // While `readyId` stays busy, let the 10ms cooldown window pass. The only
+    // free account is the recovered (un-ready) one -> it must become selectable.
+    await new Promise(r => setTimeout(r, 25));
+
+    const afterCooldown = getNextAccount(true);
+    assert.ok(afterCooldown, 'a free account should be available after cooldown');
+    assert.strictEqual(afterCooldown!.id, recoveredId,
+      'recovered (cooldown-expired, un-ready) account must become selectable');
+  } finally {
+    releaseAccountInUse(ids[0]);
+    for (const id of ids) {
+      if (id) removeAccount(id);
     }
     invalidateAccountsCache();
   }

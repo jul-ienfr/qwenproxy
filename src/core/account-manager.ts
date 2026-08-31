@@ -276,22 +276,26 @@ export function getNextAccount(forceReset?: boolean): QwenAccount | null {
   }
 
   const viable: QwenAccount[] = []
-  // Only gate on readiness when at least one lane is already ready; otherwise
-  // every lane is still warming up (startup) and we must pick from all of them.
-  const anyReady = accounts.some(a => isAccountReady(a.id))
   for (let i = 0; i < accounts.length; i++) {
     const account = accounts[currentIndex % accounts.length]
     currentIndex = (currentIndex + 1) % accounts.length
-    if (!isAccountOnCooldown(account.id) && !isAccountInUse(account.id) && (!anyReady || isAccountReady(account.id))) {
+    if (!isAccountOnCooldown(account.id) && !isAccountInUse(account.id)) {
       viable.push(account)
     }
   }
 
   if (viable.length > 0) {
-    // Prefer the least-loaded account; ties keep round-robin order because
-    // `viable` is collected in rotation order.
-    const minLoad = Math.min(...viable.map(a => getAccountActiveLoad(a.id)))
-    return viable.find(a => getAccountActiveLoad(a.id) === minLoad)!
+    // Prefer ready lanes (context + headers already captured) so a request never
+    // lands on a lane mid-warmup. But a lane whose cooldown just expired (or that
+    // was on cooldown at startup) may not be marked ready yet — it is still safe
+    // to select it, because downstream (header-interceptor) lazily creates its
+    // context and marks it ready. Falling back to un-ready lanes is what lets an
+    // account become available the moment its cooldown ends instead of staying
+    // excluded forever while other accounts are ready.
+    const readyViable = viable.filter(a => isAccountReady(a.id))
+    const pool = readyViable.length > 0 ? readyViable : viable
+    const minLoad = Math.min(...pool.map(a => getAccountActiveLoad(a.id)))
+    return pool.find(a => getAccountActiveLoad(a.id) === minLoad)!
   }
 
   // Healthy accounts exist but are all busy (in-use): return null so the caller
@@ -334,19 +338,23 @@ export function getNextAvailableAccount(triedAccountIds?: Set<string> | string):
   // 1. Try to find an untried account that is NOT on cooldown, preferring the
   // least-loaded one (ties keep round-robin order from currentIndex).
   const candidates: QwenAccount[] = []
-  const anyReady = accounts.some(a => isAccountReady(a.id))
   for (let i = 0; i < accounts.length; i++) {
     const idx = (currentIndex + i) % accounts.length
     const account = accounts[idx]
     if (triedSet.has(account.id)) continue
-    if (!isAccountOnCooldown(account.id) && !isAccountInUse(account.id) && (!anyReady || isAccountReady(account.id))) {
+    if (!isAccountOnCooldown(account.id) && !isAccountInUse(account.id)) {
       candidates.push(account)
     }
   }
 
   if (candidates.length > 0) {
-    const minLoad = Math.min(...candidates.map(a => getAccountActiveLoad(a.id)))
-    const chosen = candidates.find(a => getAccountActiveLoad(a.id) === minLoad)!
+    // Prefer ready lanes; only fall back to un-ready (e.g. cooldown-just-expired
+    // or startup-cooldown) lanes when no ready candidate exists. They are safely
+    // re-initialized on demand by the header interceptor.
+    const readyCandidates = candidates.filter(a => isAccountReady(a.id))
+    const pool = readyCandidates.length > 0 ? readyCandidates : candidates
+    const minLoad = Math.min(...pool.map(a => getAccountActiveLoad(a.id)))
+    const chosen = pool.find(a => getAccountActiveLoad(a.id) === minLoad)!
     currentIndex = (accounts.indexOf(chosen) + 1) % accounts.length
     return chosen
   }

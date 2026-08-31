@@ -62,6 +62,7 @@ const envSchema = z.object({
   ACCOUNT_STREAM_SLOT_WAIT_MS: envInt(30000, 1000),
   QWEN_DIRECT_FETCH: envBool(true),
   LARGE_PROMPT_THRESHOLD: envInt(524288, 1),
+  LARGE_PROMPT_INLINE: envBool(false),
   HYBRID_SESSIONS_ENABLED: envBool(true),
   HYBRID_SESSION_VERIFY: envBool(true),
   HYBRID_SESSION_VERIFY_EVERY_MS: envInt(60000, 0),
@@ -169,6 +170,7 @@ export const config = {
     staggerMaxMs: env.PRECAPTURE_HEADERS_STAGGER_MAX_MS,
   },
   largePromptThreshold: env.LARGE_PROMPT_THRESHOLD,
+  largePromptInline: env.LARGE_PROMPT_INLINE,
   hybridSessions: {
     enabled: env.HYBRID_SESSIONS_ENABLED,
     verify: env.HYBRID_SESSION_VERIFY,

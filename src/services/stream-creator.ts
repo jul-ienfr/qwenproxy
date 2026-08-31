@@ -857,42 +857,50 @@ export async function createQwenStream(
   const LARGE_PROMPT_THRESHOLD = config.largePromptThreshold;
   let finalPrompt = payloadPrompt;
   if (Buffer.byteLength(finalPrompt, 'utf-8') > LARGE_PROMPT_THRESHOLD) {
-    try {
-      const uploadHeaders: Record<string, string> = {
-        cookie: chatHeaders['cookie'] || '',
-        'user-agent': chatHeaders['user-agent'] || '',
-        'bx-ua': chatHeaders['bx-ua'] || '',
-        'bx-umidtoken': chatHeaders['bx-umidtoken'] || '',
-        'bx-v': chatHeaders['bx-v'] || '',
-      };
-      if (!uploadHeaders['bx-ua']) {
-        console.warn('[Qwen] Missing bx-ua header for large prompt upload, attempting forced refresh...');
-        const { headers: refreshedHeaders } = await getQwenHeaders(true, accountId);
-        Object.assign(uploadHeaders, {
-          cookie: refreshedHeaders['cookie'] || uploadHeaders['cookie'],
-          'user-agent': refreshedHeaders['user-agent'] || uploadHeaders['user-agent'],
-          'bx-ua': refreshedHeaders['bx-ua'],
-          'bx-umidtoken': refreshedHeaders['bx-umidtoken'],
-          'bx-v': refreshedHeaders['bx-v'] || uploadHeaders['bx-v'],
-        });
-      }
-      assertAntiBotHeaders(uploadHeaders, 'Large prompt upload');
-      const largePromptFile = await uploadLargePromptAsFile(finalPrompt, uploadHeaders);
-      if (largePromptFile) {
-        console.log(`[Qwen] Prompt exceeds ${LARGE_PROMPT_THRESHOLD} bytes, uploaded as file: ${largePromptFile.name}`);
-        resolvedFiles.push(largePromptFile);
+    if (config.largePromptInline) {
+      // User explicitly opted to inline the full text instead of uploading it
+      // as a file. NOTE: sending 100k+ bytes inline trips Qwen's anti-bot and
+      // can trigger a Baxia captcha — only enable this if you know the risk.
+      console.log(`[Qwen] Large prompt (${Buffer.byteLength(finalPrompt, 'utf-8')} bytes) exceeds ${LARGE_PROMPT_THRESHOLD}; inlined per LARGE_PROMPT_INLINE=true (anti-bot risk).`);
+      finalPrompt = `${finalPrompt}\n${buildAnswerDirective()}`;
+    } else {
+      try {
+        const uploadHeaders: Record<string, string> = {
+          cookie: chatHeaders['cookie'] || '',
+          'user-agent': chatHeaders['user-agent'] || '',
+          'bx-ua': chatHeaders['bx-ua'] || '',
+          'bx-umidtoken': chatHeaders['bx-umidtoken'] || '',
+          'bx-v': chatHeaders['bx-v'] || '',
+        };
+        if (!uploadHeaders['bx-ua']) {
+          console.warn('[Qwen] Missing bx-ua header for large prompt upload, attempting forced refresh...');
+          const { headers: refreshedHeaders } = await getQwenHeaders(true, accountId);
+          Object.assign(uploadHeaders, {
+            cookie: refreshedHeaders['cookie'] || uploadHeaders['cookie'],
+            'user-agent': refreshedHeaders['user-agent'] || uploadHeaders['user-agent'],
+            'bx-ua': refreshedHeaders['bx-ua'],
+            'bx-umidtoken': refreshedHeaders['bx-umidtoken'],
+            'bx-v': refreshedHeaders['bx-v'] || uploadHeaders['bx-v'],
+          });
+        }
+        assertAntiBotHeaders(uploadHeaders, 'Large prompt upload');
+        const largePromptFile = await uploadLargePromptAsFile(finalPrompt, uploadHeaders);
+        if (largePromptFile) {
+          console.log(`[Qwen] Prompt exceeds ${LARGE_PROMPT_THRESHOLD} bytes, uploaded as file: ${largePromptFile.name}`);
+          resolvedFiles.push(largePromptFile);
 
-        // Keep the uploaded file attached and hand the model a short directive
-        // to read it. We must NOT inline the full text — sending the raw bytes
-        // inline (often 300k+) trips Qwen's anti-bot and triggers a Baxia
-        // captcha, and duplicates the context in a way that degrades answers.
-        // This applies to text files (txt/log/md/json/...) and non-text files
-        // (rendered pdf, etc.) alike: the content lives in the attachment.
-        finalPrompt = `[SYSTEM DIRECTIVE] The uploaded file "${largePromptFile.name}" contains the system prompt, persona, and the user's complete request. Read the attached file in full, internalize its instructions, and answer the user's request completely, in the same language. NEVER reply with only a short acknowledgment such as "Yes", "OK", or "Sim". [/SYSTEM DIRECTIVE]`;
-        console.log(`[Qwen] Attached large prompt as file (${largePromptFile.size} bytes); content delivered via attachment, not inlined.`);
+          // Keep the uploaded file attached and hand the model a short directive
+          // to read it. We must NOT inline the full text — sending the raw bytes
+          // inline (often 300k+) trips Qwen's anti-bot and triggers a Baxia
+          // captcha, and duplicates the context in a way that degrades answers.
+          // This applies to text files (txt/log/md/json/...) and non-text files
+          // (rendered pdf, etc.) alike: the content lives in the attachment.
+          finalPrompt = `[SYSTEM DIRECTIVE] The uploaded file "${largePromptFile.name}" contains the system prompt, persona, and the user's complete request. Read the attached file in full, internalize its instructions, and answer the user's request completely, in the same language. NEVER reply with only a short acknowledgment such as "Yes", "OK", or "Sim". [/SYSTEM DIRECTIVE]`;
+          console.log(`[Qwen] Attached large prompt as file (${largePromptFile.size} bytes); content delivered via attachment, not inlined.`);
+        }
+      } catch (err: any) {
+        console.warn('[Qwen] Failed to upload large prompt as file, sending inline:', err.message);
       }
-    } catch (err: any) {
-      console.warn('[Qwen] Failed to upload large prompt as file, sending inline:', err.message);
     }
   }
 

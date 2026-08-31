@@ -3,6 +3,7 @@ import assert from 'node:assert';
 
 process.env.TEST_MOCK_PLAYWRIGHT = 'true';
 process.env.HYBRID_SESSION_VERIFY = 'false';
+process.env.LARGE_PROMPT_THRESHOLD = '1000';
 
 delete process.env.API_KEY;
 
@@ -75,7 +76,7 @@ test('degenerate-answer: builds corrective directive referencing the rejected re
   assert.ok(!plain.includes('Your previous reply'));
 });
 
-test('text-upload guard: large text prompt is inlined with directive and not re-attached', async () => {
+test('text-upload guard: large text prompt is attached as file, not inlined', async () => {
   const capturedPayloads: any[] = [];
 
   const restore = setupFetchMock((url, _init) => {
@@ -108,10 +109,11 @@ test('text-upload guard: large text prompt is inlined with directive and not re-
 
     assert.strictEqual(capturedPayloads.length, 1);
     const payload = capturedPayloads[0];
-    assert.ok(payload.messages[0].content.includes(bigText), 'full text must stay inline');
-    assert.ok(payload.messages[0].content.includes('[SYSTEM DIRECTIVE]'), 'answer directive must be appended');
+    assert.ok(!payload.messages[0].content.includes(bigText), 'full text must NOT be inlined (would trip captcha)');
+    assert.ok(payload.messages[0].content.includes('[SYSTEM DIRECTIVE]'), 'read-directive must be appended');
     assert.ok(payload.messages[0].content.includes('NEVER reply with only a short acknowledgment'));
-    assert.strictEqual(payload.messages[0].files.length, 0, 'text prompt must not be double-attached as a file');
+    assert.strictEqual(payload.messages[0].files.length, 1, 'large prompt must be attached as a file');
+    assert.ok(payload.messages[0].files[0].name.startsWith('prompt_'), 'attached file should be the uploaded prompt');
   } finally {
     restore();
     delete process.env.TEST_SESSION_ID;

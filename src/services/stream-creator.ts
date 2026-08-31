@@ -882,29 +882,14 @@ export async function createQwenStream(
         console.log(`[Qwen] Prompt exceeds ${LARGE_PROMPT_THRESHOLD} bytes, uploaded as file: ${largePromptFile.name}`);
         resolvedFiles.push(largePromptFile);
 
-        // Text files: the model must actually see the content. Keep the full
-        // text inline (we already hold it) with an explicit directive, and do
-        // NOT attach the file too — re-feeding the same bytes as an attachment
-        // duplicates the context and confuses the model into terse/degenerate
-        // replies ("Yes"). The answer directive is appended right after the
-        // final "User:" block so the model answers the actual question.
-        if (
-          largePromptFile.name.endsWith('.txt') ||
-          largePromptFile.name.endsWith('.log') ||
-          largePromptFile.name.endsWith('.md') ||
-          largePromptFile.name.endsWith('.markdown') ||
-          largePromptFile.name.endsWith('.csv') ||
-          largePromptFile.name.endsWith('.json') ||
-          largePromptFile.name.endsWith('.xml')
-        ) {
-          console.log(`[Qwen] Inlined large text prompt (${Buffer.byteLength(finalPrompt, 'utf-8')} bytes) with answer directive; file not re-attached.`);
-          finalPrompt = `${finalPrompt}\n${buildAnswerDirective()}`;
-          resolvedFiles.pop();
-        } else {
-          // Non-text files (e.g. a rendered PDF): keep the attachment and hand
-          // a short guarded instruction so a bare acknowledgment is never valid.
-          finalPrompt = `[SYSTEM DIRECTIVE — the uploaded file "${largePromptFile.name}" contains the system prompt, persona, and the user's complete request. Internalize the instructions and answer the user's request completely, in the same language. NEVER reply with only a short acknowledgment such as "Yes", "OK", or "Sim".]`;
-        }
+        // Keep the uploaded file attached and hand the model a short directive
+        // to read it. We must NOT inline the full text — sending the raw bytes
+        // inline (often 300k+) trips Qwen's anti-bot and triggers a Baxia
+        // captcha, and duplicates the context in a way that degrades answers.
+        // This applies to text files (txt/log/md/json/...) and non-text files
+        // (rendered pdf, etc.) alike: the content lives in the attachment.
+        finalPrompt = `[SYSTEM DIRECTIVE] The uploaded file "${largePromptFile.name}" contains the system prompt, persona, and the user's complete request. Read the attached file in full, internalize its instructions, and answer the user's request completely, in the same language. NEVER reply with only a short acknowledgment such as "Yes", "OK", or "Sim". [/SYSTEM DIRECTIVE]`;
+        console.log(`[Qwen] Attached large prompt as file (${largePromptFile.size} bytes); content delivered via attachment, not inlined.`);
       }
     } catch (err: any) {
       console.warn('[Qwen] Failed to upload large prompt as file, sending inline:', err.message);

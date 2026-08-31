@@ -1,3 +1,10 @@
+# [1.23.0](https://github.com/pedrofariasx/qwenproxy/compare/v1.22.0...v1.23.0) (2026-08-31)
+
+
+### Features
+
+* allow toggling large-prompt upload vs inline via LARGE_PROMPT_INLINE ([872914c](https://github.com/pedrofariasx/qwenproxy/commit/872914ceb58d918c7fceadbb1388c131d1a68da3))
+
 # [1.22.0](https://github.com/pedrofariasx/qwenproxy/compare/v1.21.0...v1.22.0) (2026-08-31)
 
 

@@ -1,3 +1,10 @@
+## [1.23.1](https://github.com/pedrofariasx/qwenproxy/compare/v1.23.0...v1.23.1) (2026-08-31)
+
+
+### Performance Improvements
+
+* dedup cache, speculative upload, warm pool defaults for large prompts ([ca19085](https://github.com/pedrofariasx/qwenproxy/commit/ca190856c29c000b28e17971b629c589437f99b9))
+
 # [1.23.0](https://github.com/pedrofariasx/qwenproxy/compare/v1.22.0...v1.23.0) (2026-08-31)
 
 

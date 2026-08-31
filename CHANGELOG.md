@@ -1,3 +1,15 @@
+# [1.22.0](https://github.com/pedrofariasx/qwenproxy/compare/v1.21.0...v1.22.0) (2026-08-31)
+
+
+### Bug Fixes
+
+* attach large prompt as file instead of inlining (avoids Baxia captcha) ([859a4fe](https://github.com/pedrofariasx/qwenproxy/commit/859a4fefbe264873e3be242aec7d50a337c6a92b))
+
+
+### Features
+
+* prefer ready account lanes and recover cooldown-expired accounts ([78bcc58](https://github.com/pedrofariasx/qwenproxy/commit/78bcc5876fcd05cf30c34400f945bf21970918fb))
+
 # [1.21.0](https://github.com/pedrofariasx/qwenproxy/compare/v1.20.2...v1.21.0) (2026-08-30)
 
 

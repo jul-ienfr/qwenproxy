@@ -1,3 +1,10 @@
+# [1.24.0](https://github.com/pedrofariasx/qwenproxy/compare/v1.23.2...v1.24.0) (2026-09-01)
+
+
+### Features
+
+* track real input/output tokens from upstream usage in dashboard ([7cdda2e](https://github.com/pedrofariasx/qwenproxy/commit/7cdda2e1b7253001406201dab6e13850b7261654))
+
 ## [1.23.2](https://github.com/pedrofariasx/qwenproxy/compare/v1.23.1...v1.23.2) (2026-09-01)
 
 

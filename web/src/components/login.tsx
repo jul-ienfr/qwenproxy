@@ -3,8 +3,10 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useTranslation } from '@/i18n'
 
 export function Login() {
+  const { t } = useTranslation()
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -21,12 +23,12 @@ export function Login() {
       })
       const json = await res.json().catch(() => null)
       if (!res.ok || !json?.ok) {
-        setError(json?.error || 'Falha ao autenticar')
+        setError(json?.error || t('login.authFailed'))
         return
       }
       window.location.reload()
     } catch (err: any) {
-      setError(err?.message || 'Erro de rede')
+      setError(err?.message || t('login.networkError'))
     } finally {
       setBusy(false)
     }
@@ -45,12 +47,12 @@ export function Login() {
         <CardContent className="px-8 pb-8 pt-2">
           <form onSubmit={submit} className="flex flex-col gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="password" className="text-center">Senha do admin</Label>
+              <Label htmlFor="password" className="text-center">{t('login.title')}</Label>
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" />
             </div>
             {error ? <p className="text-center text-sm text-destructive">{error}</p> : null}
             <Button type="submit" disabled={busy}>
-              {busy ? 'Entrando…' : 'Entrar'}
+              {busy ? t('login.entering') : t('login.enter')}
             </Button>
           </form>
         </CardContent>

@@ -6,17 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChartCard, BarTrend } from '@/components/charts'
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 60) return `${seconds}s atrás`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}min atrás`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h atrás`
-  const days = Math.floor(hours / 24)
-  return `${days}d atrás`
-}
+import { useTranslation } from '@/i18n'
 
 function Kpi({ icon: Icon, label, value }: { icon: React.ComponentType<{ className?: string }>; label: string; value: React.ReactNode }) {
   return (
@@ -33,8 +23,20 @@ function Kpi({ icon: Icon, label, value }: { icon: React.ComponentType<{ classNa
 }
 
 export function UsagePage() {
+  const { t, formatNumber } = useTranslation()
   const [data, setData] = useState<UsageData | null>(null)
   const [loading, setLoading] = useState(true)
+
+  function timeAgo(timestamp: number): string {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000)
+    if (seconds < 60) return t('usage.timeAgo.s', { n: seconds })
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return t('usage.timeAgo.min', { n: minutes })
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return t('usage.timeAgo.h', { n: hours })
+    const days = Math.floor(hours / 24)
+    return t('usage.timeAgo.d', { n: days })
+  }
 
   const load = useCallback(async () => {
     try {
@@ -81,7 +83,7 @@ export function UsagePage() {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20">
         <BarChart3 className="size-12 text-muted-foreground" />
-        <p className="text-lg text-muted-foreground">Nenhum dado de uso disponível</p>
+        <p className="text-lg text-muted-foreground">{t('usage.noData')}</p>
       </div>
     )
   }
@@ -89,32 +91,32 @@ export function UsagePage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="grid gap-4 md:grid-cols-3">
-        <Kpi icon={Users} label="Total de Usuários" value={sortedUsers.length.toLocaleString('pt-BR')} />
-        <Kpi icon={TrendingUp} label="Total de Requisições" value={totalRequests.toLocaleString('pt-BR')} />
-        <Kpi icon={Clock} label="Tokens Estimados" value={totalTokens.toLocaleString('pt-BR')} />
+        <Kpi icon={Users} label={t('usage.totalUsers')} value={formatNumber(sortedUsers.length)} />
+        <Kpi icon={TrendingUp} label={t('usage.totalRequests')} value={formatNumber(totalRequests)} />
+        <Kpi icon={Clock} label={t('usage.estTokens')} value={formatNumber(totalTokens)} />
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Top Usuários</CardTitle>
-          <CardDescription>Ordenado por número de requisições</CardDescription>
+          <CardTitle className="text-base">{t('usage.topUsers')}</CardTitle>
+          <CardDescription>{t('usage.sortedByRequests')}</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Usuário</TableHead>
-                <TableHead className="text-right">Requisições</TableHead>
-                <TableHead className="text-right">Erros</TableHead>
-                <TableHead className="text-right">Tokens Est.</TableHead>
-                <TableHead className="text-right">Último Acesso</TableHead>
+                <TableHead>{t('usage.col.user')}</TableHead>
+                <TableHead className="text-right">{t('usage.col.requests')}</TableHead>
+                <TableHead className="text-right">{t('usage.col.errors')}</TableHead>
+                <TableHead className="text-right">{t('usage.col.tokens')}</TableHead>
+                <TableHead className="text-right">{t('usage.col.lastAccess')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedUsers.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-muted-foreground">
-                    Nenhum usuário encontrado
+                    {t('usage.noUsers')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -133,15 +135,15 @@ export function UsagePage() {
                           ) : null}
                         </div>
                       </TableCell>
-                      <TableCell className="text-right font-mono">{u.requestCount.toLocaleString('pt-BR')}</TableCell>
+                      <TableCell className="text-right font-mono">{formatNumber(u.requestCount)}</TableCell>
                       <TableCell className="text-right">
                         {u.errorCount > 0 ? (
-                          <Badge variant="destructive">{u.errorCount.toLocaleString('pt-BR')}</Badge>
+                          <Badge variant="destructive">{formatNumber(u.errorCount)}</Badge>
                         ) : (
                           <span className="text-muted-foreground">0</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-mono">{u.totalTokens.toLocaleString('pt-BR')}</TableCell>
+                      <TableCell className="text-right font-mono">{formatNumber(u.totalTokens)}</TableCell>
                       <TableCell className="text-right text-muted-foreground">{timeAgo(u.lastRequestAt)}</TableCell>
                     </TableRow>
                   )
@@ -153,7 +155,7 @@ export function UsagePage() {
       </Card>
 
       {modelEntries.length > 0 ? (
-        <ChartCard title="Uso por Modelo" icon={BarChart3} badge={<Badge variant="secondary" className="font-mono">{modelEntries.length} modelos</Badge>}>
+        <ChartCard title={t('usage.byModel')} icon={BarChart3} badge={<Badge variant="secondary" className="font-mono">{t('usage.modelsCount', { count: formatNumber(modelEntries.length) })}</Badge>}>
           <BarTrend data={modelChartData} color="#a78bfa" unit="req" height={160} />
           <div className="mt-4 flex flex-col gap-2">
             {modelEntries.map(([model, count]) => (
@@ -165,7 +167,7 @@ export function UsagePage() {
                     style={{ width: `${maxModelCount > 0 ? (count / maxModelCount) * 100 : 0}%` }}
                   />
                 </div>
-                <span className="w-16 text-right font-mono text-xs">{count.toLocaleString('pt-BR')}</span>
+                <span className="w-16 text-right font-mono text-xs">{formatNumber(count)}</span>
               </div>
             ))}
           </div>

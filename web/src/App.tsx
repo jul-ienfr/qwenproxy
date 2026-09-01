@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import {
   Activity, KeyRound, Layers, LogOut, Server, Settings, TerminalSquare,
@@ -17,6 +17,8 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Login } from '@/components/login'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { useTranslation } from '@/i18n'
+import { LanguageSwitcher } from '@/components/language-switcher'
 import { OverviewPage } from '@/pages/overview'
 import { AccountsPage } from '@/pages/accounts'
 import { UsersPage } from '@/pages/users'
@@ -30,47 +32,8 @@ import { UsagePage } from '@/pages/usage'
 import { StreamsPage } from '@/pages/streams'
 import { PersonalizationPage } from '@/pages/personalization'
 
-const NAV = [
-  { path: '/overview', label: 'Visão geral', icon: Activity },
-  { path: '/accounts', label: 'Contas', icon: Server },
-  { path: '/users', label: 'API Keys', icon: KeyRound },
-  { path: '/streams', label: 'Streams', icon: Waves },
-  { path: '/models', label: 'Modelos', icon: Box },
-  { path: '/sessions', label: 'Sessões', icon: Database },
-  { path: '/playground', label: 'Playground', icon: Terminal },
-  { path: '/usage', label: 'Uso', icon: TrendingUp },
-  { path: '/metrics', label: 'Métricas', icon: TerminalSquare },
-  { path: '/logs', label: 'Logs', icon: ScrollText },
-  { path: '/personalization', label: 'Personalização', icon: Sparkles },
-  { path: '/settings', label: 'Configuração', icon: Settings },
-]
-
-const ACTIONS = [
-  {
-    label: 'Reiniciar servidor', icon: RefreshCw,
-    run: () => { fetch('/admin/api/restart', { method: 'POST' }); toast.success('Reiniciando…') },
-  },
-  {
-    label: 'Limpar cooldowns', icon: Snowflake,
-    run: () => api.clearCooldowns().then((r) => toast.success(`Cooldowns limpos (${r.cleared})`)).catch((e) => toast.error(e?.message || 'Falha')),
-  },
-  {
-    label: 'Baixar métricas', icon: Download,
-    run: async () => {
-      try {
-        const text = await api.exportMetrics()
-        const a = document.createElement('a')
-        a.href = `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`
-        a.download = 'qwenproxy-metrics.txt'
-        a.click()
-      } catch (e: any) {
-        toast.error(e?.message || 'Falha ao baixar')
-      }
-    },
-  },
-]
-
 function Clock() {
+  const { locale } = useTranslation()
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
@@ -78,17 +41,13 @@ function Clock() {
   }, [])
   return (
     <Badge variant="outline" className="font-mono text-xs">
-      {now.toLocaleTimeString('pt-BR')}
+      {now.toLocaleTimeString(locale)}
     </Badge>
   )
 }
 
-function getActiveLabel(pathname: string) {
-  if (pathname === '/' || pathname === '/overview') return 'Visão geral'
-  return NAV.find((n) => n.path === pathname)?.label ?? ''
-}
-
 export function App() {
+  const { t } = useTranslation()
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [uptime, setUptime] = useState<string>('—')
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -97,6 +56,52 @@ export function App() {
   const [cmdOpen, setCmdOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
+
+  const NAV = useMemo(() => [
+    { path: '/overview', key: 'nav.overview' as const, icon: Activity },
+    { path: '/accounts', key: 'nav.accounts' as const, icon: Server },
+    { path: '/users', key: 'nav.users' as const, icon: KeyRound },
+    { path: '/streams', key: 'nav.streams' as const, icon: Waves },
+    { path: '/models', key: 'nav.models' as const, icon: Box },
+    { path: '/sessions', key: 'nav.sessions' as const, icon: Database },
+    { path: '/playground', key: 'nav.playground' as const, icon: Terminal },
+    { path: '/usage', key: 'nav.usage' as const, icon: TrendingUp },
+    { path: '/metrics', key: 'nav.metrics' as const, icon: TerminalSquare },
+    { path: '/logs', key: 'nav.logs' as const, icon: ScrollText },
+    { path: '/personalization', key: 'nav.personalization' as const, icon: Sparkles },
+    { path: '/settings', key: 'nav.settings' as const, icon: Settings },
+  ], [])
+
+  const ACTIONS = useMemo(() => [
+    {
+      key: 'actions.restart' as const, icon: RefreshCw,
+      run: () => { fetch('/admin/api/restart', { method: 'POST' }); toast.success(t('actions.restarting')) },
+    },
+    {
+      key: 'actions.clearCooldowns' as const, icon: Snowflake,
+      run: () => api.clearCooldowns().then((r) => toast.success(t('actions.cooldownsCleared', { count: r.cleared }))).catch((e) => toast.error(e?.message || t('actions.failed'))),
+    },
+    {
+      key: 'actions.downloadMetrics' as const, icon: Download,
+      run: async () => {
+        try {
+          const text = await api.exportMetrics()
+          const a = document.createElement('a')
+          a.href = `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`
+          a.download = 'qwenproxy-metrics.txt'
+          a.click()
+        } catch (e: any) {
+          toast.error(e?.message || t('actions.downloadFailed'))
+        }
+      },
+    },
+  ], [t])
+
+  const getActiveLabel = useCallback((pathname: string) => {
+    if (pathname === '/' || pathname === '/overview') return t('nav.overview')
+    const found = NAV.find((n) => n.path === pathname)
+    return found ? t(found.key) : ''
+  }, [NAV, t])
 
   useEffect(() => {
     const stored = localStorage.getItem('qwenproxy-theme')
@@ -183,6 +188,7 @@ export function App() {
           {NAV.slice(0, -2).map((item) => {
             const Icon = item.icon
             const active = location.pathname === item.path || (item.path === '/overview' && location.pathname === '/')
+            const label = t(item.key)
             return (
               <button
                 key={item.path}
@@ -192,10 +198,10 @@ export function App() {
                   collapsed && 'justify-center px-2'
                 )}
                 onClick={() => navigate(item.path)}
-                title={collapsed ? item.label : undefined}
+                title={collapsed ? label : undefined}
               >
                 <Icon className="size-4 shrink-0" />
-                {!collapsed && item.label}
+                {!collapsed && label}
               </button>
             )
           })}
@@ -203,6 +209,7 @@ export function App() {
           {NAV.slice(-2).map((item) => {
             const Icon = item.icon
             const active = location.pathname === item.path
+            const label = t(item.key)
             return (
               <button
                 key={item.path}
@@ -212,10 +219,10 @@ export function App() {
                   collapsed && 'justify-center px-2'
                 )}
                 onClick={() => navigate(item.path)}
-                title={collapsed ? item.label : undefined}
+                title={collapsed ? label : undefined}
               >
                 <Icon className="size-4 shrink-0" />
-                {!collapsed && item.label}
+                {!collapsed && label}
               </button>
             )
           })}
@@ -223,14 +230,14 @@ export function App() {
         <div className={cn('space-y-3 border-t p-4 text-xs text-muted-foreground', collapsed && 'space-y-2 p-2')}>
           <div className={cn('flex items-center gap-2', collapsed && 'justify-center')}>
             <Layers className="size-3" />
-            {!collapsed && <>uptime {uptime}</>}
+            {!collapsed && <>{t('common.uptime', { value: uptime })}</>}
           </div>
           <div className={cn('flex items-center gap-2', collapsed && 'justify-center')}>
             <span className="relative flex size-2">
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
               <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
             </span>
-            {!collapsed && 'online'}
+            {!collapsed && t('common.online')}
           </div>
           <form
             onSubmit={(e) => {
@@ -239,7 +246,7 @@ export function App() {
             }}
           >
             <Button type="submit" variant="outline" size="sm" className={cn('w-full', collapsed && 'px-0')}>
-              {collapsed ? <LogOut className="size-4" /> : 'Sair'}
+              {collapsed ? <LogOut className="size-4" /> : t('common.logout')}
             </Button>
           </form>
         </div>
@@ -272,6 +279,7 @@ export function App() {
             <Button variant="ghost" size="icon" onClick={() => setCmdOpen(true)}>
               <Search className="size-4" />
             </Button>
+            <LanguageSwitcher />
             <Button variant="ghost" size="icon" onClick={handleToggleTheme}>
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>
@@ -299,36 +307,38 @@ export function App() {
 
       <Toaster position="top-center" theme={dark ? 'dark' : 'light'} />
 
-      <CommandDialog open={cmdOpen} onOpenChange={setCmdOpen} title="Command Palette" description="Buscar comando ou página...">
-        <CommandInput placeholder="Buscar..." />
+      <CommandDialog open={cmdOpen} onOpenChange={setCmdOpen} title={t('header.commandPalette')} description={t('header.commandSearch')}>
+        <CommandInput placeholder={t('header.searchPlaceholder')} />
         <CommandList>
-          <CommandEmpty>Nenhum resultado.</CommandEmpty>
-          <CommandGroup heading="Páginas">
+          <CommandEmpty>{t('common.noResults')}</CommandEmpty>
+          <CommandGroup heading={t('header.pages')}>
             {NAV.map((item) => {
               const Icon = item.icon
+              const label = t(item.key)
               return (
                 <CommandItem
                   key={item.path}
-                  value={item.label}
+                  value={label}
                   onSelect={() => handleCmdSelect(() => navigate(item.path))}
                 >
                   <Icon className="size-4" />
-                  {item.label}
+                  {label}
                 </CommandItem>
               )
             })}
           </CommandGroup>
-          <CommandGroup heading="Ações">
+          <CommandGroup heading={t('header.actions')}>
             {ACTIONS.map((a) => {
               const Icon = a.icon
+              const label = t(a.key)
               return (
                 <CommandItem
-                  key={a.label}
-                  value={a.label}
+                  key={a.key}
+                  value={label}
                   onSelect={() => handleCmdSelect(a.run)}
                 >
                   <Icon className="size-4" />
-                  {a.label}
+                  {label}
                 </CommandItem>
               )
             })}

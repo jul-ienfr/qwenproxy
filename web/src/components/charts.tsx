@@ -14,10 +14,10 @@ import {
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
-export function fmtTime(t?: number): string {
+export function fmtTime(t?: number, locale = 'pt-BR'): string {
   if (!t) return ''
   const d = new Date(t)
-  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return d.toLocaleTimeString(locale as string, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 /** Resolves a CSS variable to a concrete rgb() string for SVG attributes
@@ -47,14 +47,14 @@ function useThemeTick() {
 
 // Theme-aware chart tooltip (payload/label come from recharts).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ChartTooltip({ active, payload, label, unit }: any) {
+function ChartTooltip({ active, payload, label, unit, locale }: any) {
   if (!active || !payload?.length) return null
   const value = payload[0].value
   return (
     <div className="rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
       <p className="mb-1 text-muted-foreground">{label}</p>
       <p className="font-mono font-semibold">
-        {typeof value === 'number' ? value.toLocaleString('pt-BR') : value} {unit || ''}
+        {typeof value === 'number' ? value.toLocaleString(locale) : value} {unit || ''}
       </p>
     </div>
   )
@@ -82,10 +82,10 @@ export function ChartCard({ title, icon: Icon, badge, children }: ChartCardProps
   )
 }
 
-export function AreaTrend({ data, color = '#34d399', unit = '', height = 180 }: { data: { t: number; v: number }[]; color?: string; unit?: string; height?: number }) {
+export function AreaTrend({ data, color = '#34d399', unit = '', height = 180, locale = 'pt-BR' }: { data: { t: number; v: number }[]; color?: string; unit?: string; height?: number; locale?: string }) {
   useThemeTick()
   const id = useId().replace(/[^a-zA-Z0-9]/g, '')
-  const points = data.map((d) => ({ name: fmtTime(d.t), v: d.v }))
+  const points = data.map((d) => ({ name: fmtTime(d.t, locale), v: d.v }))
   const gradId = `grad-${id}`
   const axisTick = { fontSize: 10, fill: themeColor('--muted-foreground', '#8b95a5') }
   const gridStroke = themeColor('--border', '#ffffff12')
@@ -102,16 +102,16 @@ export function AreaTrend({ data, color = '#34d399', unit = '', height = 180 }: 
         <CartesianGrid stroke={gridStroke} strokeDasharray="3 3" vertical={false} />
         <XAxis dataKey="name" tick={axisTick} tickLine={false} axisLine={false} minTickGap={50} />
         <YAxis tick={axisTick} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-        <Tooltip content={<ChartTooltip unit={unit} />} cursor={{ stroke: cursorStroke }} />
+        <Tooltip content={<ChartTooltip unit={unit} locale={locale} />} cursor={{ stroke: cursorStroke }} />
         <Area type="monotone" dataKey="v" stroke={color} strokeWidth={2} fill={`url(#${gradId})`} dot={false} isAnimationActive={false} />
       </AreaChart>
     </ResponsiveContainer>
   )
 }
 
-export function LineTrend({ data, color = '#f5b842', unit = '', height = 180 }: { data: { t: number; v: number }[]; color?: string; unit?: string; height?: number }) {
+export function LineTrend({ data, color = '#f5b842', unit = '', height = 180, locale = 'pt-BR' }: { data: { t: number; v: number }[]; color?: string; unit?: string; height?: number; locale?: string }) {
   useThemeTick()
-  const points = data.map((d) => ({ name: fmtTime(d.t), v: d.v }))
+  const points = data.map((d) => ({ name: fmtTime(d.t, locale), v: d.v }))
   const axisTick = { fontSize: 10, fill: themeColor('--muted-foreground', '#8b95a5') }
   const gridStroke = themeColor('--border', '#ffffff12')
   const cursorStroke = themeColor('--border', '#27272a')
@@ -121,16 +121,16 @@ export function LineTrend({ data, color = '#f5b842', unit = '', height = 180 }: 
         <CartesianGrid stroke={gridStroke} strokeDasharray="3 3" vertical={false} />
         <XAxis dataKey="name" tick={axisTick} tickLine={false} axisLine={false} minTickGap={50} />
         <YAxis tick={axisTick} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-        <Tooltip content={<ChartTooltip unit={unit} />} cursor={{ stroke: cursorStroke }} />
+        <Tooltip content={<ChartTooltip unit={unit} locale={locale} />} cursor={{ stroke: cursorStroke }} />
         <Line type="monotone" dataKey="v" stroke={color} strokeWidth={2} dot={false} activeDot={false} isAnimationActive={false} />
       </LineChart>
     </ResponsiveContainer>
   )
 }
 
-export function BarTrend({ data, color = '#a78bfa', unit = '', height = 180 }: { data: { t: number; v: number }[]; color?: string; unit?: string; height?: number }) {
+export function BarTrend({ data, color = '#a78bfa', unit = '', height = 180, locale = 'pt-BR' }: { data: { t: number; v: number }[]; color?: string; unit?: string; height?: number; locale?: string }) {
   useThemeTick()
-  const points = data.map((d) => ({ name: fmtTime(d.t), v: d.v }))
+  const points = data.map((d) => ({ name: fmtTime(d.t, locale), v: d.v }))
   const axisTick = { fontSize: 10, fill: themeColor('--muted-foreground', '#8b95a5') }
   const gridStroke = themeColor('--border', '#ffffff12')
   const cursorFill = themeColor('--border', '#27272a22')
@@ -140,7 +140,7 @@ export function BarTrend({ data, color = '#a78bfa', unit = '', height = 180 }: {
         <CartesianGrid stroke={gridStroke} strokeDasharray="3 3" vertical={false} />
         <XAxis dataKey="name" tick={axisTick} tickLine={false} axisLine={false} minTickGap={50} />
         <YAxis tick={axisTick} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-        <Tooltip content={<ChartTooltip unit={unit} />} cursor={{ fill: cursorFill }} />
+        <Tooltip content={<ChartTooltip unit={unit} locale={locale} />} cursor={{ fill: cursorFill }} />
         <Bar dataKey="v" fill={color} radius={[3, 3, 0, 0]} isAnimationActive={false} />
       </BarChart>
     </ResponsiveContainer>

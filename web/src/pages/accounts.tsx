@@ -8,9 +8,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useTranslation } from '@/i18n'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 export function AccountsPage() {
+  const { t } = useTranslation()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [inUse, setInUse] = useState<string[]>([])
   const [maxLoad, setMaxLoad] = useState(2)
@@ -40,7 +42,7 @@ export function AccountsPage() {
       setInUse(d.inUse)
       if (d.maxStreamsPerAccount) setMaxLoad(d.maxStreamsPerAccount)
     } catch (err: any) {
-      toast.error(err?.message || 'Falha ao carregar contas')
+      toast.error(err?.message || t('accounts.loadFailed'))
     }
   }, [])
 
@@ -57,19 +59,19 @@ export function AccountsPage() {
       await api.addAccount(email.trim(), password)
       setEmail('')
       setPassword('')
-      toast.success('Conta adicionada')
+      toast.success(t('accounts.added'))
       load()
     } catch (err: any) {
-      toast.error(err?.message || 'Falha ao adicionar')
+      toast.error(err?.message || t('accounts.addFailed'))
     } finally {
       setBusy(false)
     }
   }
 
   async function remove(id: string) {
-    if (!confirm('Remover esta conta?')) return
+    if (!confirm(t('accounts.removeConfirm'))) return
     await api.removeAccount(id)
-    toast.success('Conta removida')
+    toast.success(t('accounts.removed'))
     load()
   }
 
@@ -78,7 +80,7 @@ export function AccountsPage() {
     try {
       setFp(await api.accountFingerprint(id))
     } catch (err: any) {
-      toast.error(err?.message || 'Falha ao carregar fingerprint')
+      toast.error(err?.message || t('accounts.fingerprintFailed'))
     } finally {
       setFpLoading(false)
     }
@@ -88,28 +90,28 @@ export function AccountsPage() {
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Contas Qwen</CardTitle>
-          <CardDescription>{accounts.length} conta(s) configurada(s)</CardDescription>
+          <CardTitle className="text-base">{t('accounts.title')}</CardTitle>
+          <CardDescription>{t('accounts.count', { count: accounts.length })}</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>E-mail</TableHead>
-                <TableHead>ID</TableHead>
-                <TableHead className="text-right">Carga</TableHead>
-                <TableHead className="w-20">Streams</TableHead>
-                <TableHead>Cooldown</TableHead>
-                <TableHead>Em uso</TableHead>
-                <TableHead className="w-28">Fingerprint</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
+                <TableHead>{t('accounts.col.email')}</TableHead>
+                <TableHead>{t('accounts.col.id')}</TableHead>
+                <TableHead className="text-right">{t('accounts.col.load')}</TableHead>
+                <TableHead className="w-20">{t('accounts.col.streams')}</TableHead>
+                <TableHead>{t('accounts.col.cooldown')}</TableHead>
+                <TableHead>{t('accounts.col.inUse')}</TableHead>
+                <TableHead className="w-28">{t('accounts.col.fingerprint')}</TableHead>
+                <TableHead className="text-right">{t('accounts.col.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {accounts.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="text-muted-foreground">
-                    Nenhuma conta — adicione abaixo
+                    {t('accounts.empty')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -136,10 +138,10 @@ export function AccountsPage() {
                     <TableCell>
                       <div className="flex flex-col gap-1">
                         <Badge variant="outline" className={inUse.includes(a.id) ? 'text-amber-400' : 'text-emerald-400'}>
-                          {inUse.includes(a.id) ? 'em uso' : 'livre'}
+                          {inUse.includes(a.id) ? t('accounts.inUse') : t('accounts.free')}
                         </Badge>
                         <Badge variant="outline" className={a.ready ? 'text-emerald-400' : 'text-amber-400'}>
-                          {a.ready ? 'pronta' : 'aquecendo'}
+                          {a.ready ? t('accounts.ready') : t('accounts.warming')}
                         </Badge>
                       </div>
                     </TableCell>
@@ -148,20 +150,20 @@ export function AccountsPage() {
                         size="sm"
                         variant="ghost"
                         className="gap-2"
-                        title="Ver fingerprint do dispositivo"
+                        title={t('accounts.view')}
                         onClick={() => showFp(a.id)}
                       >
                         <Fingerprint className={a.cooldownReason === 'CaptchaBlocked' || a.cooldownReason === 'Flagged' ? 'text-amber-400' : 'text-sky-400'} />
-                        ver
+                        {t('accounts.view')}
                       </Button>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button size="sm" variant="outline" onClick={() => api.clearCooldown(a.id).then(() => { toast.success('Cooldown limpo'); load() })}>
-                          <X /> limpar cooldown
+                        <Button size="sm" variant="outline" onClick={() => api.clearCooldown(a.id).then(() => { toast.success(t('accounts.cooldownCleared')); load() })}>
+                          <X /> {t('accounts.clearCooldown')}
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => api.refreshHeaders(a.id).then(() => toast.success('Headers atualizados')).catch((e) => toast.error(e.message))}>
-                          <RefreshCw /> headers
+                        <Button size="sm" variant="outline" onClick={() => api.refreshHeaders(a.id).then(() => toast.success(t('accounts.headersUpdated'))).catch((e) => toast.error(e.message))}>
+                          <RefreshCw /> {t('accounts.headers')}
                         </Button>
                         <Button size="sm" variant="destructive" onClick={() => remove(a.id)}>
                           <Trash2 />
@@ -178,20 +180,20 @@ export function AccountsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Adicionar conta</CardTitle>
+          <CardTitle className="text-base">{t('accounts.addTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
             <div className="grid gap-2">
-              <Label htmlFor="acc-email">E-mail</Label>
-              <Input id="acc-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@qwen.example" />
+              <Label htmlFor="acc-email">{t('accounts.emailLabel')}</Label>
+              <Input id="acc-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('accounts.emailPlaceholder')} />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="acc-pass">Senha</Label>
-              <Input id="acc-pass" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="senha da conta" />
+              <Label htmlFor="acc-pass">{t('accounts.passwordLabel')}</Label>
+              <Input id="acc-pass" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t('accounts.passwordPlaceholder')} />
             </div>
             <Button className="gap-2" disabled={busy || !email.trim() || !password} onClick={add}>
-              <Plus /> Adicionar
+              <Plus /> {t('accounts.add')}
             </Button>
           </div>
         </CardContent>
@@ -201,30 +203,30 @@ export function AccountsPage() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Fingerprint className="text-sky-400" /> Fingerprint do dispositivo
+              <Fingerprint className="text-sky-400" /> {t('accounts.fp.title')}
             </DialogTitle>
             <DialogDescription>
-              Identidade do navegador usada por esta conta para driblar a detecção de automação.
-              {fp && fp.salt > 0 && ' Sal já rotacionado — esta identidade foi renovada por contingência de bloqueio.'}
+              {t('accounts.fp.description')}
+              {fp && fp.salt > 0 && (' ' + t('accounts.fp.rotated'))}
             </DialogDescription>
           </DialogHeader>
           {fpLoading || !fp ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">Carregando fingerprint…</div>
+            <div className="py-8 text-center text-sm text-muted-foreground">{t('accounts.fp.loading')}</div>
           ) : (
             <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto pr-1">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">salt: {fp.salt}</Badge>
-                <Badge variant="outline">versão de identidade: {fp.resourceVersion}</Badge>
+                <Badge variant="outline">{t('accounts.fp.salt', { value: fp.salt })}</Badge>
+                <Badge variant="outline">{t('accounts.fp.identityVersion', { value: fp.resourceVersion })}</Badge>
               </div>
               <FpProfile profile={fp.profile} />
               {fp.lanes && fp.lanes.length > 0 && (
                 <div className="flex flex-col gap-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Lanes isoladas ({fp.lanes.length}) — cada uma com fingerprint próprio
+                    {t('accounts.fp.lanesIsolated', { count: fp.lanes.length })}
                   </div>
                   {fp.lanes.map((l) => (
                     <div key={l.lane} className="rounded-md border p-3">
-                      <div className="mb-2 text-xs font-medium text-muted-foreground">Lane {l.lane} · {l.id}</div>
+                      <div className="mb-2 text-xs font-medium text-muted-foreground">{t('accounts.fp.lane', { lane: l.lane, id: l.id })}</div>
                       <FpProfile profile={l.profile} />
                     </div>
                   ))}
@@ -248,20 +250,21 @@ function FpRow({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function FpProfile({ profile }: { profile: FingerprintProfile }) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-md border p-3">
-      <FpRow label="User-Agent" value={profile.userAgent} />
-      <FpRow label="Plataforma" value={`${profile.platform} ${profile.platformVersion} (${profile.architecture} ${profile.bitness})`} />
-      <FpRow label="Chrome" value={`${profile.chromeVersion} (major ${profile.chromeMajor})`} />
-      <FpRow label="Viewport" value={`${profile.viewport.width}×${profile.viewport.height} (outer +${profile.outerWidthOffset}/+${profile.outerHeightOffset})`} />
-      <FpRow label="Hardware Concurrency" value={profile.hardwareConcurrency} />
-      <FpRow label="Device Memory" value={`${profile.deviceMemory} GB`} />
-      <FpRow label="Idiomas" value={profile.languages.join(', ')} />
-      <FpRow label="WebGL" value={`${profile.webglVendor} / ${profile.webglRenderer}`} />
-      <FpRow label="Color / Pixel depth" value={`${profile.colorDepth} / ${profile.pixelDepth}`} />
-      <FpRow label="Canvas noise seed" value={profile.canvasNoiseSeed} />
-      <FpRow label="Audio noise seed" value={profile.audioNoiseSeed} />
-      <FpRow label="WebGL noise seed" value={profile.webglNoiseSeed} />
+      <FpRow label={t('accounts.fp.row.userAgent')} value={profile.userAgent} />
+      <FpRow label={t('accounts.fp.row.platform')} value={`${profile.platform} ${profile.platformVersion} (${profile.architecture} ${profile.bitness})`} />
+      <FpRow label={t('accounts.fp.row.chrome')} value={`${profile.chromeVersion} (major ${profile.chromeMajor})`} />
+      <FpRow label={t('accounts.fp.row.viewport')} value={`${profile.viewport.width}×${profile.viewport.height} (outer +${profile.outerWidthOffset}/+${profile.outerHeightOffset})`} />
+      <FpRow label={t('accounts.fp.row.hwConcurrency')} value={profile.hardwareConcurrency} />
+      <FpRow label={t('accounts.fp.row.deviceMemory')} value={`${profile.deviceMemory} GB`} />
+      <FpRow label={t('accounts.fp.row.languages')} value={profile.languages.join(', ')} />
+      <FpRow label={t('accounts.fp.row.webgl')} value={`${profile.webglVendor} / ${profile.webglRenderer}`} />
+      <FpRow label={t('accounts.fp.row.colorPixel')} value={`${profile.colorDepth} / ${profile.pixelDepth}`} />
+      <FpRow label={t('accounts.fp.row.canvasSeed')} value={profile.canvasNoiseSeed} />
+      <FpRow label={t('accounts.fp.row.audioSeed')} value={profile.audioNoiseSeed} />
+      <FpRow label={t('accounts.fp.row.webglSeed')} value={profile.webglNoiseSeed} />
     </div>
   )
 }

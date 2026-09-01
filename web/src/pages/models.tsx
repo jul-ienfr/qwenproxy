@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { useTranslation } from '@/i18n'
 
 type VariantFilter = 'all' | 'base' | 'thinking' | 'no-thinking'
 
@@ -25,28 +26,29 @@ function variantOf(id: string): 'base' | 'thinking' | 'no-thinking' {
   return 'base'
 }
 
-const VARIANT_LABEL: Record<Exclude<VariantFilter, 'all'>, string> = {
-  base: 'Base',
-  thinking: 'Thinking',
-  'no-thinking': 'No thinking',
-}
-
-const ABILITY_LABEL: Record<string, string> = {
-  text: 'texto',
-  multimodal: 'multimodal',
-  qwen_code: 'código',
-  qwen_search: 'busca',
-  qwen_artifact: 'artefatos',
-  image_gen: 'imagem',
-  video_gen: 'vídeo',
-  audio_gen: 'áudio',
-}
-
 export function ModelsPage() {
+  const { t, formatNumber } = useTranslation()
   const [data, setData] = useState<{ catalog: CatalogModel[]; used: CatalogModel[] } | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [variant, setVariant] = useState<VariantFilter>('all')
+
+  const VARIANT_LABEL: Record<Exclude<VariantFilter, 'all'>, string> = {
+    base: t('models.variant.base'),
+    thinking: t('models.variant.thinking'),
+    'no-thinking': t('models.variant.noThinking'),
+  }
+
+  const ABILITY_LABEL: Record<string, string> = {
+    text: t('models.cap.text'),
+    multimodal: t('models.cap.multimodal'),
+    qwen_code: t('models.cap.qwen_code'),
+    qwen_search: t('models.cap.qwen_search'),
+    qwen_artifact: t('models.cap.qwen_artifact'),
+    image_gen: t('models.cap.image_gen'),
+    video_gen: t('models.cap.video_gen'),
+    audio_gen: t('models.cap.audio_gen'),
+  }
 
   const load = useCallback(async () => {
     try {
@@ -57,10 +59,10 @@ export function ModelsPage() {
       })
       setLoading(false)
     } catch (err: any) {
-      toast.error(err?.message || 'Falha ao carregar modelos')
+      toast.error(err?.message || t('models.loadFailed'))
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     load()
@@ -129,38 +131,38 @@ export function ModelsPage() {
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Modelos disponíveis</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('models.available')}</CardTitle>
             <Box className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{data?.catalog.length ?? 0}</div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {data?.catalog.length ? `${Math.round(data.catalog.length / 3)} modelos base · com variantes` : 'catálogo indisponível'}
+              {data?.catalog.length ? t('models.baseWithVariants', { count: Math.round(data.catalog.length / 3) }) : t('models.catalogUnavailable')}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Requisições totais</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('models.totalRequests')}</CardTitle>
             <Cpu className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalRequests.toLocaleString('pt-BR')}</div>
+            <div className="text-2xl font-bold">{formatNumber(totalRequests)}</div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {data?.used.length ?? 0} modelo(s) com uso registrado
+              {t('models.modelsWithUsage', { count: data?.used.length ?? 0 })}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Modelo mais usado</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t('models.mostUsed')}</CardTitle>
             <Crown className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="truncate text-lg font-semibold">{topModel?.id || '—'}</div>
             {topModel ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                {topModel.requestCount.toLocaleString('pt-BR')} req
+                {formatNumber(topModel.requestCount)} req
               </p>
             ) : null}
           </CardContent>
@@ -169,9 +171,9 @@ export function ModelsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Modelos mais usados</CardTitle>
+          <CardTitle className="text-base">{t('models.mostUsedList')}</CardTitle>
           <CardDescription>
-            Ranking por número de requisições
+            {t('models.ranking')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -179,7 +181,7 @@ export function ModelsPage() {
             <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
               <Crown className="size-10 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                Ainda não há uso registrado. As primeiras requisições aparecerão aqui.
+                {t('models.noUsage')}
               </p>
             </div>
           ) : (
@@ -201,7 +203,7 @@ export function ModelsPage() {
                     />
                   </div>
                   <span className="w-20 shrink-0 text-right font-mono text-xs">
-                    {m.requestCount.toLocaleString('pt-BR')}
+                    {formatNumber(m.requestCount)}
                   </span>
                 </div>
               ))}
@@ -212,15 +214,15 @@ export function ModelsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Catálogo de modelos</CardTitle>
+          <CardTitle className="text-base">{t('models.catalog')}</CardTitle>
           <CardDescription>
-            {data?.catalog.length ?? 0} modelos disponíveis na conta · base + variantes de raciocínio
+            {t('models.catalogDesc', { count: data?.catalog.length ?? 0 })}
           </CardDescription>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative w-full max-w-xs">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Buscar modelo…"
+                placeholder={t('models.searchPlaceholder')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
@@ -228,13 +230,13 @@ export function ModelsPage() {
             </div>
             <Select value={variant} onValueChange={(v) => setVariant(v as VariantFilter)}>
               <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Variante" />
+                <SelectValue placeholder={t('models.variantPlaceholder')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                <SelectItem value="base">Base</SelectItem>
-                <SelectItem value="thinking">Thinking</SelectItem>
-                <SelectItem value="no-thinking">No thinking</SelectItem>
+                <SelectItem value="all">{t('models.variant.all')}</SelectItem>
+                <SelectItem value="base">{t('models.variant.base')}</SelectItem>
+                <SelectItem value="thinking">{t('models.variant.thinking')}</SelectItem>
+                <SelectItem value="no-thinking">{t('models.variant.noThinking')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -245,18 +247,18 @@ export function ModelsPage() {
               <Box className="mb-4 size-12 text-muted-foreground" />
               <p className="text-lg font-medium text-muted-foreground">
                 {data?.catalog.length === 0
-                  ? 'Catálogo indisponível no momento'
-                  : 'Nenhum modelo corresponde à busca'}
+                  ? t('models.catalogEmpty')
+                  : t('models.noMatch')}
               </p>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Modelo</TableHead>
-                  <TableHead className="hidden md:table-cell">Capacidades</TableHead>
-                  <TableHead className="text-right">Contexto</TableHead>
-                  <TableHead className="text-right">Requisições</TableHead>
+                  <TableHead>{t('models.col.model')}</TableHead>
+                  <TableHead className="hidden md:table-cell">{t('models.col.capabilities')}</TableHead>
+                  <TableHead className="text-right">{t('models.col.context')}</TableHead>
+                  <TableHead className="text-right">{t('models.col.requests')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -270,7 +272,7 @@ export function ModelsPage() {
                             {VARIANT_LABEL[variantOf(m.id)]}
                           </Badge>
                           {m.requestCount > 0 && (
-                            <Badge variant="secondary" className="text-[10px]">em uso</Badge>
+                            <Badge variant="secondary" className="text-[10px]">{t('models.inUse')}</Badge>
                           )}
                         </div>
                         {m.name ? <span className="text-xs text-muted-foreground">{m.name}</span> : null}
@@ -295,7 +297,7 @@ export function ModelsPage() {
                     <TableCell className="text-right">
                       {m.requestCount > 0 ? (
                         <Badge variant="secondary" className="font-mono">
-                          {m.requestCount.toLocaleString('pt-BR')}
+                          {formatNumber(m.requestCount)}
                         </Badge>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>

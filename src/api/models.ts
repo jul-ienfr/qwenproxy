@@ -67,7 +67,7 @@ export async function fetchFullModelCatalog(): Promise<any[]> {
       'sec-ch-ua': '"Chromium";v="137", "Google Chrome";v="137", "Not/A)Brand";v="99"',
       'sec-ch-ua-mobile': '?0',
       'sec-ch-ua-platform': '"Windows"',
-      'Timezone': new Date().toString(),
+      'Timezone': new Date().toString().split(' (')[0],
       'Cookie': cookie,
     },
   })
@@ -126,7 +126,7 @@ app.get('/v1/models', async (c) => {
         'sec-ch-ua': '"Chromium";v="137", "Google Chrome";v="137", "Not/A)Brand";v="99"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
-        'Timezone': new Date().toString(),
+        'Timezone': new Date().toString().split(' (')[0],
         'Cookie': cookie,
       },
     })
@@ -191,7 +191,7 @@ app.get('/v1/models/:model', async (c) => {
           'sec-ch-ua': '"Chromium";v="137", "Google Chrome";v="137", "Not/A)Brand";v="99"',
           'sec-ch-ua-mobile': '?0',
           'sec-ch-ua-platform': '"Windows"',
-          'Timezone': new Date().toString(),
+          'Timezone': new Date().toString().split(' (')[0],
           'Cookie': cookie,
         },
       })

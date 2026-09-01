@@ -668,14 +668,13 @@ export async function chatCompletions(c: Context) {
         completed = await collectResponse(retried.stream, retried.uiSessionId);
       }
 
-      trackUsage(user ? user.id : 'anonymous', inputText, completed.status !== 200);
+      trackUsage(user ? user.id : 'anonymous', inputText, completed.status !== 200, completed.body?.usage?.completion_tokens ?? 0, completed.body?.usage?.prompt_tokens);
       trackModelUsage(modelId);
       releaseUserSlotOnce();
       metrics.histogram('latency.completion', Date.now() - completionStart);
       return c.json(completed.body, completed.status as any);
     }
 
-    trackUsage(user ? user.id : 'anonymous', inputText, false);
     trackModelUsage(modelId);
     metrics.histogram('latency.completion', Date.now() - completionStart);
 
@@ -703,6 +702,9 @@ export async function chatCompletions(c: Context) {
       tools: bodyAny.tools || [],
       finalPrompt,
       streamOptions: body.stream_options,
+      onUsage: (promptTokens, completionTokens) => {
+        trackUsage(user ? user.id : 'anonymous', inputText, false, completionTokens, promptTokens);
+      },
       onComplete: releaseUserSlotOnce,
       ...(guardEnabled ? {
         onDegenerateRetry: async () => {

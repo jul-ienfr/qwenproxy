@@ -53,6 +53,8 @@ export function UsagePage() {
 
   const sortedUsers = data ? [...data.users].sort((a, b) => b.requestCount - a.requestCount) : []
   const totalRequests = sortedUsers.reduce((sum, u) => sum + u.requestCount, 0)
+  const totalInputTokens = sortedUsers.reduce((sum, u) => sum + (u.inputTokens ?? 0), 0)
+  const totalOutputTokens = sortedUsers.reduce((sum, u) => sum + (u.outputTokens ?? 0), 0)
   const totalTokens = sortedUsers.reduce((sum, u) => sum + u.totalTokens, 0)
 
   const modelEntries = data ? Object.entries(data.models).sort((a, b) => b[1] - a[1]) : []
@@ -88,10 +90,12 @@ export function UsagePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-5">
         <Kpi icon={Users} label="Total de Usuários" value={sortedUsers.length.toLocaleString('pt-BR')} />
         <Kpi icon={TrendingUp} label="Total de Requisições" value={totalRequests.toLocaleString('pt-BR')} />
-        <Kpi icon={Clock} label="Tokens Estimados" value={totalTokens.toLocaleString('pt-BR')} />
+        <Kpi icon={Clock} label="Tokens de Entrada" value={totalInputTokens.toLocaleString('pt-BR')} />
+        <Kpi icon={Clock} label="Tokens de Saída" value={totalOutputTokens.toLocaleString('pt-BR')} />
+        <Kpi icon={Clock} label="Tokens Totais" value={totalTokens.toLocaleString('pt-BR')} />
       </div>
 
       <Card>
@@ -106,14 +110,16 @@ export function UsagePage() {
                 <TableHead>Usuário</TableHead>
                 <TableHead className="text-right">Requisições</TableHead>
                 <TableHead className="text-right">Erros</TableHead>
-                <TableHead className="text-right">Tokens Est.</TableHead>
-                <TableHead className="text-right">Último Acesso</TableHead>
+                  <TableHead className="text-right">Tokens In</TableHead>
+                  <TableHead className="text-right">Tokens Out</TableHead>
+                  <TableHead className="text-right">Tokens Total</TableHead>
+                  <TableHead className="text-right">Último Acesso</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedUsers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground">
+                    <TableCell colSpan={7} className="text-muted-foreground">
                     Nenhum usuário encontrado
                   </TableCell>
                 </TableRow>
@@ -141,8 +147,10 @@ export function UsagePage() {
                           <span className="text-muted-foreground">0</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-mono">{u.totalTokens.toLocaleString('pt-BR')}</TableCell>
-                      <TableCell className="text-right text-muted-foreground">{timeAgo(u.lastRequestAt)}</TableCell>
+                    <TableCell className="text-right font-mono">{(u.inputTokens ?? 0).toLocaleString('pt-BR')}</TableCell>
+                    <TableCell className="text-right font-mono">{(u.outputTokens ?? 0).toLocaleString('pt-BR')}</TableCell>
+                    <TableCell className="text-right font-mono">{u.totalTokens.toLocaleString('pt-BR')}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">{timeAgo(u.lastRequestAt)}</TableCell>
                     </TableRow>
                   )
                 })

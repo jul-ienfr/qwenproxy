@@ -1,3 +1,10 @@
+## [1.23.2](https://github.com/pedrofariasx/qwenproxy/compare/v1.23.1...v1.23.2) (2026-09-01)
+
+
+### Bug Fixes
+
+* enable guard hold for requests with attached text files ([a00ec45](https://github.com/pedrofariasx/qwenproxy/commit/a00ec4536cfb44a40c48f5a06c4a01aedfaf4c56))
+
 ## [1.23.1](https://github.com/pedrofariasx/qwenproxy/compare/v1.23.0...v1.23.1) (2026-08-31)
 
 

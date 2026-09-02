@@ -117,6 +117,48 @@ app.notFound((c) => c.json({ error: 'Not found' }, 404))
 export async function startServer(): Promise<void> {
   await cache.connect()
 
+  // Ouvrir le port IMMEDIATEMENT pour que /health et /admin repondent sans
+  // attendre l'init Playwright des 24 comptes (60-90s en sequentiel).
+  watchdog = new Watchdog()
+  watchdog.start()
+  metrics.startCollection()
+  const { startTimeSeriesSampling, stopTimeSeriesSampling } = await import('../core/time-series.js')
+  startTimeSeriesSampling()
+  const { startSessionKeeper } = await import('../services/session-keeper.js')
+  startSessionKeeper()
+
+  server = serve({
+    fetch: app.fetch,
+    port: config.server.port,
+    hostname: config.server.host,
+  }, (info) => {
+    console.log(`Server listening on http://${info.address}:${info.port}`)
+  })
+
+  const shutdown = async (signal: string) => {
+    console.log(`Received ${signal}, shutting down gracefully...`)
+    const { stopSessionKeeper } = await import('../services/session-keeper.js')
+    stopSessionKeeper()
+    watchdog.stop()
+    stopTimeSeriesSampling()
+    metrics.stopCollection()
+    await cache.close()
+    const { closePlaywright } = await import('../services/playwright.js')
+    await closePlaywright()
+    const { closeDatabase } = await import('../core/database.js')
+    closeDatabase()
+    await new Promise<void>(resolve => {
+      if (!server) return resolve()
+      server.close(() => resolve())
+      setTimeout(() => resolve(), 5000).unref()
+    })
+    process.exit(0)
+  }
+
+  process.on('SIGINT', () => shutdown('SIGINT'))
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+
+  // --- Init comptes en arriere-plan (n'empêche pas le serveur d'ecouter) ---
   const { loadAccounts } = await import('../core/accounts.js')
   const accounts = loadAccounts()
 
@@ -186,47 +228,6 @@ export async function startServer(): Promise<void> {
   } else {
     await initPlaywright(config.browser.headless)
   }
-
-  const { startSessionKeeper } = await import('../services/session-keeper.js')
-  startSessionKeeper()
-
-  watchdog = new Watchdog()
-  watchdog.start()
-
-  metrics.startCollection()
-  const { startTimeSeriesSampling, stopTimeSeriesSampling } = await import('../core/time-series.js')
-  startTimeSeriesSampling()
-
-  server = serve({
-    fetch: app.fetch,
-    port: config.server.port,
-    hostname: config.server.host,
-  }, (info) => {
-    console.log(`Server listening on http://${info.address}:${info.port}`)
-  })
-
-  const shutdown = async (signal: string) => {
-    console.log(`Received ${signal}, shutting down gracefully...`)
-    const { stopSessionKeeper } = await import('../services/session-keeper.js')
-    stopSessionKeeper()
-    watchdog.stop()
-    stopTimeSeriesSampling()
-    metrics.stopCollection()
-    await cache.close()
-    const { closePlaywright } = await import('../services/playwright.js')
-    await closePlaywright()
-    const { closeDatabase } = await import('../core/database.js')
-    closeDatabase()
-    await new Promise<void>(resolve => {
-      if (!server) return resolve()
-      server.close(() => resolve())
-      setTimeout(() => resolve(), 5000).unref()
-    })
-    process.exit(0)
-  }
-
-  process.on('SIGINT', () => shutdown('SIGINT'))
-  process.on('SIGTERM', () => shutdown('SIGTERM'))
 }
 
 export { app }

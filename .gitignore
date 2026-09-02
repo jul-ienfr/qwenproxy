@@ -17,6 +17,10 @@ data/
 accounts.json
 accounts.json.bak
 
+# Fichiers d'import de comptes (identifiants en clair - ne jamais commiter)
+accounts*.txt
+accounts*.csv
+
 # Browser profiles (session data)
 qwen_profiles/
 

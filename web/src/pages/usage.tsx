@@ -55,6 +55,8 @@ export function UsagePage() {
 
   const sortedUsers = data ? [...data.users].sort((a, b) => b.requestCount - a.requestCount) : []
   const totalRequests = sortedUsers.reduce((sum, u) => sum + u.requestCount, 0)
+  const totalInputTokens = sortedUsers.reduce((sum, u) => sum + (u.inputTokens ?? 0), 0)
+  const totalOutputTokens = sortedUsers.reduce((sum, u) => sum + (u.outputTokens ?? 0), 0)
   const totalTokens = sortedUsers.reduce((sum, u) => sum + u.totalTokens, 0)
 
   const modelEntries = data ? Object.entries(data.models).sort((a, b) => b[1] - a[1]) : []
@@ -90,10 +92,12 @@ export function UsagePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-5">
         <Kpi icon={Users} label={t('usage.totalUsers')} value={formatNumber(sortedUsers.length)} />
         <Kpi icon={TrendingUp} label={t('usage.totalRequests')} value={formatNumber(totalRequests)} />
-        <Kpi icon={Clock} label={t('usage.estTokens')} value={formatNumber(totalTokens)} />
+        <Kpi icon={Clock} label={t('usage.inputTokens')} value={formatNumber(totalInputTokens)} />
+        <Kpi icon={Clock} label={t('usage.outputTokens')} value={formatNumber(totalOutputTokens)} />
+        <Kpi icon={Clock} label={t('usage.totalTokens')} value={formatNumber(totalTokens)} />
       </div>
 
       <Card>
@@ -108,14 +112,16 @@ export function UsagePage() {
                 <TableHead>{t('usage.col.user')}</TableHead>
                 <TableHead className="text-right">{t('usage.col.requests')}</TableHead>
                 <TableHead className="text-right">{t('usage.col.errors')}</TableHead>
-                <TableHead className="text-right">{t('usage.col.tokens')}</TableHead>
+                <TableHead className="text-right">{t('usage.col.inputTokens')}</TableHead>
+                <TableHead className="text-right">{t('usage.col.outputTokens')}</TableHead>
+                <TableHead className="text-right">{t('usage.col.totalTokens')}</TableHead>
                 <TableHead className="text-right">{t('usage.col.lastAccess')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedUsers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground">
+                  <TableCell colSpan={7} className="text-muted-foreground">
                     {t('usage.noUsers')}
                   </TableCell>
                 </TableRow>
@@ -143,6 +149,8 @@ export function UsagePage() {
                           <span className="text-muted-foreground">0</span>
                         )}
                       </TableCell>
+                      <TableCell className="text-right font-mono">{formatNumber(u.inputTokens ?? 0)}</TableCell>
+                      <TableCell className="text-right font-mono">{formatNumber(u.outputTokens ?? 0)}</TableCell>
                       <TableCell className="text-right font-mono">{formatNumber(u.totalTokens)}</TableCell>
                       <TableCell className="text-right text-muted-foreground">{timeAgo(u.lastRequestAt)}</TableCell>
                     </TableRow>

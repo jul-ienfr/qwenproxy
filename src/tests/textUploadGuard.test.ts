@@ -160,6 +160,16 @@ test('degenerate guard: non-streaming "Yes" is retried once with corrective dire
 test('streaming guard: degenerate "Yes" is regenerated before reaching the client', async () => {
   const capturedPayloads: any[] = [];
 
+  const { setSession } = await import('../services/session-manager.js');
+  setSession('stream-guard-chat', {
+    chatId: 'stream-guard-chat',
+    accountId: 'stream-guard-account',
+    headers: {},
+    parentId: 'resp-prev',
+    historyComplete: true,
+    updatedAt: Date.now(),
+  });
+
   const restore = setupFetchMock((_url, init, callIndex) => {
     if (_url.includes('/api/v2/chat/completions')) {
       capturedPayloads.push(JSON.parse((init as any)?.body as string || '{}'));
@@ -176,6 +186,7 @@ test('streaming guard: degenerate "Yes" is regenerated before reaching the clien
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'qwen3.6-plus',
+        user: 'stream-guard-chat',
         messages: [{ role: 'user', content: 'Explique em detalhes.' }],
         stream: true
       })
@@ -200,6 +211,77 @@ test('streaming guard: degenerate "Yes" is regenerated before reaching the clien
     assert.ok(capturedPayloads[1].messages[0].content.includes('[SYSTEM DIRECTIVE]'));
   } finally {
     restore();
+    delete process.env.TEST_SESSION_ID;
+  }
+});
+
+test('streaming guard: multimodal file upload degenerate "Yes" is regenerated', async () => {
+  const capturedPayloads: any[] = [];
+
+  const originalFetch = globalThis.fetch;
+  let callIndex = 0;
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const urlStr = typeof input === 'string' ? input : ('url' in input ? input.url : String(input));
+    if (urlStr.includes('note.txt')) {
+      return new Response('conteudo do arquivo enviado', {
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+      });
+    }
+    if (urlStr.includes('chat.qwen.ai')) {
+      if (urlStr.includes('/api/models')) {
+        return new Response(JSON.stringify({ data: [{ id: 'qwen3.6-plus', owned_by: 'qwen' }] }), { status: 200 });
+      }
+      if (urlStr.includes('/api/v2/files/getstsToken')) {
+        return new Response(STS_BODY, { status: 200 });
+      }
+      if (urlStr.includes('/api/v2/chat/completions')) {
+        capturedPayloads.push(JSON.parse((init as any)?.body as string || '{}'));
+        return sseAnswer(callIndex++ === 0 ? 'Yes' : 'Resposta completa sobre o documento enviado.');
+      }
+    }
+    return originalFetch(input);
+  };
+
+  try {
+    process.env.TEST_SESSION_ID = 'stream-guard-multimodal';
+
+    const req = new Request('http://localhost/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'qwen3.6-plus',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Resuma o conteúdo do arquivo em detalhes.' },
+            { type: 'file_url', file_url: { url: 'http://example.com/note.txt' } }
+          ]
+        }],
+        stream: true
+      })
+    });
+    const res = await app.fetch(req);
+    assert.strictEqual(res.status, 200);
+    const text = await res.text();
+
+    let fullContent = '';
+    for (const line of text.split('\n')) {
+      if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+      try {
+        const chunk = JSON.parse(line.slice(6));
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (typeof delta === 'string') fullContent += delta;
+      } catch { /* skip */ }
+    }
+
+    assert.ok(fullContent.trim() !== 'Yes', 'the degenerate "Yes" must never reach the client');
+    assert.ok(fullContent.includes('Resposta completa'), 'the regenerated answer must be streamed');
+    assert.strictEqual(capturedPayloads.length, 2, 'a retry must have been triggered');
+    assert.ok(capturedPayloads[1].messages[0].content.includes('[SYSTEM DIRECTIVE]'));
+    assert.ok(capturedPayloads[0].messages[0].content.includes('[File: note.txt]'), 'text document must be inlined');
+  } finally {
+    globalThis.fetch = originalFetch;
     delete process.env.TEST_SESSION_ID;
   }
 });

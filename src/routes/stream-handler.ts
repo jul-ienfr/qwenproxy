@@ -23,6 +23,7 @@ export interface StreamHandlerContext {
   streamOptions?: { include_usage?: boolean };
   /** Called exactly once when the response stream has fully finished. */
   onComplete?: () => void;
+  onUsage?: (promptTokens: number, completionTokens: number) => void;
   /**
    * Enables the streaming degenerate-answer guard: all emitted chunks are held
    * back until either the buffer grows past a threshold or the upstream ends.
@@ -52,6 +53,8 @@ export function handleStreamingResponse(c: Context, ctx: StreamHandlerContext): 
 
   return honoStream(c, async (streamWriter: any) => {
     let heartbeatInterval: any;
+    let completionTokens = 0;
+    let promptTokens = 0;
     // Micro-buffer: coalesce many tiny SSE writes into fewer socket writes to cut
     // syscall overhead on long responses. Ordering is preserved because EVERY write
     // (content, reasoning, events, [DONE]) goes through this single buffer.
@@ -221,8 +224,8 @@ export function handleStreamingResponse(c: Context, ctx: StreamHandlerContext): 
       let bufferChunks: string[] = [];
       let bufferLen = 0;
       let lineStart = 0;
-      let completionTokens = 0;
-      let promptTokens = estimatedPromptTokens;
+      completionTokens = 0;
+      promptTokens = estimatedPromptTokens;
 
       const resetStreamState = () => {
         _reasoningBuffer = '';
@@ -520,6 +523,7 @@ export function handleStreamingResponse(c: Context, ctx: StreamHandlerContext): 
       flushWrites();
       clearInterval(heartbeatInterval);
       removeStream(ctx.completionId);
+      ctx.onUsage?.(promptTokens, completionTokens);
       ctx.onComplete?.();
     }
   });

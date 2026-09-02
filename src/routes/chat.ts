@@ -668,26 +668,30 @@ export async function chatCompletions(c: Context) {
         completed = await collectResponse(retried.stream, retried.uiSessionId);
       }
 
-      trackUsage(user ? user.id : 'anonymous', inputText, completed.status !== 200);
+      trackUsage(user ? user.id : 'anonymous', inputText, completed.status !== 200, completed.body?.usage?.completion_tokens ?? 0, completed.body?.usage?.prompt_tokens);
       trackModelUsage(modelId);
       releaseUserSlotOnce();
       metrics.histogram('latency.completion', Date.now() - completionStart);
       return c.json(completed.body, completed.status as any);
     }
 
-    trackUsage(user ? user.id : 'anonymous', inputText, false);
     trackModelUsage(modelId);
     metrics.histogram('latency.completion', Date.now() - completionStart);
 
     // Degenerate/tool-call retry guards hold up to GUARD_HOLD_BYTES (800) of
     // output before flushing — a real latency cost on every stream. `prone`
     // (default) only enables the guard when a terse reply is actually likely:
-    // economical turns and tool loops. `off` disables it entirely for lowest
+    // economical turns, tool loops, and requests with attached files (text
+    // documents and oversized prompts routed through OSS are the classic
+    // "Yes"-reply triggers). `off` disables it entirely for lowest
     // time-to-first-byte. `always` keeps the historical behavior.
     const guardMode = config.streamDegenerateGuard;
+    const hasUploadContext =
+      pendingMultimodal.length > 0 ||
+      Buffer.byteLength(finalPrompt, 'utf-8') > config.largePromptThreshold;
     const guardEnabled =
       guardMode === 'always' ||
-      (guardMode === 'prone' && (canEconomize || hasToolConversation));
+      (guardMode === 'prone' && (canEconomize || hasToolConversation || hasUploadContext));
 
     return handleStreamingResponse(c, {
       stream: acquired.stream,
@@ -698,6 +702,9 @@ export async function chatCompletions(c: Context) {
       tools: bodyAny.tools || [],
       finalPrompt,
       streamOptions: body.stream_options,
+      onUsage: (promptTokens, completionTokens) => {
+        trackUsage(user ? user.id : 'anonymous', inputText, false, completionTokens, promptTokens);
+      },
       onComplete: releaseUserSlotOnce,
       ...(guardEnabled ? {
         onDegenerateRetry: async () => {

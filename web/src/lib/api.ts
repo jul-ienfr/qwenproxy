@@ -192,6 +192,8 @@ export interface UsageUser {
   email: string
   requestCount: number
   errorCount: number
+  inputTokens: number
+  outputTokens: number
   totalTokens: number
   lastRequestAt: number
 }

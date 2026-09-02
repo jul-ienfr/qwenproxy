@@ -3,6 +3,8 @@ import { countTokens } from './tokenizer.js'
 interface UserUsage {
   requestCount: number;
   errorCount: number;
+  inputTokens: number;
+  outputTokens: number;
   totalTokens: number;
   lastRequestAt: number;
 }
@@ -10,20 +12,24 @@ interface UserUsage {
 const userUsageMap = new Map<string, UserUsage>();
 const modelUsageMap = new Map<string, number>();
 
-export function trackUsage(userId: string, inputText: string, isError: boolean): void {
-  const estimatedTokens = countTokens(inputText);
+export function trackUsage(userId: string, inputText: string, isError: boolean, outputTokens = 0, inputTokens?: number): void {
+  const resolvedInput = inputTokens ?? countTokens(inputText);
   const existing = userUsageMap.get(userId);
 
   if (existing) {
     existing.requestCount += 1;
     existing.errorCount += isError ? 1 : 0;
-    existing.totalTokens += estimatedTokens;
+    existing.inputTokens += resolvedInput;
+    existing.outputTokens += outputTokens;
+    existing.totalTokens += resolvedInput + outputTokens;
     existing.lastRequestAt = Date.now();
   } else {
     userUsageMap.set(userId, {
       requestCount: 1,
       errorCount: isError ? 1 : 0,
-      totalTokens: estimatedTokens,
+      inputTokens: resolvedInput,
+      outputTokens,
+      totalTokens: resolvedInput + outputTokens,
       lastRequestAt: Date.now(),
     });
   }

@@ -1253,6 +1253,9 @@ export class AccountsView implements TuiView {
             : theme.muted("(direct / PROXY_URL)")
         }`,
       );
+      rightContent.push(
+        `  ${theme.dim("Edit: npm run proxy set <email> <url>")}`,
+      );
       if (selected.onCooldown && selected.cooldownReason) {
         const maxReasonW = Math.max(16, rightW - 14);
         const cdReason = formatCooldownReason(selected.cooldownReason, maxReasonW);

@@ -41,7 +41,7 @@
 - [x] T013 Add `src/cli/proxy.ts` with `list`, `set`, `clear`, `test`.
 - [x] T014 Add `"proxy": "tsx src/cli/proxy.ts"` to `package.json`.
 - [x] T015 Display the masked proxy in the TUI account inspection panel.
-- [ ] T016 Add a TUI hint or shortcut that points to `npm run proxy` for edits
+- [x] T016 Add a TUI hint or shortcut that points to `npm run proxy` for edits
   (full TUI editing is a follow-up; the CLI is the first management surface).
 - [x] T017 Document proxy operations in `README.md`.
 

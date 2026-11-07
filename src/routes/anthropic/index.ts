@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { Hono, type Context } from "hono";
 import { stream as honoStream } from "hono/streaming";
 import { config } from "../../core/config.ts";
+import { getUserIdentity } from "../../core/request-user.ts";
 import { validateAnthropicRequest } from "./validation.ts";
 import {
   translateAnthropicToOpenAI,
@@ -36,33 +37,13 @@ export function anthropicError(
   );
 }
 
-function constantTimeStringEqual(provided: string, expected: string): boolean {
-  const providedBuf = Buffer.from(provided);
-  const expectedBuf = Buffer.from(expected);
-  const providedHash = crypto.createHash("sha256").update(providedBuf).digest();
-  const expectedHash = crypto.createHash("sha256").update(expectedBuf).digest();
-
-  return (
-    crypto.timingSafeEqual(providedHash, expectedHash) &&
-    providedBuf.length === expectedBuf.length
-  );
-}
-
+/**
+ * Authentication is resolved once by the /v1 middleware in server.ts, which
+ * accepts the legacy API_KEY plus per-user database keys. This route-level
+ * helper only asserts that an identity was attached.
+ */
 export function verifyAnthropicApiKey(c: Context): boolean {
-  const apiKey = process.env.API_KEY || config.apiKey;
-  if (!apiKey) return true; // No key configured = open access
-
-  const candidates: string[] = [];
-  const auth = c.req.header("Authorization");
-  if (auth?.startsWith("Bearer ")) {
-    const token = auth.slice(7).trim();
-    if (token) candidates.push(token);
-  }
-  const xApiKey = c.req.header("x-api-key")?.trim();
-  if (xApiKey) candidates.push(xApiKey);
-
-  if (candidates.length === 0) return false;
-  return candidates.some((key) => constantTimeStringEqual(key, apiKey));
+  return Boolean(getUserIdentity(c));
 }
 
 /**

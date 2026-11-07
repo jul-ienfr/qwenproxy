@@ -23,6 +23,7 @@
     "tui": "npx tsx src/tui/index.ts",
     "login": "npx tsx src/login.ts",
     "proxy": "tsx src/cli/proxy.ts",
+    "users": "tsx src/cli/users.ts",
     "sync": "npx tsx src/sync-clients.ts",
     "sync:list": "npx tsx src/sync-clients.ts list",
     "sync:restore": "npx tsx src/sync-clients.ts restore",

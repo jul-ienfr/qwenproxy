@@ -29,6 +29,18 @@ import {
   isLoopbackHost,
   isPlaceholderApiKey,
 } from "../core/local-auth.ts";
+import {
+  findUserByKeyIncludingRevoked,
+  looksLikeProxyApiKey,
+  seedEnvUsers,
+  type UserIdentity,
+} from "../core/users.ts";
+import {
+  checkUserRequest,
+  quotaErrorResponse,
+} from "../core/user-quota.ts";
+import { setUserIdentity } from "../core/request-user.ts";
+import { adminUsersApp } from "./admin-users.ts";
 
 import {
   hookServerConsoleForLogging,
@@ -221,42 +233,33 @@ function extractProvidedApiKeys(c: Context): string[] {
   return keys;
 }
 
-function verifyApiKey(c: Context): Response | null {
-  const apiKey = (process.env.API_KEY || config.apiKey || "").trim();
-  if (isLoopbackHost(config.server.host) && isPlaceholderApiKey(apiKey)) {
-    return null;
-  }
-  if (!apiKey) return null;
+const LOCAL_ADMIN_IDENTITY: UserIdentity = {
+  id: "local-admin",
+  label: "Local operator",
+  role: "admin",
+  rateLimitRpm: 0,
+  maxConcurrency: 0,
+  legacy: true,
+};
 
-  const candidates = extractProvidedApiKeys(c);
+const GLOBAL_ADMIN_IDENTITY: UserIdentity = {
+  id: "global-admin",
+  label: "API_KEY operator",
+  role: "admin",
+  rateLimitRpm: 0,
+  maxConcurrency: 0,
+  legacy: true,
+};
+
+type AuthResult =
+  | { identity: UserIdentity; error?: undefined }
+  | { identity?: undefined; error: Response };
+
+function authErrorResponse(c: Context, message: string): Response {
   const isAnthropic =
     c.req.path.startsWith("/v1/messages") ||
-    !!c.req.header("anthropic-version");
+    Boolean(c.req.header("anthropic-version"));
 
-  if (candidates.length === 0) {
-    if (isAnthropic) {
-      c.header("anthropic-version", c.req.header("anthropic-version") || "2023-06-01");
-      return c.json(
-        {
-          type: "error",
-          error: {
-            type: "authentication_error",
-            message: "Missing or invalid credentials (Authorization Bearer or x-api-key)",
-          },
-        },
-        401,
-      );
-    }
-    return sendOpenAIError(
-      c,
-      new AuthError(
-        "Missing or invalid credentials (Authorization Bearer or x-api-key)",
-      ),
-    );
-  }
-  if (candidates.some((token) => constantTimeStringEqual(token, apiKey))) {
-    return null;
-  }
   if (isAnthropic) {
     c.header("anthropic-version", c.req.header("anthropic-version") || "2023-06-01");
     return c.json(
@@ -264,22 +267,100 @@ function verifyApiKey(c: Context): Response | null {
         type: "error",
         error: {
           type: "authentication_error",
-          message: "Invalid API key",
+          message,
         },
       },
       401,
     );
   }
-  return sendOpenAIError(c, new AuthError("Invalid API key"));
+  return sendOpenAIError(c, new AuthError(message));
 }
+
+/**
+ * Resolve the request identity from the legacy global API_KEY, a per-user
+ * SQLite key, or the historical loopback no-auth behavior. Quota enforcement
+ * happens after authentication, in the /v1 middleware.
+ */
+function authenticateRequest(c: Context): AuthResult {
+  const apiKey = getRuntimeApiKey() || config.apiKey;
+  const apiKeyConfigured = !isPlaceholderApiKey(apiKey);
+  const candidates = extractProvidedApiKeys(c);
+
+  if (
+    apiKeyConfigured &&
+    candidates.some((token) => constantTimeStringEqual(token, apiKey))
+  ) {
+    return { identity: GLOBAL_ADMIN_IDENTITY };
+  }
+
+  // A valid per-user key resolves to that user, even when the legacy API_KEY
+  // is absent and loopback would otherwise grant local-admin access.
+  for (const token of candidates) {
+    const user = findUserByKeyIncludingRevoked(token);
+    if (!user) continue;
+    if (user.revoked_at) {
+      return { error: authErrorResponse(c, "API key revoked") };
+    }
+    return {
+      identity: {
+        id: user.id,
+        label: user.label,
+        role: user.role,
+        rateLimitRpm: user.rate_limit_rpm,
+        maxConcurrency: user.max_concurrency,
+        legacy: false,
+      },
+    };
+  }
+
+  // Preserve the historical loopback behavior: with no configured API_KEY the
+  // local operator is trusted and unrelated stray credentials are ignored.
+  // Keys minted by this proxy are never ignored: a rotated-out key must not
+  // fall back to local-admin trust.
+  if (!apiKeyConfigured) {
+    if (candidates.some(looksLikeProxyApiKey)) {
+      return { error: authErrorResponse(c, "Invalid API key") };
+    }
+    return { identity: LOCAL_ADMIN_IDENTITY };
+  }
+
+  return {
+    error: authErrorResponse(
+      c,
+      candidates.length > 0
+        ? "Invalid API key"
+        : "Missing or invalid credentials (Authorization Bearer or x-api-key)",
+    ),
+  };
+}
+
 app.use("/v1/*", async (c, next) => {
-  const error = verifyApiKey(c);
-  if (error) return error;
+  const auth = authenticateRequest(c);
+  if (auth.error) return auth.error;
+  setUserIdentity(c, auth.identity);
+
+  const decision = checkUserRequest(auth.identity);
+  if (!decision.allowed) {
+    return quotaErrorResponse(
+      c,
+      decision.retryAfterSec ?? 1,
+      decision.reason ?? "rpm",
+    );
+  }
+
+  await next();
+});
+
+app.use("/admin/*", async (c, next) => {
+  const auth = authenticateRequest(c);
+  if (auth.error) return auth.error;
+  setUserIdentity(c, auth.identity);
   await next();
 });
 
 // Routes
 app.route("", modelsApp);
+app.route("/admin", adminUsersApp);
 app.post("/v1/chat/completions", chatCompletions);
 app.post("/v1/chat/completions/stop", chatCompletionsStop);
 app.post("/v1/completions", completionsLegacy);
@@ -288,13 +369,9 @@ app.post("/v1/images/generations", imagesGenerations);
 app.post("/v1/videos/generations", videosGenerations);
 app.get("/v1/tasks/status/:taskId", videoTaskStatus);
 app.get("/v1/chat/mode", (c) => {
-  const error = verifyApiKey(c);
-  if (error) return error;
   return c.json({ mode: getRuntimeChatMode() });
 });
 app.post("/v1/chat/mode", async (c) => {
-  const error = verifyApiKey(c);
-  if (error) return error;
   const body = (await c.req.json().catch(() => ({}))) as { mode?: string };
   if (!body.mode) {
     return c.json({ error: { message: "Field 'mode' is required" } }, 400);
@@ -329,7 +406,7 @@ app.get("/health", async (c) => {
     timestamp: Date.now(),
   };
   const apiKeyConfigured = Boolean(getRuntimeApiKey() || config.apiKey);
-  const authError = verifyApiKey(c);
+  const authError = authenticateRequest(c).error;
   if (apiKeyConfigured && authError) {
     return c.json(publicBody);
   }
@@ -377,8 +454,8 @@ app.get("/health", async (c) => {
 
 // Token TTL diagnostics: inspect real cookie/header lifetimes
 app.get("/diagnostics/tokens", async (c) => {
-  const error = verifyApiKey(c);
-  if (error) return error;
+  const auth = authenticateRequest(c);
+  if (auth.error) return auth.error;
 
   const { getTokenDiagnostics } = await import("../services/playwright.ts");
   const accountId = c.req.query("accountId");
@@ -397,22 +474,22 @@ app.get("/diagnostics/tokens", async (c) => {
 });
 
 app.get("/metrics", (c) => {
-  const error = verifyApiKey(c);
-  if (error) return error;
+  const auth = authenticateRequest(c);
+  if (auth.error) return auth.error;
   return c.text(metrics.formatPrometheus(), {
     headers: { "Content-Type": "text/plain; version=0.0.4" },
   });
 });
 
 app.get("/logs", (c) => {
-  const error = verifyApiKey(c);
-  if (error) return error;
+  const auth = authenticateRequest(c);
+  if (auth.error) return auth.error;
   return c.json(getServerLogHistory());
 });
 
 app.get("/logs/live", (c) => {
-  const error = verifyApiKey(c);
-  if (error) return error;
+  const auth = authenticateRequest(c);
+  if (auth.error) return auth.error;
   const encoder = new TextEncoder();
   return c.body(
     new ReadableStream({
@@ -784,6 +861,9 @@ export async function startServer(options?: {
     const { loadAccounts, getAccountCredentials } =
       await import("../core/accounts.ts");
     const accounts = loadAccounts();
+
+    // Materialize USER_API_KEYS bootstrap entries before accepting traffic.
+    seedEnvUsers();
 
     if (accounts.length === 0 && !isAuthMockEnabled()) {
       throw new Error(

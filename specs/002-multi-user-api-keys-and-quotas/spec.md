@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Implemented (live-verified)
 
 **Input**: Gap analysis vs `pedrofariasx/qwenproxy`: per-user API keys with RPM
 and concurrency ceilings, an admin key and normal keys, plus SQLite-backed

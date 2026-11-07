@@ -230,6 +230,70 @@ For Docker/CI, the optional `QWEN_ACCOUNT_PROXIES` environment variable accepts
 
 ---
 
+## 🔑 Multi-User API Keys & Quotas
+
+QwenProxy can issue per-consumer API keys with independent RPM and concurrent
+stream limits. Keys are stored as SHA-256 hashes in SQLite; the plaintext key is
+shown exactly once at creation or rotation.
+
+```bash
+# Create a user (unlimited by default)
+npm run users create alice
+
+# Rate limit: 60 requests/minute, max 2 concurrent streams
+npm run users create alice --rpm 60 --concurrency 2
+
+# Inspect, rotate, revoke
+npm run users list
+npm run users limits alice 120 4
+npm run users rotate alice
+npm run users revoke alice
+```
+
+Use the key exactly like the legacy global API key:
+
+```bash
+curl http://127.0.0.1:7936/v1/chat/completions \
+  -H "Authorization: Bearer sk-qpx-..." \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3.8-max","messages":[{"role":"user","content":"hello"}]}'
+```
+
+**Quota behavior**
+
+- `--rpm` uses a sliding 60-second window; `0` means unlimited.
+- `--concurrency` limits active streams per key; `0` means unlimited.
+- Exceeding either limit returns HTTP `429` with `Retry-After` **before** any
+  Qwen account or browser work starts.
+- Stream slots are released on completion, error or client cancellation.
+- A revoked or rotated-out `sk-qpx-...` key is rejected with `401`.
+
+**Roles and backward compatibility**
+
+- Legacy `API_KEY` remains a global admin and bypasses quotas.
+- With no `API_KEY` configured on a loopback bind, local requests remain
+  unauthenticated and act as a local admin (historical behavior).
+- A valid user key always resolves to that user, even on loopback.
+- Revoked keys never fall back to local-admin trust.
+- `admin` role keys can manage users through the admin API; `user` role keys
+  receive `403` on management routes.
+
+**Admin API** (same auth headers, admin role required):
+
+| Endpoint | Method | Description |
+| :--- | :---: | :--- |
+| `/admin/api/users` | GET | List users, limits and active stream counts |
+| `/admin/api/users` | POST | Create a user and return its key once |
+| `/admin/api/users/:id` | PATCH | Update `rpm` / `concurrency` |
+| `/admin/api/users/:id/rotate` | POST | Rotate and return the new key once |
+| `/admin/api/users/:id` | DELETE | Revoke (row kept for audit) |
+
+For Docker/CI bootstrap, `USER_API_KEYS` accepts comma-separated
+`key:label[:rpm[:concurrency]]` entries. `USER_RATE_LIMIT_RPM` and
+`USER_MAX_CONCURRENCY` set defaults for CLI/API-created users.
+
+---
+
 ## 💡 Production Tips & Best Practices
 
 1. **Use `thread-temp` for Agentic Coding Work:**  
@@ -314,6 +378,11 @@ Standard OpenAI `reasoning_effort` values (`low`, `medium`, `high`) are supporte
 | `qpx clean` | Prune transient Chromium profile caches (~4.5MB per account) |
 | `qpx clean:all` | Reclaim disk space from obsolete browser downloads (~4GB) |
 | `qpx reset` | Reset rate-limit and error cooldowns in database |
+| `npm run users list` | List API-key users, roles and quotas |
+| `npm run users create <label> [--rpm N] [--concurrency N] [--admin]` | Create a user and print its key once |
+| `npm run users limits <id\|label> <rpm> <concurrency>` | Update per-user quotas |
+| `npm run users rotate <id\|label>` | Rotate a user key and print the new one once |
+| `npm run users revoke <id\|label>` | Revoke a user key |
 | `qpx login` | Authenticate new accounts via visible browser |
 | `qpx purge` | Delete remote chat history across configured accounts |
 | `qpx update` | Automatically update QwenProxy to the latest version |

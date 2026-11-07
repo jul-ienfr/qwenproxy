@@ -206,6 +206,9 @@ const envSchema = z
     RATE_LIMIT_REQUESTS: z.string().default("5000"),
     RATE_LIMIT_TOKENS: z.string().default("200000"),
     PROXY_URL: z.string().default(""),
+    USER_API_KEYS: z.string().default(""),
+    USER_RATE_LIMIT_RPM: z.string().default("0"),
+    USER_MAX_CONCURRENCY: z.string().default("0"),
   })
 ;
 
@@ -224,6 +227,15 @@ export const config = {
   proxy: {
     /** Global outbound proxy fallback; per-account proxy wins when set. */
     url: env.PROXY_URL.trim(),
+  },
+  users: {
+    /** Optional env bootstrap: key:label[:rpm[:concurrency]], comma-separated. */
+    apiKeys: env.USER_API_KEYS.trim(),
+    defaultRpm: Math.max(0, parseInt(env.USER_RATE_LIMIT_RPM) || 0),
+    defaultConcurrency: Math.max(
+      0,
+      parseInt(env.USER_MAX_CONCURRENCY) || 0,
+    ),
   },
   logging: {
     chatRequests: env.CHAT_REQUEST_LOG === "true",

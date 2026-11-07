@@ -35,6 +35,13 @@ import {
 } from "./retry-policy.ts";
 import { classifyMediaModel } from "../../services/media-generation.ts";
 import { handleMediaChatCompletion } from "./media.ts";
+import { getUserIdentity } from "../../core/request-user.ts";
+import {
+  acquireUserStream,
+  quotaErrorResponse,
+  recordUserError,
+  withUserStreamSlot,
+} from "../../core/user-quota.ts";
 
 
 
@@ -68,7 +75,44 @@ function resolveChatMode(headerValue: string | undefined): ChatMode {
   return config.qwen.chatMode;
 }
 
+/**
+ * Enforce the per-user concurrent-stream limit around the whole chat pipeline.
+ *
+ * The RPM check runs earlier in the /v1 auth middleware. A slot is acquired
+ * before any parse/account/browser work so a saturated user never consumes an
+ * upstream account, then released when the response body completes, errors or
+ * is cancelled.
+ */
 export async function chatCompletions(c: Context) {
+  const identity = getUserIdentity(c);
+  const releaseStream = acquireUserStream(identity);
+  if (!releaseStream) {
+    return quotaErrorResponse(c, 1, "concurrency");
+  }
+
+  let response: Response;
+  try {
+    response = await handleChatCompletions(c);
+  } catch (error) {
+    releaseStream();
+    recordUserError(identity);
+    throw error;
+  }
+
+  if (response.status >= 500) {
+    recordUserError(identity);
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  if (response.body && contentType.includes("text/event-stream")) {
+    return withUserStreamSlot(response, releaseStream);
+  }
+
+  releaseStream();
+  return response;
+}
+
+async function handleChatCompletions(c: Context) {
   let releaseChatLock: (() => void) | null = null;
   const startedAt = Date.now();
   const timings: Record<string, number> = {};

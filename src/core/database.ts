@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import crypto from "node:crypto";
 import path from "path";
 import fs from "fs";
 import { encrypt, isEncrypted } from "./crypto-utils.ts";
@@ -118,7 +119,111 @@ export function getDatabase(): Database.Database {
   return db;
 }
 
-function runMigrations(db: Database.Database): void {
+function sqliteTableExists(db: Database.Database, name: string): boolean {
+  return Boolean(
+    db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(name),
+  );
+}
+
+function sqliteTableColumns(
+  db: Database.Database,
+  name: string,
+): Set<string> {
+  const rows = db
+    .prepare(`PRAGMA table_info("${name}")`)
+    .all() as Array<{ name: string }>;
+  return new Set(rows.map((row) => row.name));
+}
+
+/**
+ * The upstream/legacy schema used `users(email, api_key, ...)` with plaintext
+ * keys. Preserve it under a versioned name and migrate its rows into the hashed
+ * schema so existing client keys keep working.
+ */
+function prepareLegacyUsersTable(db: Database.Database): string | null {
+  if (!sqliteTableExists(db, "users")) return null;
+  const columns = sqliteTableColumns(db, "users");
+  const isHashedSchema =
+    columns.has("label") &&
+    columns.has("api_key_hash") &&
+    columns.has("api_key_prefix") &&
+    columns.has("role");
+
+  if (isHashedSchema) {
+    // A previous run may have renamed the legacy table and crashed before the
+    // row copy finished. Finish that migration before creating indexes.
+    return sqliteTableExists(db, "users_legacy_v1")
+      ? "users_legacy_v1"
+      : null;
+  }
+
+  let legacyName = "users_legacy_v1";
+  if (sqliteTableExists(db, legacyName)) {
+    legacyName = `users_legacy_v1_${Date.now()}`;
+  }
+  db.exec(`ALTER TABLE "users" RENAME TO "${legacyName}"`);
+  return legacyName;
+}
+
+function migrateLegacyUsersRows(
+  db: Database.Database,
+  legacyName: string,
+): void {
+  const rows = db
+    .prepare(`SELECT * FROM "${legacyName}"`)
+    .all() as Array<Record<string, unknown>>;
+  if (rows.length === 0) return;
+
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO users (
+      id, label, api_key_hash, api_key_prefix, role,
+      rate_limit_rpm, max_concurrency, created_at, updated_at, revoked_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+  `);
+
+  const migrate = db.transaction(() => {
+    for (const row of rows) {
+      const apiKey = String(row.api_key ?? "").trim();
+      if (!apiKey) continue;
+      const label = String(row.email ?? row.label ?? row.id ?? "").trim();
+      if (!label) continue;
+      const id =
+        typeof row.id === "string" && row.id.trim()
+          ? row.id.trim()
+          : crypto.randomUUID();
+      const role = row.role === "admin" ? "admin" : "user";
+      const rpm = Number(row.rate_limit_rpm) || 0;
+      const concurrency = Number(row.max_concurrency) || 0;
+      const createdAt =
+        typeof row.created_at === "string" && row.created_at
+          ? row.created_at
+          : new Date().toISOString();
+      const updatedAt =
+        typeof row.updated_at === "string" && row.updated_at
+          ? row.updated_at
+          : createdAt;
+      insert.run(
+        id,
+        label,
+        crypto.createHash("sha256").update(apiKey, "utf8").digest("hex"),
+        apiKey.slice(0, 12),
+        role,
+        Math.max(0, Math.trunc(rpm)),
+        Math.max(0, Math.trunc(concurrency)),
+        createdAt,
+        updatedAt,
+      );
+    }
+  });
+
+  migrate();
+}
+
+export function runMigrations(db: Database.Database): void {
+  const legacyUsersTable = prepareLegacyUsersTable(db);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY,
@@ -129,6 +234,22 @@ function runMigrations(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_accounts_email ON accounts(email);
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL UNIQUE,
+      api_key_hash TEXT NOT NULL UNIQUE,
+      api_key_prefix TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user',
+      rate_limit_rpm INTEGER NOT NULL DEFAULT 0,
+      max_concurrency INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      revoked_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_users_key_hash ON users(api_key_hash);
+    CREATE INDEX IF NOT EXISTS idx_users_label ON users(label);
 
     -- Cooldown persistence columns (ignore if already exist)
     -- Note: SQLite doesn't support IF NOT EXISTS for ALTER TABLE ADD COLUMN,
@@ -185,6 +306,20 @@ function runMigrations(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON account_daily_usage(date_utc);
   `);
+
+  if (legacyUsersTable) {
+    migrateLegacyUsersRows(db, legacyUsersTable);
+    let migratedName = `${legacyUsersTable}_migrated`;
+    if (sqliteTableExists(db, migratedName)) {
+      migratedName = `${migratedName}_${Date.now()}`;
+    }
+    db.exec(
+      `ALTER TABLE "${legacyUsersTable}" RENAME TO "${migratedName}"`,
+    );
+    console.log(
+      `🔄 [Database] Migrated legacy users table ${legacyUsersTable} -> ${migratedName}`,
+    );
+  }
 
   try {
     db.exec(`ALTER TABLE account_daily_usage ADD COLUMN weighted_tokens REAL DEFAULT 0;`);

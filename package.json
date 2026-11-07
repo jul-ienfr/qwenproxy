@@ -13,7 +13,8 @@
     "!src/tests",
     "!src/benchmarks",
     "README*.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "build": "esbuild src/index.ts src/sync-clients.ts src/clean-cache.ts src/reset-cooldowns.ts src/delete-chats.ts src/login.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outdir=dist",
@@ -50,15 +51,19 @@
     "playwright",
     "llm"
   ],
-  "homepage": "https://github.com/johngbl/qwenproxy#readme",
+  "homepage": "https://github.com/jul-ienfr/qwenproxy#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/johngbl/qwenproxy.git"
+    "url": "git+https://github.com/jul-ienfr/qwenproxy.git"
   },
   "bugs": {
-    "url": "https://github.com/johngbl/qwenproxy/issues"
+    "url": "https://github.com/jul-ienfr/qwenproxy/issues"
   },
   "author": "johngbl",
+  "contributors": [
+    "Pedro Farias",
+    "johngbl"
+  ],
   "license": "ISC",
   "dependencies": {
     "@hono/node-server": "^2.1.1",

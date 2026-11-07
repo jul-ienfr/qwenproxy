@@ -10,7 +10,23 @@
 
 High-performance OpenAI- and Anthropic-compatible API gateway that bridges modern AI coding agents and clients (Claude Code CLI, OpenAI Codex, OpenCode, Cursor, OMP, Zed, Grok) to **Qwen (`chat.qwen.ai`)** with multi-account rotation, intelligent failover, robust tool calling, thread-native delta execution, image & video generation, **full OpenAI Responses API with persistent memory**, and durable sessions. Powered by stealth headless Chromium, transient retry ladders, public base/`-fast`/`-thinking` variants, compressed caching, dynamic model capability registry, and full observability.
 
-[![CI](https://github.com/johngbl/QwenProxy/actions/workflows/ci.yml/badge.svg)](https://github.com/johngbl/QwenProxy/actions/workflows/ci.yml)
+---
+
+> **Fork notice / Avis de fork**
+>
+> This repository is a personal fork of **[johngbl/qwenproxy](https://github.com/johngbl/qwenproxy)**, which is itself derived from **[pedrofariasx/qwenproxy](https://github.com/pedrofariasx/qwenproxy)**, originally created by **Pedro Farias**.
+>
+> - Original project: [pedrofariasx/qwenproxy](https://github.com/pedrofariasx/qwenproxy) - ISC License
+> - Upstream fork: [johngbl/qwenproxy](https://github.com/johngbl/qwenproxy) - ISC License
+> - This fork: [jul-ienfr/qwenproxy](https://github.com/jul-ienfr/qwenproxy)
+>
+> All credit for the original architecture, protocol work and code belongs to **Pedro Farias** and **johngbl**. This fork only adds local packaging, configuration and deployment changes; it does not claim authorship of the upstream code.
+>
+> Ce dépôt est un fork personnel de **[johngbl/qwenproxy](https://github.com/johngbl/qwenproxy)**, lui-même dérivé de **[pedrofariasx/qwenproxy](https://github.com/pedrofariasx/qwenproxy)**, créé par **Pedro Farias**. Tout le crédit du code et de l'architecture revient à Pedro Farias et johngbl.
+
+---
+
+[![CI](https://github.com/jul-ienfr/qwenproxy/actions/workflows/ci.yml/badge.svg)](https://github.com/jul-ienfr/qwenproxy/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/qwenproxy-cli.svg)](https://www.npmjs.com/package/qwenproxy-cli)
 [![TypeScript](https://img.shields.io/badge/TypeScript-7.0-blue)](https://www.typescriptlang.org/)
 [![Hono](https://img.shields.io/badge/Hono-4.13-green)](https://hono.dev/)
@@ -26,6 +42,8 @@ If **QwenProxy** is helping you or your team and you would like to support conti
 <a href="https://github.com/sponsors/johngbl" target="_blank"><img src="https://img.shields.io/badge/Sponsor%20on%20GitHub-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors"></a> <a href="https://ko-fi.com/johngbl" target="_blank"><img src="https://img.shields.io/badge/Donate%20via%20Ko--fi-ff5e5b?style=for-the-badge&logo=kofi&logoColor=white" alt="Ko-fi"></a>
 
 Every contribution helps cover infrastructure costs, proxy bandwidth, and test accounts!
+
+> **Note for this fork:** these donation links support the upstream maintainer, **johngbl**. This fork does not collect donations.
 
 ---
 
@@ -313,3 +331,5 @@ services:
 - **User Responsibility:** The user assumes full responsibility for account rate limits, security challenges, and content generated.
 
 Developed and maintained by **johngbl**, built on open-source foundations originally authored by **Pedro Farias** under the [ISC License](LICENSE).
+
+This repository is the **jul-ienfr** fork. Upstream: [johngbl/qwenproxy](https://github.com/johngbl/qwenproxy). Original: [pedrofariasx/qwenproxy](https://github.com/pedrofariasx/qwenproxy).

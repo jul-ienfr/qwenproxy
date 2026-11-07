@@ -1,0 +1,28 @@
+QwenProxy - Fork Notice
+=======================
+
+This repository is a personal fork maintained by jul-ienfr:
+  https://github.com/jul-ienfr/qwenproxy
+
+It is a fork of:
+  https://github.com/johngbl/qwenproxy
+
+Which is itself derived from:
+  https://github.com/pedrofariasx/qwenproxy
+
+Original author:
+  Pedro Farias
+
+Upstream maintainer:
+  johngbl
+
+Fork maintainer:
+  jul-ienfr
+
+License:
+  ISC (see LICENSE)
+
+The original copyright notices are preserved in the LICENSE file. All credit
+for the original architecture, protocol work and code belongs to Pedro Farias
+and johngbl. This fork only adds local packaging, configuration and deployment
+changes and does not claim authorship of the upstream code.

@@ -182,6 +182,9 @@ const envSchema = z
     QWEN_MAP_OPENAI_MODELS: z.string().default("true"),
     QWEN_MAX_PROMPT_BYTES: z.string().default("0"),
     QWEN_MAX_PERSONALIZATION_BYTES: z.string().default("500000"),
+    QWEN_EXTERNALIZE_CONTEXT_ENABLED: z.string().default("true"),
+    QWEN_EXTERNALIZE_CONTEXT_BYTES: z.string().default("90000"),
+    QWEN_EXTERNALIZE_LIVE_PROMPT_BYTES: z.string().default("49152"),
     CONTEXT_METER_ENABLED: z.string().default("true"),
     CONTEXT_METER_WINDOW_TOKENS: z.string().default("0"),
     CONTEXT_METER_REPORT_USAGE: z.string().default("true"),
@@ -393,6 +396,16 @@ export const config = {
     maxPersonalizationBytes: Math.max(
       0,
       parseInt(env.QWEN_MAX_PERSONALIZATION_BYTES),
+    ),
+    externalizeContextEnabled:
+      env.QWEN_EXTERNALIZE_CONTEXT_ENABLED !== "false",
+    externalizeContextBytes: Math.max(
+      0,
+      parseInt(env.QWEN_EXTERNALIZE_CONTEXT_BYTES) || 90000,
+    ),
+    externalizeLivePromptBytes: Math.max(
+      0,
+      parseInt(env.QWEN_EXTERNALIZE_LIVE_PROMPT_BYTES) || 49152,
     ),
     deleteAllChatsOnShutdown: env.DELETE_ALL_CHATS_ON_SHUTDOWN === "true",
     autoCleanChatsOnStartup: env.AUTO_CLEAN_CHATS_ON_STARTUP !== "false",

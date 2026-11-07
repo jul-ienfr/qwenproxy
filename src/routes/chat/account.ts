@@ -78,6 +78,70 @@ import {
 /** How many alternate accounts a single request may try after a WAF challenge. */
 const MAX_ANTI_BOT_ROTATIONS = 1;
 
+function messageText(message: Message | undefined): string {
+  if (!message) return "";
+  const content: unknown = message.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part: any) => (part?.type === "text" ? part.text || "" : ""))
+      .join("\n");
+  }
+  if (content && typeof content === "object") return JSON.stringify(content);
+  return "";
+}
+
+/**
+ * Build the compact inline prompt used when the full agent history was
+ * externalized to a Qwen text attachment. The attachment carries the whole
+ * conversation; the inline part only needs the latest turn plus a pointer so
+ * the model knows where to look.
+ */
+function buildExternalizedInlinePrompt(
+  messages: Message[],
+  maxBytes: number,
+  totalBytes: number,
+): string {
+  const header =
+    `[QwenProxy externalized context]\n` +
+    `The full conversation history (${messages.length} messages, ${totalBytes} bytes) is attached as a text file. ` +
+    `Read that file before answering and continue the task from the latest turn below. ` +
+    `Do not repeat earlier tool calls or prior answers unless the latest turn requires it.\n\n` +
+    `Latest turn:\n`;
+
+  let latest = "";
+  let lastUserIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") {
+      lastUserIndex = i;
+      break;
+    }
+  }
+  if (lastUserIndex >= 0) {
+    latest = `User: ${messageText(messages[lastUserIndex])}\n\n`;
+    for (let i = lastUserIndex + 1; i < messages.length; i++) {
+      const message = messages[i];
+      const role = message?.role === "tool" || message?.role === "function"
+        ? "Tool result"
+        : message?.role === "assistant"
+          ? "Assistant"
+          : "User";
+      const text = messageText(message);
+      if (text) latest += `${role}: ${text}\n\n`;
+    }
+  } else {
+    latest = messageText(messages[messages.length - 1]);
+  }
+
+  const budget = Math.max(0, maxBytes - Buffer.byteLength(header, "utf8"));
+  const latestBytes = Buffer.byteLength(latest, "utf8");
+  if (latestBytes > budget) {
+    const truncated = Buffer.from(latest, "utf8").subarray(0, budget).toString("utf8");
+    return `${header}${truncated}\n\n[The latest turn was truncated inline because it is too large; the complete version is in the attached file.]`;
+  }
+  return `${header}${latest}`;
+}
+
 /**
  * Hard deadline for the whole personalization sync. A normal sync takes ~2s;
  * a stuck account page (closed context / WAF) can otherwise hold each browser
@@ -488,6 +552,9 @@ export async function acquireUpstreamStream(
 	const triedAccountIds = new Set<string>();
 	let lastError: any = null;
 	let antiBotRotations = 0;
+	let externalizedContextFile: QwenFileEntry | null = null;
+	let externalizedForAccountId: string | null = null;
+	let externalizedBytes = 0;
 
 	while (account) {
 		const accountId = account.id;
@@ -593,9 +660,64 @@ export async function acquireUpstreamStream(
 			const mustReplayFullContext =
 				recreatingOnNewAccount || threadMissingParent;
 			const attemptForceNewChat = forceNewChat || mustReplayFullContext;
-			const attemptFinalPrompt = mustReplayFullContext
-				? params.fullPrompt
-				: finalPrompt;
+
+			let attemptFiles = allFiles;
+			let externalizedPromptOverride: string | null = null;
+			const fullPromptBytes = Buffer.byteLength(params.fullPrompt, "utf8");
+			const shouldExternalizeContext =
+				config.qwen.externalizeContextEnabled &&
+				config.qwen.externalizeContextBytes > 0 &&
+				fullPromptBytes > config.qwen.externalizeContextBytes &&
+				(params.toolsCount ?? 0) > 0;
+			if (shouldExternalizeContext) {
+				try {
+					if (
+						externalizedForAccountId !== accountId ||
+						!externalizedContextFile
+					) {
+						const { getBasicHeaders } = await import(
+							"../../services/auth-playwright.ts"
+						);
+						const basic = await getBasicHeaders(accountId);
+						const uploadHeaders = {
+							cookie: basic.cookie,
+							"user-agent": basic.userAgent,
+							"bx-ua": basic.bxUa,
+							"bx-umidtoken": basic.bxUmidtoken,
+							"bx-v": basic.bxV,
+						};
+						const { uploadTextAsQwenFile } = await import("../upload.ts");
+						const filename = `qwenproxy-context-${Date.now()}.txt`;
+						externalizedContextFile = await uploadTextAsQwenFile(
+							filename,
+							params.fullPrompt,
+							uploadHeaders,
+							accountId,
+						);
+						externalizedForAccountId = accountId;
+						externalizedBytes = fullPromptBytes;
+						console.log(
+							`[Chat] Context externalized | account=${accountEmail} | bytes=${fullPromptBytes} | file=${filename}`,
+						);
+					}
+					if (externalizedContextFile) {
+						attemptFiles = [...allFiles, externalizedContextFile];
+						externalizedPromptOverride = buildExternalizedInlinePrompt(
+							params.messages ?? [],
+							config.qwen.externalizeLivePromptBytes,
+							externalizedBytes,
+						);
+					}
+				} catch (externalizeErr) {
+					console.warn(
+						`[Chat] Context externalization failed | account=${accountEmail} | ${externalizeErr instanceof Error ? externalizeErr.message : String(externalizeErr)}`,
+					);
+				}
+			}
+
+			const attemptFinalPrompt =
+				externalizedPromptOverride ??
+				(mustReplayFullContext ? params.fullPrompt : finalPrompt);
 			// The thread owner (or a deployment where no alternate account is
 			// free) must queue on its own slot until generation finishes. A hard
 			// 30s busy timeout here would needlessly 500 the same conversation
@@ -614,7 +736,7 @@ export async function acquireUpstreamStream(
 					model,
 					reasoningMode,
 					shouldResetUpstreamThread,
-					allFiles,
+					allFiles: attemptFiles,
 					sessionId,
 					useThreadNative,
 					updateLogicalThread,
@@ -633,7 +755,7 @@ export async function acquireUpstreamStream(
 					requestPersonalizationInstruction:
 						params.requestPersonalizationInstruction,
 					contextModelId: params.contextModelId,
-					fullPrompt: params.fullPrompt,
+					fullPrompt: externalizedPromptOverride ?? params.fullPrompt,
 					contextMode: mustReplayFullContext
 						? "replay"
 						: params.contextMode,

@@ -539,6 +539,68 @@ async function uploadToOSS(
 }
 
 /**
+ * Upload a UTF-8 text document to Qwen OSS and return the file entry used by
+ * the chat completions payload. This is the transport for large-context
+ * externalization: the full agent history is attached as a file instead of
+ * being inlined into the prompt, avoiding Qwen's ~128 KiB WAF/captcha tripwire.
+ */
+export async function uploadTextAsQwenFile(
+  filename: string,
+  content: string,
+  headers: Record<string, string>,
+  accountId?: string,
+): Promise<QwenFileEntry> {
+  const buffer = Buffer.from(content, "utf8");
+  const size = buffer.length;
+  const typeInfo = detectFileType(filename);
+  const stsData = await getSTSToken(
+    filename,
+    size,
+    typeInfo.qwenFileType,
+    headers,
+    accountId,
+  );
+  const fileUrl = await uploadToOSS(buffer, stsData, filename);
+  const now = Date.now();
+  return {
+    type: typeInfo.showType,
+    file: {
+      created_at: now,
+      data: {},
+      filename,
+      hash: null,
+      id: stsData.file_id,
+      user_id: "proxy-user",
+      meta: {
+        name: filename,
+        size,
+        content_type: typeInfo.mime,
+      },
+      update_at: now,
+      lastModified: now,
+      name: filename,
+      webkitRelativePath: "",
+      size,
+      type: typeInfo.mime,
+    },
+    id: stsData.file_id,
+    url: fileUrl,
+    name: filename,
+    collection_name: "",
+    progress: 100,
+    status: "uploaded",
+    greenNet: "success",
+    size,
+    error: "",
+    itemId: uuidv4(),
+    file_type: typeInfo.mime,
+    showType: typeInfo.showType,
+    file_class: typeInfo.fileClass,
+    uploadTaskId: uuidv4(),
+  };
+}
+
+/**
  * Handle image upload endpoint
  * POST /v1/upload
  */

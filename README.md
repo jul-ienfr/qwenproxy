@@ -59,6 +59,7 @@ Every contribution helps cover infrastructure costs, proxy bandwidth, and test a
 - **Ultra-Light Single Chromium Instance** — 1 shared browser process with hardware WebGL acceleration and isolated `BrowserContext` storage states (~200MB RAM across all accounts, >65% resource reduction).
 - **On-Demand Warmup & Multi-Account Pool** — Boots instantly with the **primary account ready**; standby accounts remain idle and warm up lazily on demand (during failover or rotation).
 - **Clean Personalization Synchronization** — System prompts and tools ride account personalization (`/settings/personalization`), mirroring the official web client and avoiding WAF bot triggers.
+- **Large-Context Externalization** — When the full agent history exceeds `QWEN_EXTERNALIZE_CONTEXT_BYTES` (default 90 KB) and the request carries tools, the history is uploaded as a Qwen text attachment and only the latest turn stays inline. This avoids Qwen's ~128 KiB WAF/captcha tripwire on long agentic loops.
 - **Self-Healing Tool Call Parser** — Handles fragmented streams, broken JSON parameters, unified `<qpx_call>` tags, fuzzy name matching (`readFile` → `read_file`), and intelligent auto-retry ladders.
 - **Image & Video Generation** — Dedicated `/v1/images/generations` and `/v1/videos/generations` endpoints with flagship models (`qwen-image-3.0-pro`, `wan3.0-video`, `wan2.7-image-pro`).
 - **Observability & Health Monitoring** — Real-time metrics at `/health`, `/metrics` (Prometheus), RSS watchdog, and unified clean log pairs per turn.

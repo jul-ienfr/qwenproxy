@@ -207,6 +207,13 @@ function runMigrations(db: Database.Database): void {
     if (!isDuplicateColumnError(err)) throw err;
   }
 
+  // Per-account outbound proxy (nullable; encrypted when credentials present).
+  try {
+    db.exec(`ALTER TABLE accounts ADD COLUMN proxy TEXT;`);
+  } catch (err) {
+    if (!isDuplicateColumnError(err)) throw err;
+  }
+
   // qwen_auth_sessions columns migration
   const authSessionCols = [
     "sec_ch_ua TEXT",

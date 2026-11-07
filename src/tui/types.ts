@@ -56,6 +56,7 @@ export interface ProxyStatusSnapshot {
     cooldownReason?: string | null;
     headersReady: boolean;
     isInitialized?: boolean;
+    proxy?: string | null;
     activeStreams?: number;
     streamLimit?: number;
     dailyTokens?: number;

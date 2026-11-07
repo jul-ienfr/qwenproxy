@@ -56,6 +56,7 @@ function autoInstallPlaywrightChromium(): void {
   } catch {}
 }
 import { loadAccounts, type QwenAccount } from "../core/accounts.ts";
+import { resolveProxyUrl, toPlaywrightProxy } from "../core/proxy-config.ts";
 // Imported here rather than injected from session-keeper.ts: account-concurrency
 // only depends on config/logger, so playwright -> account-concurrency stays
 // acyclic, while the reverse direction would drag the browser layer into core.
@@ -262,11 +263,24 @@ const accountContexts = new Map<string, BrowserContext>();
 const accountPages = new Map<string, Page>();
 const cachedUserAgents = new Map<string, string>();
 const inFlightAccountInits = new Map<string, Promise<void>>();
+/** Raw proxy value used to launch each account context, for hot proxy changes. */
+const accountProxyFingerprints = new Map<string, string>();
 let sharedBrowser: Browser | null = null;
 let sharedBrowserPromise: Promise<Browser> | null = null;
 
 export function getSharedBrowser(): Browser | null {
   return sharedBrowser;
+}
+
+/** True when the live context was launched with the requested proxy value. */
+export function isAccountProxyCurrent(
+  accountId: string,
+  proxyRaw?: string | null,
+): boolean {
+  return (
+    (accountProxyFingerprints.get(accountId) ?? "") ===
+    (proxyRaw?.trim() ?? "")
+  );
 }
 
 export function getStorageStatePath(accountId: string): string {
@@ -1517,17 +1531,34 @@ export async function getBasicHeaders(accountId: string): Promise<{
 }
 
 async function resolveAccountCredentials(account: QwenAccount): Promise<QwenAccount> {
-  if (account.password && account.password !== "***") {
-    return account;
-  }
   try {
     const { getAccountCredentials } = await import("../core/accounts.ts");
     const creds = getAccountCredentials(account.id);
-    if (creds && creds.password && creds.password !== "***") {
-      return creds;
+    if (creds) {
+      return {
+        ...account,
+        password:
+          creds.password && creds.password !== "***"
+            ? creds.password
+            : account.password,
+        proxy: creds.proxy ?? account.proxy ?? null,
+      };
     }
   } catch {}
   return account;
+}
+
+function accountProxyOption(account: QwenAccount) {
+  const raw = resolveProxyUrl(account.proxy);
+  if (!raw) return undefined;
+  try {
+    return toPlaywrightProxy(raw);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const wrapped = new Error(`ProxyUnavailable: ${message}`);
+    (wrapped as any).code = "ProxyUnavailable";
+    throw wrapped;
+  }
 }
 
 export async function initPlaywrightForAccount(
@@ -1586,6 +1617,7 @@ export async function initPlaywrightForAccount(
     const launchOptions = {
       headless,
       channel,
+      proxy: accountProxyOption(account),
       userAgent: fingerprint.userAgent,
       locale: fingerprint.locale,
       timezoneId: fingerprint.timezoneId,
@@ -1623,6 +1655,8 @@ export async function initPlaywrightForAccount(
         throw launchErr;
       }
     }
+
+    accountProxyFingerprints.set(account.id, resolveProxyUrl(account.proxy) ?? "");
 
     try {
       const v = acctContext.browser()?.version();
@@ -1963,6 +1997,7 @@ export async function validateAccountLogin(
     const launchOptions = {
       headless,
       channel,
+      proxy: accountProxyOption(account),
       userAgent: fingerprint.userAgent,
       locale: fingerprint.locale,
       timezoneId: fingerprint.timezoneId,
@@ -4923,6 +4958,7 @@ export function installContextDeathHandlers(
 function cleanupPlaywrightAccountState(accountId: string): void {
   accountContexts.delete(accountId);
   accountPages.delete(accountId);
+  accountProxyFingerprints.delete(accountId);
   headerCaches.delete(accountId);
   cookieCaches.delete(accountId);
   lastAccountActivity.delete(accountId);
@@ -5115,6 +5151,7 @@ export function registerPlaywrightAccountForTests(
 export function unregisterPlaywrightAccountForTests(accountId: string): void {
   accountPages.delete(accountId);
   accountContexts.delete(accountId);
+  accountProxyFingerprints.delete(accountId);
   lastAccountActivity.delete(accountId);
 }
 

@@ -2,11 +2,14 @@ import { AuthError } from "../core/errors.ts";
 import { getAccountCredentials, loadAccounts } from "../core/accounts.ts";
 import { config } from "../core/config.ts";
 import {
+  closePlaywrightForAccount,
   getBasicHeaders as getPlaywrightBasicHeaders,
   initPlaywrightForAccount,
+  isAccountProxyCurrent,
   isPlaywrightInitialized,
   refreshHeaders,
 } from "./playwright.ts";
+import { resolveProxyUrl } from "../core/proxy-config.ts";
 
 export interface HeaderResult {
   headers: Record<string, string>;
@@ -31,15 +34,21 @@ function isRunningUnderNodeTest(): boolean {
 }
 
 async function ensurePlaywrightInitialized(accountId: string): Promise<void> {
-  if (isPlaywrightInitialized(accountId)) return;
-
   if (isRunningUnderNodeTest()) {
+    if (isPlaywrightInitialized(accountId)) return;
     throw new Error(`Playwright not initialized for account: ${accountId}`);
   }
 
   const credentials = getAccountCredentials(accountId);
   if (!credentials) {
     throw new AuthError(`Qwen account ${accountId} is not configured.`);
+  }
+
+  if (isPlaywrightInitialized(accountId)) {
+    const desiredProxy = resolveProxyUrl(credentials.proxy) ?? "";
+    if (isAccountProxyCurrent(accountId, desiredProxy)) return;
+    // Proxy changed for this account; close only its context and relaunch.
+    await closePlaywrightForAccount(accountId).catch(() => {});
   }
 
   await initPlaywrightForAccount(

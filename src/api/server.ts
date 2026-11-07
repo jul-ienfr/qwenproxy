@@ -551,10 +551,14 @@ async function prepareQwenRuntime(params: {
     if (params.accountId) {
       const { markAccountRateLimited } =
         await import("../core/account-manager.ts");
+      const message = getErrorMessage(error);
+      const reason = message.includes("ProxyUnavailable")
+        ? "ProxyUnavailable"
+        : "AuthInitFailed";
       markAccountRateLimited(
         params.accountId,
         config.concurrency.initFailureCooldownMs,
-        "AuthInitFailed",
+        reason,
       );
     }
     return false;

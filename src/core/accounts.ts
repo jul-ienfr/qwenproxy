@@ -3,14 +3,16 @@ import crypto from "crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { getDatabase, deleteAuthSession } from "./database.ts";
-import { decrypt, encrypt } from "./crypto-utils.ts";
+import { decrypt, encrypt, isEncrypted } from "./crypto-utils.ts";
 import { getAccountProfilePath, getProfilesDir, isRunningUnderNodeTest } from "./paths.ts";
 import { updateEnvVariable } from "./local-auth.ts";
+import { maskProxyUrl, parseAccountProxyEnv, parseProxyUrl } from "./proxy-config.ts";
 
 export interface QwenAccount {
   id: string;
   email: string;
   password: string;
+  proxy?: string | null;
   cooldown_until?: number;
   cooldown_reason?: string | null;
 }
@@ -145,8 +147,51 @@ let accountsCache: QwenAccount[] | null = null;
 let accountsCacheTime = 0;
 const ACCOUNTS_CACHE_TTL = 5_000;
 
+let lastSyncedProxyEnv = "";
+let lastProxySyncTime = 0;
+
+/**
+ * Bootstrap per-account proxies from QWEN_ACCOUNT_PROXIES:
+ *   email=proxy,email=proxy
+ * The CLI remains the primary management surface; this env mapping is useful
+ * for Docker/CI deployments where editing SQLite is impractical.
+ */
+function syncAccountProxyEnv(): void {
+  const raw = process.env.QWEN_ACCOUNT_PROXIES || "";
+  const now = Date.now();
+  if (raw === lastSyncedProxyEnv && now - lastProxySyncTime < 30_000) return;
+  lastSyncedProxyEnv = raw;
+  lastProxySyncTime = now;
+
+  const mapping = parseAccountProxyEnv(raw);
+  if (mapping.size === 0) return;
+
+  const db = getDatabase();
+  const rows = db
+    .prepare("SELECT id, email FROM accounts")
+    .all() as Array<{ id: string; email: string }>;
+  const update = db.prepare(
+    "UPDATE accounts SET proxy = ?, updated_at = datetime('now') WHERE id = ?",
+  );
+  const apply = db.transaction(() => {
+    let changed = false;
+    for (const row of rows) {
+      const proxy = mapping.get(row.email.toLowerCase());
+      if (!proxy) continue;
+      update.run(encrypt(proxy), row.id);
+      changed = true;
+    }
+    return changed;
+  });
+  if (apply()) {
+    accountsCache = null;
+    accountsCacheTime = 0;
+  }
+}
+
 function getCachedAccounts(): QwenAccount[] {
   syncEnvAccounts();
+  syncAccountProxyEnv();
 
   const now = Date.now();
   if (accountsCache && now - accountsCacheTime < ACCOUNTS_CACHE_TTL) {
@@ -156,7 +201,7 @@ function getCachedAccounts(): QwenAccount[] {
   const db = getDatabase();
   const rows = db
     .prepare(
-      "SELECT id, email, password, cooldown_until, cooldown_reason FROM accounts ORDER BY created_at ASC",
+      "SELECT id, email, password, proxy, cooldown_until, cooldown_reason FROM accounts ORDER BY created_at ASC",
     )
     .all() as QwenAccount[];
 
@@ -169,7 +214,15 @@ function getCachedAccounts(): QwenAccount[] {
       } catch {
         password = "";
       }
-      return { ...row, password };
+      let proxy: string | null = null;
+      if (row.proxy) {
+        try {
+          proxy = isEncrypted(row.proxy) ? decrypt(row.proxy) : row.proxy;
+        } catch {
+          proxy = row.proxy;
+        }
+      }
+      return { ...row, password, proxy };
     });
   accountsCacheTime = now;
   return accountsCache;
@@ -179,6 +232,7 @@ export function loadAccounts(): QwenAccount[] {
   return getCachedAccounts().map((account) => ({
     ...account,
     password: "***",
+    proxy: account.proxy ? maskProxyUrl(account.proxy) : null,
   }));
 }
 
@@ -324,10 +378,14 @@ export function addAccount(
   email: string,
   password = "",
   id?: string,
+  proxy?: string | null,
 ): QwenAccount {
   if (!email || typeof email !== "string" || email.trim().length === 0) {
     throw new Error("Email is required");
   }
+
+  const normalizedProxy = proxy?.trim() || null;
+  if (normalizedProxy) parseProxyUrl(normalizedProxy);
 
   const db = getDatabase();
 
@@ -342,16 +400,41 @@ export function addAccount(
     id: id || crypto.randomUUID(),
     email: email.trim(),
     password,
+    proxy: normalizedProxy,
   };
 
-  db.prepare("INSERT INTO accounts (id, email, password) VALUES (?, ?, ?)").run(
+  db.prepare(
+    "INSERT INTO accounts (id, email, password, proxy) VALUES (?, ?, ?, ?)",
+  ).run(
     newAccount.id,
     newAccount.email,
     encrypt(newAccount.password),
+    normalizedProxy ? encrypt(normalizedProxy) : null,
   );
 
   invalidateAccountsCache();
   return newAccount;
+}
+
+/** Update or clear the outbound proxy for an account. */
+export function updateAccountProxy(
+  id: string,
+  proxy?: string | null,
+): boolean {
+  const normalizedProxy = proxy?.trim() || null;
+  if (normalizedProxy) parseProxyUrl(normalizedProxy);
+
+  const db = getDatabase();
+  const result = db
+    .prepare(
+      "UPDATE accounts SET proxy = ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .run(
+      normalizedProxy ? encrypt(normalizedProxy) : null,
+      id,
+    );
+  invalidateAccountsCache();
+  return result.changes > 0;
 }
 
 export function wipeAccountSessionFiles(id: string): void {
@@ -446,6 +529,11 @@ export function listAccounts(): QwenAccount[] {
 export function getAccountCredentials(id: string): QwenAccount | undefined {
   const cached = getCachedAccounts();
   return cached.find((a) => a.id === id);
+}
+
+export function getAccountByEmail(email: string): QwenAccount | undefined {
+  const needle = email.trim().toLowerCase();
+  return getCachedAccounts().find((a) => a.email.toLowerCase() === needle);
 }
 
 export function updateAccountCooldown(

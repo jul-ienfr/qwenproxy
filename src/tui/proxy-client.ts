@@ -54,6 +54,7 @@ let cachedAccounts: Array<{
   remainingCooldownMs: number;
   headersReady: boolean;
   isInitialized: boolean;
+  proxy: string | null;
 }> = [];
 let lastAccountsFetch = 0;
 let isHealthCheckPending = false;
@@ -138,6 +139,7 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
         cooldownReason,
         headersReady,
         isInitialized,
+        proxy: acc.proxy ?? null,
       };
     });
   }

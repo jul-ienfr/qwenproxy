@@ -207,6 +207,29 @@ All completions and tool calls will flow through your local QwenProxy gateway wi
 
 ---
 
+## 🌐 Per-Account Outbound Proxy
+
+Each Qwen account can use its own HTTP/HTTPS/SOCKS5 outbound proxy. Resolution
+order is **account proxy → `PROXY_URL` → direct**.
+
+```bash
+npm run proxy list
+npm run proxy set account-a@example.com http://user:pass@proxy-a.example.com:8080
+npm run proxy set account-b@example.com socks5://proxy-b.example.com:1080
+npm run proxy clear account-a@example.com
+npm run proxy test account-a@example.com
+```
+
+Proxy credentials are encrypted at rest and masked in the TUI, CLI and logs.
+Changing a proxy closes only that account's browser context; the next request
+relaunches it through the new egress. A proxy that cannot be reached marks the
+account with the `ProxyUnavailable` cooldown reason and normal failover applies.
+
+For Docker/CI, the optional `QWEN_ACCOUNT_PROXIES` environment variable accepts
+`email=proxy` pairs separated by commas or semicolons.
+
+---
+
 ## 💡 Production Tips & Best Practices
 
 1. **Use `thread-temp` for Agentic Coding Work:**  

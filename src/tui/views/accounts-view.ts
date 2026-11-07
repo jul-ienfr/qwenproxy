@@ -1246,6 +1246,13 @@ export class AccountsView implements TuiView {
           ? theme.yellow(`◐ Aquecendo...`)
           : theme.muted(`${glyphs.circle} Standby (Sob Demanda)`);
       rightContent.push(`  ${theme.bold("Headers:")}    ${hStatus}`);
+      rightContent.push(
+        `  ${theme.bold("Proxy:")}      ${
+          selected.proxy
+            ? theme.cyan(truncate(selected.proxy, Math.max(16, rightW - 14)))
+            : theme.muted("(direct / PROXY_URL)")
+        }`,
+      );
       if (selected.onCooldown && selected.cooldownReason) {
         const maxReasonW = Math.max(16, rightW - 14);
         const cdReason = formatCooldownReason(selected.cooldownReason, maxReasonW);

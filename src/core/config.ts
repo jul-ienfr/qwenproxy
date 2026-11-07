@@ -205,6 +205,7 @@ const envSchema = z
     // does not enforce a token/request quota; these exist for SDK/tool parsing.
     RATE_LIMIT_REQUESTS: z.string().default("5000"),
     RATE_LIMIT_TOKENS: z.string().default("200000"),
+    PROXY_URL: z.string().default(""),
   })
 ;
 
@@ -219,6 +220,10 @@ export const config = {
       requests: parseInt(env.RATE_LIMIT_REQUESTS),
       tokens: parseInt(env.RATE_LIMIT_TOKENS),
     },
+  },
+  proxy: {
+    /** Global outbound proxy fallback; per-account proxy wins when set. */
+    url: env.PROXY_URL.trim(),
   },
   logging: {
     chatRequests: env.CHAT_REQUEST_LOG === "true",

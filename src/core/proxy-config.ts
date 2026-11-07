@@ -93,8 +93,11 @@ export function toPlaywrightProxy(
 ): { server: string; username?: string; password?: string; bypass?: string } | undefined {
   const parsed = parseProxyUrl(raw);
   if (!parsed) return undefined;
+  // Playwright documents socks5://; Chromium resolves the hostname through the
+  // SOCKS proxy, which matches the socks5h intent. Normalize the scheme.
+  const server = parsed.server.replace(/^socks5h:/, "socks5:");
   return {
-    server: parsed.server,
+    server,
     ...(parsed.username === undefined ? {} : { username: parsed.username }),
     ...(parsed.password === undefined ? {} : { password: parsed.password }),
     ...(parsed.bypass === undefined ? {} : { bypass: parsed.bypass }),

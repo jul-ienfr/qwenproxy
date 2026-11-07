@@ -60,6 +60,12 @@ test("proxy-config: conversion keeps Playwright credentials separate", () => {
   });
 });
 
+test("proxy-config: normalizes socks5h to the Playwright socks5 scheme", () => {
+  assert.deepEqual(toPlaywrightProxy("socks5h://proxy.example.com:1080"), {
+    server: "socks5://proxy.example.com:1080",
+  });
+});
+
 test("proxy-config: account proxy wins over global fallback", () => {
   const previous = process.env.PROXY_URL;
   process.env.PROXY_URL = "http://global.example.com:3128";

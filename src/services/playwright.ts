@@ -1913,6 +1913,19 @@ export async function initPlaywrightForAccount(
         if (err?.message?.includes("Authentication failed for account")) {
           throw err;
         }
+        const configuredProxy = resolveProxyUrl(account.proxy);
+        if (
+          configuredProxy &&
+          /Timeout|ERR_PROXY|ERR_TUNNEL|ERR_CONNECTION|ECONNREFUSED/i.test(
+            String(err?.message ?? ""),
+          )
+        ) {
+          const wrapped = new Error(
+            `ProxyUnavailable: navigation through proxy failed: ${err.message}`,
+          );
+          (wrapped as any).code = "ProxyUnavailable";
+          throw wrapped;
+        }
         console.warn(
           `⚠️  [Playwright] Initial navigation check for ${maskEmail(account.email)}: ${err.message}`,
         );

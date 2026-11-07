@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Implemented (live proxy verification pending)
 
 **Input**: Gap analysis vs `Rfym21/Qwen2API`: each Qwen account can use its own
 HTTP/HTTPS/SOCKS5 outbound proxy (`account.proxy` > `PROXY_URL` > direct) to

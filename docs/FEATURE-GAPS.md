@@ -37,7 +37,7 @@ for this architecture).
 
 | # | Capability | Current status | Evidence in competitors | Priority | Spec |
 | --- | --- | --- | --- | --- | --- |
-| 001 | Per-account outbound proxy (HTTP/SOCKS5), with account-level override and global fallback | **missing** | Rfym21: `account.proxy` > `PROXY_URL`; per-account IP rotation to avoid IP association bans | **P1** | [001](../specs/001-per-account-outbound-proxy/spec.md) |
+| 001 | Per-account outbound proxy (HTTP/SOCKS5), with account-level override and global fallback | **implemented** (live proxy test pending) | Rfym21: `account.proxy` > `PROXY_URL`; per-account IP rotation to avoid IP association bans | **P1** | [001](../specs/001-per-account-outbound-proxy/spec.md) |
 | 002 | Multi-user API keys with RPM and concurrency quotas, admin/normal key roles | **missing** | pedrofariasx: `users` table, `rate_limit_rpm`, `max_concurrency`, `USER_API_KEYS`; 429 on quota | **P1** | [002](../specs/002-multi-user-api-keys-and-quotas/spec.md) |
 | 003 | Authenticated web administration dashboard (accounts, keys, usage, settings, logs) | **missing** (TUI only) | pedrofariasx: React + shadcn `/admin`; Rfym21: WebUI; Chat2API: dashboard | **P1** | [003](../specs/003-web-admin-dashboard/spec.md) |
 | 004 | Gemini-compatible API (`/v1beta/models/{model}:generateContent`, stream) | **missing** | YuJunZhiXue and 123hi123 expose OpenAI + Anthropic + Gemini | **P2** | [004](../specs/004-gemini-compatible-api/spec.md) |

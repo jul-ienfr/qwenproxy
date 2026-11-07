@@ -64,7 +64,9 @@ async function cmdSet(email: string, proxyUrl: string): Promise<void> {
   updateAccountProxy(account.id, proxyUrl);
   await closePlaywrightForAccount(account.id).catch(() => {});
   console.log(`Proxy set for ${account.email}: ${maskProxyUrl(proxyUrl)}`);
-  console.log("The account context was closed; the next request relaunches it.");
+  console.log(
+    "The running proxy will recreate this account's context on its next request.",
+  );
 }
 
 async function cmdClear(email: string): Promise<void> {

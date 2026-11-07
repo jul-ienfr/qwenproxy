@@ -251,6 +251,18 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_users_key_hash ON users(api_key_hash);
     CREATE INDEX IF NOT EXISTS idx_users_label ON users(label);
 
+    CREATE TABLE IF NOT EXISTS admin_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target TEXT NOT NULL DEFAULT '',
+      result TEXT NOT NULL DEFAULT 'ok',
+      details TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at);
+
     -- Cooldown persistence columns (ignore if already exist)
     -- Note: SQLite doesn't support IF NOT EXISTS for ALTER TABLE ADD COLUMN,
     -- so these are wrapped in try-catch at the application level.

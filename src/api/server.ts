@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import net from "node:net";
 import { v4 as uuidv4 } from "uuid";
 import { Hono, type Context } from "hono";
@@ -27,20 +26,26 @@ import {
   ensureRuntimeApiKey,
   getRuntimeApiKey,
   isLoopbackHost,
-  isPlaceholderApiKey,
 } from "../core/local-auth.ts";
-import {
-  findUserByKeyIncludingRevoked,
-  looksLikeProxyApiKey,
-  seedEnvUsers,
-  type UserIdentity,
-} from "../core/users.ts";
+import { seedEnvUsers } from "../core/users.ts";
+import type { UserIdentity } from "../core/users.ts";
 import {
   checkUserRequest,
   quotaErrorResponse,
 } from "../core/user-quota.ts";
 import { setUserIdentity } from "../core/request-user.ts";
 import { adminUsersApp } from "./admin-users.ts";
+import {
+  extractProvidedApiKeys,
+  identityErrorMessage,
+  resolveIdentity,
+} from "../core/auth-identity.ts";
+import { authenticateAdminRequest } from "../admin/auth.ts";
+import { adminDashboardApp } from "../admin/app.ts";
+import {
+  recordOverviewError,
+  recordOverviewRequest,
+} from "../core/overview-stats.ts";
 
 import {
   hookServerConsoleForLogging,
@@ -194,6 +199,7 @@ app.use("*", async (c, next) => {
 
   if (!isProbe) {
     metrics.increment("requests.total");
+    recordOverviewRequest();
   }
   const start = Date.now();
   await next();
@@ -201,55 +207,12 @@ app.use("*", async (c, next) => {
   if (!isProbe) {
     metrics.histogram("latency.request", duration);
   }
+  if (c.res.status >= 500) {
+    recordOverviewError();
+  }
   c.header("X-Response-Time", `${duration}ms`);
   c.header("openai-processing-ms", String(duration));
 });
-
-function constantTimeStringEqual(provided: string, expected: string): boolean {
-  const providedBuf = Buffer.from(provided);
-  const expectedBuf = Buffer.from(expected);
-  const providedHash = crypto.createHash("sha256").update(providedBuf).digest();
-  const expectedHash = crypto.createHash("sha256").update(expectedBuf).digest();
-
-  return (
-    crypto.timingSafeEqual(providedHash, expectedHash) &&
-    providedBuf.length === expectedBuf.length
-  );
-}
-
-/**
- * Accept OpenAI-style Bearer and x-api-key.
- * Either may authenticate when API_KEY is configured.
- */
-function extractProvidedApiKeys(c: Context): string[] {
-  const keys: string[] = [];
-  const auth = c.req.header("Authorization");
-  if (auth?.startsWith("Bearer ")) {
-    const token = auth.slice(7).trim();
-    if (token) keys.push(token);
-  }
-  const xApiKey = c.req.header("x-api-key")?.trim();
-  if (xApiKey) keys.push(xApiKey);
-  return keys;
-}
-
-const LOCAL_ADMIN_IDENTITY: UserIdentity = {
-  id: "local-admin",
-  label: "Local operator",
-  role: "admin",
-  rateLimitRpm: 0,
-  maxConcurrency: 0,
-  legacy: true,
-};
-
-const GLOBAL_ADMIN_IDENTITY: UserIdentity = {
-  id: "global-admin",
-  label: "API_KEY operator",
-  role: "admin",
-  rateLimitRpm: 0,
-  maxConcurrency: 0,
-  legacy: true,
-};
 
 type AuthResult =
   | { identity: UserIdentity; error?: undefined }
@@ -282,56 +245,20 @@ function authErrorResponse(c: Context, message: string): Response {
  * happens after authentication, in the /v1 middleware.
  */
 function authenticateRequest(c: Context): AuthResult {
-  const apiKey = getRuntimeApiKey() || config.apiKey;
-  const apiKeyConfigured = !isPlaceholderApiKey(apiKey);
-  const candidates = extractProvidedApiKeys(c);
-
-  if (
-    apiKeyConfigured &&
-    candidates.some((token) => constantTimeStringEqual(token, apiKey))
-  ) {
-    return { identity: GLOBAL_ADMIN_IDENTITY };
-  }
-
-  // A valid per-user key resolves to that user, even when the legacy API_KEY
-  // is absent and loopback would otherwise grant local-admin access.
-  for (const token of candidates) {
-    const user = findUserByKeyIncludingRevoked(token);
-    if (!user) continue;
-    if (user.revoked_at) {
-      return { error: authErrorResponse(c, "API key revoked") };
-    }
+  const candidates = extractProvidedApiKeys({
+    authorization: c.req.header("Authorization"),
+    apiKey: c.req.header("x-api-key"),
+  });
+  const resolution = resolveIdentity(candidates);
+  if (resolution.error || !resolution.identity) {
     return {
-      identity: {
-        id: user.id,
-        label: user.label,
-        role: user.role,
-        rateLimitRpm: user.rate_limit_rpm,
-        maxConcurrency: user.max_concurrency,
-        legacy: false,
-      },
+      error: authErrorResponse(
+        c,
+        identityErrorMessage(resolution.error ?? "invalid"),
+      ),
     };
   }
-
-  // Preserve the historical loopback behavior: with no configured API_KEY the
-  // local operator is trusted and unrelated stray credentials are ignored.
-  // Keys minted by this proxy are never ignored: a rotated-out key must not
-  // fall back to local-admin trust.
-  if (!apiKeyConfigured) {
-    if (candidates.some(looksLikeProxyApiKey)) {
-      return { error: authErrorResponse(c, "Invalid API key") };
-    }
-    return { identity: LOCAL_ADMIN_IDENTITY };
-  }
-
-  return {
-    error: authErrorResponse(
-      c,
-      candidates.length > 0
-        ? "Invalid API key"
-        : "Missing or invalid credentials (Authorization Bearer or x-api-key)",
-    ),
-  };
+  return { identity: resolution.identity };
 }
 
 app.use("/v1/*", async (c, next) => {
@@ -351,15 +278,24 @@ app.use("/v1/*", async (c, next) => {
   await next();
 });
 
-app.use("/admin/*", async (c, next) => {
-  const auth = authenticateRequest(c);
-  if (auth.error) return auth.error;
+app.use("/admin/api/*", async (c, next) => {
+  if (c.req.path === "/admin/api/session") return next();
+
+  const auth = authenticateAdminRequest(c);
+  if ("response" in auth) return auth.response;
+  if (auth.identity.role !== "admin") {
+    return c.json(
+      { error: { type: "permission_error", message: "Admin role required" } },
+      403,
+    );
+  }
   setUserIdentity(c, auth.identity);
   await next();
 });
 
 // Routes
 app.route("", modelsApp);
+app.route("/admin", adminDashboardApp);
 app.route("/admin", adminUsersApp);
 app.post("/v1/chat/completions", chatCompletions);
 app.post("/v1/chat/completions/stop", chatCompletionsStop);

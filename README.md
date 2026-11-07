@@ -292,6 +292,41 @@ For Docker/CI bootstrap, `USER_API_KEYS` accepts comma-separated
 `key:label[:rpm[:concurrency]]` entries. `USER_RATE_LIMIT_RPM` and
 `USER_MAX_CONCURRENCY` set defaults for CLI/API-created users.
 
+### 🖥️ Web Administration Dashboard
+
+The proxy also serves an authenticated dashboard from the same process at
+`http://<host>:<port>/admin` (no second server, no frontend build):
+
+- **Sign in** with the legacy `API_KEY` or an admin-role `sk-qpx-...` key. On a
+  no-key loopback install the field may be left empty (historical local-admin
+  trust). The browser receives a signed `HttpOnly; SameSite=Strict` session
+  cookie valid for 8 hours; the CSRF token stays in memory.
+- **Overview**: accounts ready/active/on cooldown, active streams, RPM, error
+  rate, average latency, memory, daily tokens and uptime. Live via SSE with an
+  automatic 5-second polling fallback.
+- **Accounts**: add/remove, clear one or all cooldowns, refresh headers and edit
+  per-account proxies. Emails and proxy credentials are masked in every
+  response.
+- **Users**: create, edit RPM/concurrency, rotate and revoke keys (keys are shown
+  once).
+- **Models**: live catalog with context window and capabilities.
+- **Settings**: allowlisted hot-applied values persisted to `.env`
+  (`chat_mode`, `global_proxy_url`, `chat_request_log`, `rate_limit_requests`,
+  `rate_limit_tokens`, `user_default_rpm`, `user_default_concurrency`).
+- **Logs / Audit**: recent logs with secret redaction and a durable record of
+  every dashboard/API mutation.
+
+Cookie-authenticated mutations require `x-csrf-token`; bearer clients are exempt.
+The session signing secret is stored at `data/db/.admin_session_secret` (mode
+`0600`), so sessions survive restarts. The TUI remains available and sees the
+same state. Use TLS or a trusted tunnel before exposing the dashboard beyond
+loopback; the UI shows a warning when served over plain HTTP on a non-loopback
+address.
+
+See [`specs/003-web-admin-dashboard/quickstart.md`](specs/003-web-admin-dashboard/quickstart.md)
+for API examples and troubleshooting.
+
+
 ---
 
 ## 💡 Production Tips & Best Practices

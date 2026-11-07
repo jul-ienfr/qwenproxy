@@ -9,6 +9,7 @@
 import { Hono, type Context } from "hono";
 import { getUserIdentity } from "../core/request-user.ts";
 import { getUserQuotaSnapshot } from "../core/user-quota.ts";
+import { recordAudit } from "../core/admin-audit.ts";
 import {
   createUser,
   getUserById,
@@ -61,7 +62,22 @@ function parseRole(value: unknown): UserRole | undefined {
   return value;
 }
 
-adminUsersApp.use("*", async (c, next) => {
+function actor(c: Context): string {
+  return getUserIdentity(c)?.label || "unknown";
+}
+
+adminUsersApp.use("/api/users", async (c, next) => {
+  const identity = getUserIdentity(c);
+  if (!identity) {
+    return jsonError(c, 401, "Missing or invalid credentials");
+  }
+  if (identity.role !== "admin") {
+    return jsonError(c, 403, "Admin role required");
+  }
+  await next();
+});
+
+adminUsersApp.use("/api/users/*", async (c, next) => {
   const identity = getUserIdentity(c);
   if (!identity) {
     return jsonError(c, 401, "Missing or invalid credentials");
@@ -93,6 +109,10 @@ adminUsersApp.post("/api/users", async (c) => {
     const rpm = parseLimit(body.rpm, "rpm");
     const concurrency = parseLimit(body.concurrency, "concurrency");
     const created = createUser(body.label, { role, rpm, concurrency });
+    recordAudit(actor(c), "user.create", created.user.id, "ok", {
+      label: created.user.label,
+      role: created.user.role,
+    });
     return c.json(
       {
         user: created.user,
@@ -101,6 +121,7 @@ adminUsersApp.post("/api/users", async (c) => {
       201,
     );
   } catch (error) {
+    recordAudit(actor(c), "user.create", body.label ? String(body.label) : "", "error");
     return jsonError(
       c,
       400,
@@ -128,6 +149,7 @@ adminUsersApp.patch("/api/users/:id", async (c) => {
     const concurrency =
       parseLimit(body.concurrency, "concurrency") ?? existing.max_concurrency;
     const user = updateUserLimits(id, rpm, concurrency);
+    recordAudit(actor(c), "user.limits.update", id, "ok", { rpm, concurrency });
     return c.json({ user });
   } catch (error) {
     return jsonError(
@@ -142,11 +164,13 @@ adminUsersApp.post("/api/users/:id/rotate", (c) => {
   const id = c.req.param("id");
   try {
     const rotated = rotateUserKey(id);
+    recordAudit(actor(c), "user.key.rotate", id, "ok");
     return c.json({
       user: rotated.user,
       api_key: rotated.apiKey,
     });
   } catch (error) {
+    recordAudit(actor(c), "user.key.rotate", id, "error");
     const message = error instanceof Error ? error.message : String(error);
     return jsonError(c, message.startsWith("Unknown user") ? 404 : 400, message);
   }
@@ -155,7 +179,9 @@ adminUsersApp.post("/api/users/:id/rotate", (c) => {
 adminUsersApp.delete("/api/users/:id", (c) => {
   const id = c.req.param("id");
   if (!revokeUser(id)) {
+    recordAudit(actor(c), "user.revoke", id, "error");
     return jsonError(c, 404, `Unknown or already revoked user: ${id}`);
   }
+  recordAudit(actor(c), "user.revoke", id, "ok");
   return c.json({ success: true });
 });

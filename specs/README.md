@@ -15,7 +15,7 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 | --- | --- | --- | --- | --- |
 | 001 | [Per-account outbound proxy](001-per-account-outbound-proxy/spec.md) | P1 | — | Implemented (egress + failover verified) |
 | 002 | [Multi-user API keys and quotas](002-multi-user-api-keys-and-quotas/spec.md) | P1 | — | Implemented (live-verified) |
-| 003 | [Web administration dashboard](003-web-admin-dashboard/spec.md) | P1 | 002 | Draft |
+| 003 | [Web administration dashboard](003-web-admin-dashboard/spec.md) | P1 | 002 | Implemented (live-verified) |
 | 004 | [Gemini-compatible API](004-gemini-compatible-api/spec.md) | P2 | — | Draft |
 | 005 | [Web search and citations](005-web-search-and-citations/spec.md) | P2 | — | Draft |
 | 006 | [Image editing](006-image-editing/spec.md) | P2 | — | Draft |

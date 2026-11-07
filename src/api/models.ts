@@ -137,7 +137,7 @@ function wantsAnthropicModelsFormat(
   return !!anthropicVersion;
 }
 
-async function loadModelsWithVariants(): Promise<{
+export async function loadModelsWithVariants(): Promise<{
   models: PublicModel[];
   accountId?: string;
 }> {

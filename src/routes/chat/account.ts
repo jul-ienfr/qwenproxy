@@ -1364,6 +1364,23 @@ async function tryCreateStreamWithRetry(
 					// account) instead of degrading to inline. An empty instruction has
 					// nothing to guarantee (plain chat), so it stays best-effort.
 					if (instruction && !personalizationApplied) {
+						if (
+							/ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED|ECONNREFUSED|ENOTFOUND/i.test(
+								syncFailure ?? "",
+							)
+						) {
+							const { markAccountRateLimited } = await import(
+								"../../core/account-manager.ts"
+							);
+							markAccountRateLimited(
+								currentAccountId,
+								config.concurrency.initFailureCooldownMs,
+								"ProxyUnavailable",
+							);
+							throw new Error(
+								`ProxyUnavailable: personalization navigation failed for ${currentAccountEmail}: ${syncFailure}`,
+							);
+						}
 						throw new PersonalizationSyncError(
 							`personalization sync not confirmed for ${currentAccountEmail}: ${syncFailure ?? "settings response did not confirm the instruction"}`,
 						);
@@ -1591,6 +1608,21 @@ async function tryCreateStreamWithRetry(
 		} catch (err: any) {
 			attemptError = err;
 			lastAttemptError = err;
+			if (
+				/ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED|ECONNREFUSED|ENOTFOUND/i.test(
+					String(err?.message ?? ""),
+				)
+			) {
+				const { markAccountRateLimited } = await import(
+					"../../core/account-manager.ts"
+				);
+				markAccountRateLimited(
+					currentAccountId,
+					config.concurrency.initFailureCooldownMs,
+					"ProxyUnavailable",
+				);
+				(err as any).code = "ProxyUnavailable";
+			}
 			// Release the lease on failure — the stream was never created or
 			// will not be consumed by the caller.
 			accountLease?.release();

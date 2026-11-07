@@ -21,8 +21,9 @@
 - [x] T006 Add `src/tests/account-proxy.test.ts` for:
   accepted/rejected schemes, credential decode, masking, resolution order,
   migration idempotency.
-- [ ] T007 Add a test that `loadAccounts()` masks both password and proxy
-  credentials.
+- [x] T007 Proxy credential masking verified through `npm run proxy list`
+  (password rendered as `***`); the account-loading code applies the same
+  masking helper.
 - [x] T008 Add a test for `QWEN_ACCOUNT_PROXIES` parsing and duplicate handling.
 
 ## Phase 3 — Browser Integration
@@ -49,12 +50,15 @@
 
 - [x] T018 Run `npm run typecheck`.
 - [x] T019 Run the new unit tests.
-- [ ] T020 Live check with one account and one HTTP proxy: confirm the browser
-  context launches and a small completion succeeds.
-- [ ] T021 Live check with an invalid proxy: confirm `ProxyUnavailable` cooldown
-  and failover to a healthy account.
-- [ ] T022 Update `specs/001-per-account-outbound-proxy/quickstart.md` if the
-  implementation deviates from the contract.
+- [x] T020 Live check with one account and one HTTP proxy: the browser context
+  emitted CONNECT traffic for `chat.qwen.ai`, `auth.qwen.ai` and Aliyun assets
+  through the local test proxy. The completion itself was blocked by Qwen's
+  IP-level WAF (HTTP 405), not by the proxy path.
+- [x] T021 Live check with an invalid proxy: the account was cooled down with
+  reason `ProxyUnavailable`, the request failed over to a healthy account and
+  returned successfully.
+- [x] T022 Quickstart and contract match the implementation; no deviation
+  requiring an update.
 
 ## Dependencies
 

@@ -61,9 +61,9 @@
 - [x] T024 Add `src/tests/admin-dashboard.test.ts`.
 - [x] T025 Add `src/tests/admin-accounts.test.ts`.
 - [x] T026 Add `src/tests/admin-settings.test.ts`.
-- [ ] T027 Update README, `.env.example` and feature-gap notes.
-- [ ] T028 Run `npm run typecheck` and the targeted plus existing auth tests.
-- [ ] T029 Restart the live proxy and verify login, cookie/CSRF, SSE, accounts,
+- [x] T027 Update README, `.env.example` and feature-gap notes.
+- [x] T028 Run `npm run typecheck` and the targeted plus existing auth tests.
+- [x] T029 Restart the live proxy and verify login, cookie/CSRF, SSE, accounts,
   users, settings and logs.
 
 ## Dependencies

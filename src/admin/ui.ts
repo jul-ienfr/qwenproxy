@@ -613,7 +613,6 @@ export const ADMIN_JS = `(function () {
     nodes.push(el("div", { class: "actions" }, [
       el("button", { type: "submit", text: "Save settings" })
     ]));
-    nodes.push(el("p", { id: "settings-error", class: "error", role: "alert" }));
     form.replaceChildren.apply(form, nodes);
   }
 
@@ -633,7 +632,10 @@ export const ADMIN_JS = `(function () {
       else values[key] = input.value;
     });
     api("/admin/api/settings", { method: "PUT", body: { values: values } })
-      .then(function (data) { renderSettings(data.settings || []); })
+      .then(function (data) {
+        setError("settings-error", "");
+        renderSettings(data.settings || []);
+      })
       .catch(function (error) { setError("settings-error", error.message); });
   }
 

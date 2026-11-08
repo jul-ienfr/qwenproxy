@@ -62,6 +62,13 @@ export class AuthError extends QwenProxyError {
   readonly code = "invalid_api_key";
 }
 
+/** Upstream moderation rejected the prompt or the input image. */
+export class ContentPolicyError extends QwenProxyError {
+  readonly statusCode = 400;
+  readonly type = "invalid_request_error";
+  readonly code = "content_policy_violation";
+}
+
 export class ForbiddenError extends QwenProxyError {
   readonly statusCode = 403;
   readonly type = "permission_error";

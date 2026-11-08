@@ -550,9 +550,31 @@ export async function uploadTextAsQwenFile(
   headers: Record<string, string>,
   accountId?: string,
 ): Promise<QwenFileEntry> {
-  const buffer = Buffer.from(content, "utf8");
+  return uploadBufferAsQwenFile(
+    filename,
+    Buffer.from(content, "utf8"),
+    headers,
+    accountId,
+  );
+}
+
+/**
+ * Upload an arbitrary buffer (image, video, text) to Qwen OSS and return the
+ * file entry used by the completions payload. `mime` overrides extension-based
+ * detection, which matters for client uploads that carry a generic filename.
+ */
+export async function uploadBufferAsQwenFile(
+  filename: string,
+  buffer: Buffer,
+  headers: Record<string, string>,
+  accountId?: string,
+  mime?: string,
+): Promise<QwenFileEntry> {
   const size = buffer.length;
-  const typeInfo = detectFileType(filename);
+  const byMime = mime
+    ? Object.values(FILE_TYPE_MAP).find((info) => info.mime === mime)
+    : undefined;
+  const typeInfo = byMime ?? detectFileType(filename);
   const stsData = await getSTSToken(
     filename,
     size,

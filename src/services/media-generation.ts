@@ -9,11 +9,20 @@ import {
   markAccountRateLimited,
   clearAccountCooldown,
 } from "../core/account-manager.ts";
-import { UpstreamError, AuthError, UpstreamRateLimit } from "../core/errors.ts";
+import {
+  UpstreamError,
+  AuthError,
+  UpstreamRateLimit,
+  ContentPolicyError,
+} from "../core/errors.ts";
 import { isAntiBotError } from "../routes/chat/retry-policy.ts";
 import { recoverBaxiaCaptcha } from "./captcha-coordinator.ts";
 import { startBaxiaCaptchaWatcher } from "./captcha-solver.ts";
 import { withAccountPage } from "./playwright.ts";
+import {
+  uploadBufferAsQwenFile,
+  type QwenFileEntry,
+} from "../routes/upload.ts";
 
 /**
  * Heuristic for a WAF/captcha challenge page body returned by Qwen instead of JSON.
@@ -224,6 +233,19 @@ export function supportsPromptMediaGeneration(
   const modes = getMediaModelModes(model);
   if (!modes) return true;
   return modes.includes(kind === "image" ? "t2i" : "t2v");
+}
+
+/** Default model used by `/v1/images/edits` when the client omits `model`. */
+export const DEFAULT_IMAGE_EDIT_MODEL = "qwen-image-3.0-pro";
+
+/**
+ * Whether a model can edit a reference image. Unknown models are allowed and
+ * passed through as chat models, mirroring prompt-based generation.
+ */
+export function supportsImageEditing(model: string): boolean {
+  const modes = getMediaModelModes(model);
+  if (!modes) return true;
+  return modes.includes("i2i");
 }
 
 /**
@@ -724,14 +746,21 @@ async function requestCompletionsWithBrowserFallback(params: {
 }
 
 
+type MediaChatType = "t2i" | "t2v" | "image_edit";
+
 async function createMediaChatSession(
   headers: Record<string, string>,
   chatModel: string,
-  chatType: "t2i" | "t2v",
+  chatType: MediaChatType,
   signal: AbortSignal,
   accountId?: string,
 ): Promise<string> {
-  const title = chatType === "t2i" ? "Image Generation" : "Video Generation";
+  const title =
+    chatType === "t2i"
+      ? "Image Generation"
+      : chatType === "image_edit"
+        ? "Image Edit"
+        : "Video Generation";
 
   if (accountId && !isAuthMockEnabled()) {
     return withAccountPage(
@@ -853,13 +882,14 @@ async function createMediaChatSession(
   return chatId;
 }
 
-function buildCompletionsPayload(
+export function buildCompletionsPayload(
   chatId: string,
   prompt: string,
   chatModel: string,
-  chatType: "t2i" | "t2v",
+  chatType: MediaChatType,
   size?: string,
   generationModel?: string,
+  files?: QwenFileEntry[],
 ): Record<string, unknown> {
   const fid = uuidv4();
   const childId = uuidv4();
@@ -875,7 +905,7 @@ function buildCompletionsPayload(
     role: "user",
     content: prompt,
     user_action: "chat",
-    files: [],
+    files: files ?? [],
     timestamp: nowSec,
     models: [chatModel],
     model: "",
@@ -886,7 +916,8 @@ function buildCompletionsPayload(
       research_mode: "normal",
       auto_thinking: false,
       thinking_mode: "Fast",
-      auto_search: true,
+      // Image editing is not a search request; keep web search off.
+      auto_search: chatType !== "image_edit",
     },
     extra: {
       meta: {
@@ -978,6 +1009,47 @@ function parseJsonIfPossible(raw: string): unknown {
   } catch {
     return null;
   }
+}
+
+const CONTENT_POLICY_PATTERN =
+  /content[_\s-]?policy|moderation|sensitive|unsafe|inspection|violat|risk[_\s-]?control|违规|敏感|安全审核|内容审核/i;
+
+/**
+ * Detects an upstream moderation rejection in a JSON or SSE error body.
+ * Returns the upstream message when the body looks like a content-policy block.
+ */
+export function detectMediaContentPolicyError(rawBody: string): string | null {
+  const candidates: string[] = [rawBody];
+  for (const line of rawBody.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("data:")) {
+      candidates.push(trimmed.slice(5).trim());
+    }
+  }
+
+  for (const candidate of candidates) {
+    const json = parseJsonIfPossible(candidate);
+    if (!json || typeof json !== "object") continue;
+    const record = json as Record<string, any>;
+    const data =
+      record.data && typeof record.data === "object" ? record.data : {};
+    const error =
+      record.error && typeof record.error === "object" ? record.error : {};
+    const code = String(data.code ?? record.code ?? error.code ?? "");
+    const message = String(
+      data.details ??
+        data.message ??
+        record.message ??
+        error.message ??
+        record.details ??
+        "",
+    );
+    const text = `${code} ${message}`;
+    if (CONTENT_POLICY_PATTERN.test(text)) {
+      return message || code || "upstream content policy rejection";
+    }
+  }
+  return null;
 }
 
 /**
@@ -1119,12 +1191,20 @@ function extractMediaUrl(
   return findMediaUrl(value, extensions, new Set());
 }
 
+export interface ImageEditInput {
+  buffer: Buffer;
+  filename: string;
+  mime: string;
+}
+
 export async function generateImage(params: {
   prompt: string;
   model?: string;
   size?: string;
   accountId?: string;
   signal?: AbortSignal;
+  /** When present, the request performs image-to-image editing upstream. */
+  edit?: ImageEditInput;
 }): Promise<ImageGenerationResult> {
   const {
     prompt,
@@ -1132,8 +1212,11 @@ export async function generateImage(params: {
     size,
     accountId: requestedAccountId,
     signal: externalSignal,
+    edit,
   } = params;
 
+  const chatType: MediaChatType = edit ? "image_edit" : "t2i";
+  const operation = edit ? "edit" : "generate";
   const normalizedSize = normalizeSize(size);
   const generationStartedAt = Date.now();
   const triedAccounts = new Set<string>();
@@ -1170,19 +1253,21 @@ export async function generateImage(params: {
       const { chatModel, generationModel } = resolveMediaModel(requestedModel);
       logMediaInfo(
         mediaLog("image", "generation_started", {
-          operation: "generate",
+          operation,
           account: shortMediaId(account.id),
           model: requestedModel,
           chat_model: chatModel,
           attempt: attempt + 1,
-          size: normalizedSize ?? "auto",
+          size: edit ? undefined : normalizedSize ?? "auto",
           prompt_chars: prompt.length,
+          input_bytes: edit?.buffer.length,
+          input_mime: edit?.mime,
         }),
       );
 
       const { headers } = await getQwenHeaders(forceHeaderRefresh, account.id);
       forceHeaderRefresh = false;
-      const chatId = await createMediaChatSession(headers, chatModel, "t2i", signal, account.id);
+      const chatId = await createMediaChatSession(headers, chatModel, chatType, signal, account.id);
 
       logMediaDebug(
         mediaLog("image", "chat_created", {
@@ -1191,7 +1276,34 @@ export async function generateImage(params: {
         }),
       );
 
-      const payload = buildCompletionsPayload(chatId, prompt, chatModel, "t2i", normalizedSize, generationModel);
+      let files: QwenFileEntry[] | undefined;
+      if (edit) {
+        const uploaded = await uploadBufferAsQwenFile(
+          edit.filename,
+          edit.buffer,
+          headers,
+          account.id,
+          edit.mime,
+        );
+        files = [uploaded];
+        logMediaDebug(
+          mediaLog("image", "input_uploaded", {
+            account: shortMediaId(account.id),
+            file: shortMediaId(uploaded.id),
+            bytes: edit.buffer.length,
+          }),
+        );
+      }
+
+      const payload = buildCompletionsPayload(
+        chatId,
+        prompt,
+        chatModel,
+        chatType,
+        edit ? undefined : normalizedSize,
+        generationModel,
+        files,
+      );
       const requestHeaders = buildHeadersFromCaptured(headers, chatId);
 
       const completionsResult = await requestCompletionsWithBrowserFallback({
@@ -1207,9 +1319,18 @@ export async function generateImage(params: {
       });
 
       const { status: completionsStatus, rawBody } = completionsResult;
+      const policyMessage = detectMediaContentPolicyError(rawBody);
+      if (policyMessage) {
+        throw new ContentPolicyError(policyMessage);
+      }
+      if (completionsStatus === 403) {
+        throw new ContentPolicyError(
+          `Upstream rejected the image ${operation}: ${rawBody.substring(0, 200)}`,
+        );
+      }
       if (completionsStatus !== 200) {
         throw new UpstreamError(
-          `Image generation request failed: ${completionsStatus} ${rawBody.substring(0, 200)}`,
+          `Image ${operation} request failed: ${completionsStatus} ${rawBody.substring(0, 200)}`,
         );
       }
 
@@ -1237,7 +1358,7 @@ export async function generateImage(params: {
           throw err;
         }
         throw new UpstreamError(
-          "No image URL found in generation response",
+          `No image URL found in ${operation} response`,
         );
       }
 
@@ -1261,6 +1382,12 @@ export async function generateImage(params: {
       lastError = err instanceof Error ? err : new Error(String(err));
 
       if (externalSignal?.aborted) {
+        throw lastError;
+      }
+
+      // Moderation rejection is deterministic — retrying another account (or
+      // the same one) cannot succeed and would only burn quota.
+      if (lastError instanceof ContentPolicyError) {
         throw lastError;
       }
 
@@ -1328,7 +1455,7 @@ export async function generateImage(params: {
     throw lastError;
   }
   throw new UpstreamError(
-    `Image generation failed after ${MAX_ACCOUNT_ATTEMPTS} attempts: ${lastError?.message}`,
+    `Image ${operation} failed after ${MAX_ACCOUNT_ATTEMPTS} attempts: ${lastError?.message}`,
   );
 }
 

@@ -12,7 +12,7 @@ import { getAccountCooldownInfo } from "../core/account-manager.js";
 import { app as modelsApp } from "./models.js";
 import { chatCompletions, chatCompletionsStop } from "../routes/chat.js";
 import { uploadFile } from "../routes/upload.js";
-import { imagesGenerations } from "../routes/images.js";
+import { imagesEdits, imagesGenerations } from "../routes/images.js";
 import { videosGenerations, videoTaskStatus } from "../routes/videos.js";
 import { responsesApp } from "../routes/responses/index.js";
 import { completionsLegacy } from "../routes/completions.js";
@@ -302,6 +302,7 @@ app.post("/v1/chat/completions/stop", chatCompletionsStop);
 app.post("/v1/completions", completionsLegacy);
 app.post("/v1/upload", uploadFile);
 app.post("/v1/images/generations", imagesGenerations);
+app.post("/v1/images/edits", imagesEdits);
 app.post("/v1/videos/generations", videosGenerations);
 app.get("/v1/tasks/status/:taskId", videoTaskStatus);
 app.get("/v1/chat/mode", (c) => {

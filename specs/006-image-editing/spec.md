@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Implemented (2026-11-08)
 
 **Input**: Gap analysis vs `Rfym21/Qwen2API` (`/v1/images/edits`) and
 `encryptarun/qwen-api` (image editing). The current project exposes

@@ -62,7 +62,7 @@ Every contribution helps cover infrastructure costs, proxy bandwidth, and test a
 - **Large-Context Externalization** — When the full agent history exceeds `QWEN_EXTERNALIZE_CONTEXT_BYTES` (default 90 KB) and the request carries tools, the history is uploaded as a Qwen text attachment and only the latest turn stays inline. This avoids Qwen's ~128 KiB WAF/captcha tripwire on long agentic loops. A prefix cache (`QWEN_EXTERNALIZE_CACHE_*`) reuses the previous attachment across turns and inlines only the delta, avoiding a 100–300 KB re-upload per agent turn.
 - **Opt-In Web Search with Citations** — Enable Qwen web search per request (`web_search`, `web_search_options`, the `X-QwenProxy-Web-Search` header, or a `-search` model suffix). Returned sources are exposed as OpenAI-style `annotations` (`url_citation`) plus a `search_results` extension, with `X-QwenProxy-Web-Search` and `search` metadata reporting whether search actually ran.
 - **Self-Healing Tool Call Parser** — Handles fragmented streams, broken JSON parameters, unified `<qpx_call>` tags, fuzzy name matching (`readFile` → `read_file`), and intelligent auto-retry ladders.
-- **Image & Video Generation** — Dedicated `/v1/images/generations` and `/v1/videos/generations` endpoints with flagship models (`qwen-image-3.0-pro`, `wan3.0-video`, `wan2.7-image-pro`).
+- **Image & Video Generation** — Dedicated `/v1/images/generations`, `/v1/images/edits` and `/v1/videos/generations` endpoints with flagship models (`qwen-image-3.0-pro`, `wan3.0-video`, `wan2.7-image-pro`). Image edits accept multipart `image` + `prompt` uploads (PNG/JPEG/WebP/GIF) and the same account/quota/captcha pipeline as generation.
 - **Observability & Health Monitoring** — Real-time metrics at `/health`, `/metrics` (Prometheus), RSS watchdog, and unified clean log pairs per turn.
 
 ---
@@ -451,6 +451,7 @@ Standard OpenAI `reasoning_effort` values (`low`, `medium`, `high`) are supporte
 | Endpoint | Method | Description |
 | :--- | :---: | :--- |
 | `/v1/images/generations` | POST | Image generation (`qwen-image-3.0-pro`, `wan2.7-image-pro`) |
+| `/v1/images/edits` | POST | Image editing via multipart `image` + `prompt` (`qwen-image-3.0-pro` by default) |
 | `/v1/videos/generations` | POST | Video generation (`wan3.0-video` up to 1080P, `wan2.7-t2v`) |
 | `/v1/tasks/status/:taskId` | GET | Check asynchronous video task progress |
 

@@ -1,4 +1,19 @@
-import "dotenv/config";
+import fs from "node:fs";
+import dotenv from "dotenv";
+import { getEnvFilePath, isRunningUnderNodeTest } from "./paths.ts";
+
+// Load the deployment .env for entrypoints that reach the logger before
+// config.ts. Tests must never pick up the real .env (it carries the live
+// API_KEY), so mirror the config.ts guard instead of `dotenv/config`, which
+// always loads the process cwd .env.
+if (!isRunningUnderNodeTest()) {
+  const envPath = getEnvFilePath();
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath, quiet: true });
+  } else {
+    dotenv.config({ quiet: true });
+  }
+}
 
 /**
  * Mask an email address for safe logging.

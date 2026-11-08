@@ -105,6 +105,58 @@ export class Metrics extends EventEmitter {
         "Detected conversation topic changes",
       ],
 
+      // Externalized-context cache (spec 013)
+      [
+        "externalized_context.cache.hit",
+        "counter",
+        "Externalized-context uploads reused",
+      ],
+      [
+        "externalized_context.cache.miss",
+        "counter",
+        "Externalized-context lookups without a matching prefix",
+      ],
+      [
+        "externalized_context.cache.refresh",
+        "counter",
+        "Cached prefixes discarded because the delta was too large",
+      ],
+      [
+        "externalized_context.cache.eviction",
+        "counter",
+        "Externalized-context entries evicted by LRU",
+      ],
+      [
+        "externalized_context.cache.ttl_expired",
+        "counter",
+        "Externalized-context entries dropped after TTL expiry",
+      ],
+      [
+        "externalized_context.cache.upload",
+        "counter",
+        "Fresh externalized-context uploads",
+      ],
+      [
+        "externalized_context.cache.invalidation",
+        "counter",
+        "Externalized-context entries invalidated after upstream failures",
+      ],
+      [
+        "externalized_context.cache.failed",
+        "counter",
+        "Externalized-context cache operations that fell back to a fresh upload",
+      ],
+      [
+        "externalized_context.cache.reused_bytes",
+        "counter",
+        "Upload bytes avoided by externalized-context cache hits",
+      ],
+      [
+        "externalized_context.cache.entries",
+        "gauge",
+        "Current number of externalized-context cache entries",
+      ],
+
       // Watchdog metrics
       [
         "watchdog.ram.status",

@@ -1,12 +1,24 @@
-import "dotenv/config";
 import crypto from "crypto";
 import fs from "node:fs";
 import path from "node:path";
+import dotenv from "dotenv";
 import { getDatabase, deleteAuthSession } from "./database.ts";
 import { decrypt, encrypt, isEncrypted } from "./crypto-utils.ts";
-import { getAccountProfilePath, getProfilesDir, isRunningUnderNodeTest } from "./paths.ts";
+import { getAccountProfilePath, getEnvFilePath, getProfilesDir, isRunningUnderNodeTest } from "./paths.ts";
 import { updateEnvVariable } from "./local-auth.ts";
 import { maskProxyUrl, parseAccountProxyEnv, parseProxyUrl } from "./proxy-config.ts";
+
+// Entrypoints that touch accounts before config.ts still need the deployment
+// .env; tests must stay isolated on data-test/.env and never read the real
+// .env (it contains the live API_KEY and production accounts).
+if (!isRunningUnderNodeTest()) {
+  const envPath = getEnvFilePath();
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath, quiet: true });
+  } else {
+    dotenv.config({ quiet: true });
+  }
+}
 
 export interface QwenAccount {
   id: string;

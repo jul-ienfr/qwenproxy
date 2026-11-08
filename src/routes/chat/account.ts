@@ -9,8 +9,9 @@ import {
 import { markAccountSuccessful, markAccountFailed, getAccountsByPriority } from "../../core/account-priority.ts";
 import { recordWafHardBlock, noteWafRecovery } from "../../core/waf-isolation.ts";
 import { isCaptchaRecoveryInBackoff } from "../../services/captcha-coordinator.ts";
-import { loadAccounts, type QwenAccount } from "../../core/accounts.ts";
+import { loadAccounts, getAccountCredentials, type QwenAccount } from "../../core/accounts.ts";
 import { config, type ChatMode } from "../../core/config.ts";
+import { metrics } from "../../core/metrics.js";
 import { ClientAbortedError, UpstreamRateLimit, ValidationError } from "../../core/errors.ts";
 import {
   assertPromptWithinLimits,
@@ -66,10 +67,16 @@ import type { QwenFileEntry } from "../upload.ts";
 import type { Message } from "../../utils/types.ts";
 import { buildRepeatedToolCallReminder } from "../../utils/tool-call-guard.ts";
 import {
+  computeExternalizedContextVariantHash,
+  getExternalizedContextCache,
+  sliceUtf8Tail,
+} from "../../services/externalized-context-cache.ts";
+import {
 	classifyRetryAction,
 	isAntiBotError as isAntiBotPolicyError,
 	isAccountInitializationError,
 	isChatInProgressError,
+	isNetworkLikeError,
 	isQuotaLikeError,
 	isTerminalLocalError,
 	shouldRetryInvalidInputOnSameAccount,
@@ -140,6 +147,35 @@ function buildExternalizedInlinePrompt(
     return `${header}${truncated}\n\n[The latest turn was truncated inline because it is too large; the complete version is in the attached file.]`;
   }
   return `${header}${latest}`;
+}
+
+/**
+ * Build the inline prompt when a previously uploaded context file is reused.
+ * The attachment already carries everything up to `prefixBytes`; only the
+ * delta since then must stay inline. Keeping the delta small is what makes the
+ * reuse safe: no context is dropped, unlike a full re-upload per turn.
+ */
+function buildReusedContextInlinePrompt(
+  delta: Buffer,
+  maxBytes: number,
+  prefixBytes: number,
+  totalBytes: number,
+): string {
+  const header =
+    `[QwenProxy externalized context]\n` +
+    `The conversation prefix (${prefixBytes} of ${totalBytes} bytes) is attached as a text file. ` +
+    `Read that file before answering and continue the task from the new turn below. ` +
+    `Do not repeat earlier tool calls or prior answers unless the new turn requires it.\n\n` +
+    `New turn:\n`;
+
+  if (delta.length === 0) return header;
+
+  const budget = Math.max(0, maxBytes - Buffer.byteLength(header, "utf8"));
+  const body = sliceUtf8Tail(delta, budget).toString("utf8");
+  if (delta.length > budget) {
+    return `${header}${body}\n\n[The beginning of the new turn was truncated inline because it is too large; the complete conversation prefix is in the attached file.]`;
+  }
+  return `${header}${body}`;
 }
 
 /**
@@ -552,9 +588,6 @@ export async function acquireUpstreamStream(
 	const triedAccountIds = new Set<string>();
 	let lastError: any = null;
 	let antiBotRotations = 0;
-	let externalizedContextFile: QwenFileEntry | null = null;
-	let externalizedForAccountId: string | null = null;
-	let externalizedBytes = 0;
 
 	while (account) {
 		const accountId = account.id;
@@ -663,6 +696,8 @@ export async function acquireUpstreamStream(
 
 			let attemptFiles = allFiles;
 			let externalizedPromptOverride: string | null = null;
+			let externalizedFromCache = false;
+			let externalizedCacheEntryId: string | null = null;
 			const fullPromptBytes = Buffer.byteLength(params.fullPrompt, "utf8");
 			const shouldExternalizeContext =
 				config.qwen.externalizeContextEnabled &&
@@ -671,44 +706,141 @@ export async function acquireUpstreamStream(
 				(params.toolsCount ?? 0) > 0;
 			if (shouldExternalizeContext) {
 				try {
-					if (
-						externalizedForAccountId !== accountId ||
-						!externalizedContextFile
-					) {
-						const { getBasicHeaders } = await import(
-							"../../services/auth-playwright.ts"
-						);
-						const basic = await getBasicHeaders(accountId);
-						const uploadHeaders = {
-							cookie: basic.cookie,
-							"user-agent": basic.userAgent,
-							"bx-ua": basic.bxUa,
-							"bx-umidtoken": basic.bxUmidtoken,
-							"bx-v": basic.bxV,
-						};
-						const { uploadTextAsQwenFile } = await import("../upload.ts");
-						const filename = `qwenproxy-context-${Date.now()}.txt`;
-						externalizedContextFile = await uploadTextAsQwenFile(
-							filename,
-							params.fullPrompt,
-							uploadHeaders,
-							accountId,
-						);
-						externalizedForAccountId = accountId;
-						externalizedBytes = fullPromptBytes;
-						console.log(
-							`[Chat] Context externalized | account=${accountEmail} | bytes=${fullPromptBytes} | file=${filename}`,
-						);
+					const useCache = config.qwen.externalizeContextCacheEnabled;
+					const promptBuffer = Buffer.from(params.fullPrompt, "utf8");
+					const liveBudget = config.qwen.externalizeLivePromptBytes;
+					const cache = useCache ? getExternalizedContextCache() : null;
+					const variantHash = cache
+						? computeExternalizedContextVariantHash(
+								params.requestPersonalizationInstruction ?? "",
+								getAccountCredentials(accountId)?.proxy ?? null,
+							)
+						: "";
+					let file: QwenFileEntry | null = null;
+
+					if (cache) {
+						const hit = cache.peek(accountId, variantHash, promptBuffer);
+						if (hit) {
+							const deltaBytes = promptBuffer.length - hit.prefixBytes;
+							if (deltaBytes <= liveBudget) {
+								cache.recordHit(hit.entry);
+								file = hit.entry.file;
+								externalizedFromCache = true;
+								externalizedCacheEntryId = hit.entry.id;
+								externalizedPromptOverride = buildReusedContextInlinePrompt(
+									promptBuffer.subarray(hit.prefixBytes),
+									liveBudget,
+									hit.prefixBytes,
+									promptBuffer.length,
+								);
+								console.log(
+									`[Chat] Context cache hit | account=${accountEmail} | prefix=${hit.prefixBytes}b new=${deltaBytes}b file=${hit.entry.filename} | age=${Math.round((Date.now() - hit.entry.createdAt) / 1000)}s`,
+								);
+							} else {
+								cache.recordRefresh();
+								console.log(
+									`[Chat] Context cache refresh | account=${accountEmail} | prefix=${hit.prefixBytes}b new=${deltaBytes}b | reason=delta-exceeds-live-budget`,
+								);
+							}
+						} else {
+							cache.recordMiss();
+						}
 					}
-					if (externalizedContextFile) {
-						attemptFiles = [...allFiles, externalizedContextFile];
-						externalizedPromptOverride = buildExternalizedInlinePrompt(
-							params.messages ?? [],
-							config.qwen.externalizeLivePromptBytes,
-							externalizedBytes,
-						);
+
+					if (!file) {
+						const upload = async (): Promise<{
+							file: QwenFileEntry;
+							fromCache: boolean;
+							cacheEntryId: string | null;
+							inline: string;
+						}> => {
+							// Another turn may have uploaded a matching prefix while we
+							// waited for the per-account lock: reuse it instead of paying
+							// for a second OSS upload.
+							if (cache) {
+								const again = cache.peek(accountId, variantHash, promptBuffer);
+								if (
+									again &&
+									promptBuffer.length - again.prefixBytes <= liveBudget
+								) {
+									cache.recordHit(again.entry);
+									console.log(
+										`[Chat] Context cache hit | account=${accountEmail} | prefix=${again.prefixBytes}b new=${promptBuffer.length - again.prefixBytes}b file=${again.entry.filename} | source=single-flight`,
+									);
+									return {
+										file: again.entry.file,
+										fromCache: true,
+										cacheEntryId: again.entry.id,
+										inline: buildReusedContextInlinePrompt(
+											promptBuffer.subarray(again.prefixBytes),
+											liveBudget,
+											again.prefixBytes,
+											promptBuffer.length,
+										),
+									};
+								}
+							}
+
+							const { getBasicHeaders } = await import(
+								"../../services/auth-playwright.ts"
+							);
+							const basic = await getBasicHeaders(accountId);
+							const uploadHeaders = {
+								cookie: basic.cookie,
+								"user-agent": basic.userAgent,
+								"bx-ua": basic.bxUa,
+								"bx-umidtoken": basic.bxUmidtoken,
+								"bx-v": basic.bxV,
+							};
+							const { uploadTextAsQwenFile } = await import("../upload.ts");
+							const filename = `qwenproxy-context-${Date.now()}.txt`;
+							const uploaded = await uploadTextAsQwenFile(
+								filename,
+								params.fullPrompt,
+								uploadHeaders,
+								accountId,
+							);
+							if (cache) {
+								cache.store({
+									accountId,
+									variantHash,
+									prompt: promptBuffer,
+									filename,
+									file: uploaded,
+								});
+							}
+							console.log(
+								`[Chat] Context externalized | account=${accountEmail} | bytes=${fullPromptBytes} | file=${filename} | cache=${cache ? "stored" : "disabled"}`,
+							);
+							return {
+								file: uploaded,
+								fromCache: false,
+								cacheEntryId: null,
+								inline: buildExternalizedInlinePrompt(
+									params.messages ?? [],
+									liveBudget,
+									fullPromptBytes,
+								),
+							};
+						};
+
+						const uploaded = cache
+							? await cache.withLock(`${accountId}:${variantHash}`, upload)
+							: await upload();
+						file = uploaded.file;
+						externalizedFromCache = uploaded.fromCache;
+						externalizedCacheEntryId = uploaded.cacheEntryId;
+						externalizedPromptOverride = uploaded.inline;
+					}
+
+					if (file) {
+						attemptFiles = [...allFiles, file];
 					}
 				} catch (externalizeErr) {
+					externalizedFromCache = false;
+					externalizedCacheEntryId = null;
+					externalizedPromptOverride = null;
+					metrics.increment("externalized_context.cache.failed");
 					console.warn(
 						`[Chat] Context externalization failed | account=${accountEmail} | ${externalizeErr instanceof Error ? externalizeErr.message : String(externalizeErr)}`,
 					);
@@ -795,6 +927,28 @@ export async function acquireUpstreamStream(
 					},
 					releaseAccountLease: result.releaseAccountLease,
 				};
+			}
+
+			if (
+				externalizedFromCache &&
+				externalizedCacheEntryId &&
+				!isChatInProgressError(result.error) &&
+				!isQuotaLikeError(result.error) &&
+				!isAccountInitializationError(result.error) &&
+				!isAntiBotError(result.error) &&
+				!isNetworkLikeError(result.error) &&
+				!isTerminalLocalError(result.error)
+			) {
+				// The upstream rejected a reused attachment (e.g. an expired file
+				// id). Drop it so the next attempt/request uploads a fresh file
+				// instead of repeating the same failure until the local TTL.
+				getExternalizedContextCache().invalidateEntry(
+					externalizedCacheEntryId,
+					"stream-failure",
+				);
+				console.warn(
+					`[Chat] Context cache invalidated | account=${accountEmail} | reason=stream-failure`,
+				);
 			}
 
 			lastError = result.error;
@@ -1988,16 +2142,32 @@ async function tryCreateStreamWithRetry(
 			params.forceNewChat = true;
 		}
 		// Drop files on retry for invalid_input to isolate file-related errors
-		if (policy.dropFiles && params.allFiles.length > 0) {
-			console.warn(
-				`🗂️  [Chat] Dropping ${params.allFiles.length} file(s) on retry to isolate invalid_input error:`,
-				params.allFiles.map((f) => ({
-						name: f.name,
-						type: f.type,
-						size: f.size ?? "unknown",
-					})),
+		if (policy.dropFiles) {
+			const variantHash = computeExternalizedContextVariantHash(
+				params.requestPersonalizationInstruction ?? "",
+				getAccountCredentials(currentAccountId)?.proxy ?? null,
 			);
-			params.allFiles = [];
+			const invalidated = getExternalizedContextCache().invalidateVariant(
+				currentAccountId,
+				variantHash,
+				"invalid_input",
+			);
+			if (invalidated > 0) {
+				console.warn(
+					`[Chat] Context cache invalidated | account=${currentAccountEmail} | reason=invalid_input | entries=${invalidated}`,
+				);
+			}
+			if (params.allFiles.length > 0) {
+				console.warn(
+					`🗂️  [Chat] Dropping ${params.allFiles.length} file(s) on retry to isolate invalid_input error:`,
+					params.allFiles.map((f) => ({
+							name: f.name,
+							type: f.type,
+							size: f.size ?? "unknown",
+						})),
+				);
+				params.allFiles = [];
+			}
 		}
 
 		if (!policy.retryable || attemptsLeft <= 0) {

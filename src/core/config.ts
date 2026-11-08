@@ -185,6 +185,9 @@ const envSchema = z
     QWEN_EXTERNALIZE_CONTEXT_ENABLED: z.string().default("true"),
     QWEN_EXTERNALIZE_CONTEXT_BYTES: z.string().default("90000"),
     QWEN_EXTERNALIZE_LIVE_PROMPT_BYTES: z.string().default("49152"),
+    QWEN_EXTERNALIZE_CACHE_ENABLED: z.string().default("true"),
+    QWEN_EXTERNALIZE_CACHE_TTL_SECONDS: z.string().default("3600"),
+    QWEN_EXTERNALIZE_CACHE_MAX_ENTRIES: z.string().default("64"),
     CONTEXT_METER_ENABLED: z.string().default("true"),
     CONTEXT_METER_WINDOW_TOKENS: z.string().default("0"),
     CONTEXT_METER_REPORT_USAGE: z.string().default("true"),
@@ -423,6 +426,16 @@ export const config = {
     externalizeLivePromptBytes: Math.max(
       0,
       parseInt(env.QWEN_EXTERNALIZE_LIVE_PROMPT_BYTES) || 49152,
+    ),
+    externalizeContextCacheEnabled:
+      env.QWEN_EXTERNALIZE_CACHE_ENABLED !== "false",
+    externalizeContextCacheTtlSeconds: Math.max(
+      1,
+      parseInt(env.QWEN_EXTERNALIZE_CACHE_TTL_SECONDS) || 3600,
+    ),
+    externalizeContextCacheMaxEntries: Math.max(
+      1,
+      parseInt(env.QWEN_EXTERNALIZE_CACHE_MAX_ENTRIES) || 64,
     ),
     deleteAllChatsOnShutdown: env.DELETE_ALL_CHATS_ON_SHUTDOWN === "true",
     autoCleanChatsOnStartup: env.AUTO_CLEAN_CHATS_ON_STARTUP !== "false",

@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: Gap analysis vs `Rfym21/Qwen2API`: `AGENT_CONTEXT_PREFIX_REUSE` reuses
 the parsed history prefix across turns (`AGENT_CONTEXT_PREFIX_TTL_SECONDS`,

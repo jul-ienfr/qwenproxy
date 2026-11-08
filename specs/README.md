@@ -25,7 +25,7 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 | 010 | [Native packaging and multi-arch](010-native-packaging-and-multiarch/spec.md) | P3 | — | Draft |
 | 011 | [Qwen CLI endpoint](011-qwen-cli-endpoint/spec.md) | P3 / conditional | Qwen Code quota | Draft |
 | 012 | [OpenAPI contract and docs](012-openapi-contract-and-docs/spec.md) | P2 | — | Draft |
-| 013 | [Externalized-context cache](013-externalized-context-cache/spec.md) | P2 | 001 for account isolation | Draft |
+| 013 | [Externalized-context cache](013-externalized-context-cache/spec.md) | P2 | 001 for account isolation | Implemented (prefix reuse + TTL/LRU) |
 
 ## Recommended implementation order
 

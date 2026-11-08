@@ -42,10 +42,10 @@
 - [x] T015 Mount `/admin/api/users` and protect it with `requireAdmin`.
 - [x] T016 Add `src/cli/users.ts` and the `users` npm script.
 - [x] T017 Update README and `.env.example` with auth, quotas and key handling.
-- [ ] T018 Add a TUI hint or status line showing per-user quota configuration
-  where the TUI already exposes server settings. Deferred to spec 003 (web
-  dashboard): the CLI and admin API already expose all quota state, and the TUI
-  has no per-user management screen in this slice.
+- [x] T018 Add a TUI hint or status line showing per-user quota configuration
+  where the TUI already exposes server settings. Deferred to spec 003 and
+  delivered by its dashboard Users tab (quota display + edit); the CLI and admin
+  API already expose all quota state.
 
 ## Phase 5 — Verification
 

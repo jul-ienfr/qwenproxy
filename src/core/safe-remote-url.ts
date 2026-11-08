@@ -43,7 +43,7 @@ const BLOCKED_HOSTS = new Set([
   "metadata.goog",
 ]);
 
-function isBlockedHostname(hostname: string): boolean {
+export function isBlockedHostname(hostname: string): boolean {
   const host = hostname.trim().toLowerCase().replace(/\.$/, "");
   if (!host) return true;
   if (BLOCKED_HOSTS.has(host)) return true;
@@ -52,6 +52,26 @@ function isBlockedHostname(hostname: string): boolean {
   }
   if (net.isIP(host) && isPrivateOrLocalIp(host)) return true;
   return false;
+}
+
+/**
+ * Synchronous safety check for a citation URL. Citations are only rendered by
+ * the client, never fetched by the proxy, so no DNS resolution is performed:
+ * a hostname that resolves to a private address at click time is out of scope.
+ */
+export function isSafeCitationUrl(raw: string): boolean {
+  if (typeof raw !== "string" || !raw.trim()) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  if (parsed.username || parsed.password) return false;
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
+  if (!hostname) return false;
+  return !isBlockedHostname(hostname);
 }
 
 export async function assertSafeRemoteMediaUrl(raw: string): Promise<URL> {

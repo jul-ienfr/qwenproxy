@@ -84,6 +84,16 @@ import {
   buildUsage,
 } from "./helpers.ts";
 import { isOverloadMessage, OVERLOAD_COOLDOWN_MS } from "../../utils/overload-detector.ts";
+import {
+  buildSearchOutcome,
+  buildUrlCitationAnnotations,
+  extractSearchInfo,
+  isSearchMetadataDelta,
+  mergeSearchSources,
+  toSearchResults,
+  webSearchHeaderValue,
+  type SearchSource,
+} from "../../core/citations.ts";
 
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {
@@ -200,6 +210,8 @@ export interface StreamProcessingParams {
   userPrompt: string;
   shouldParseToolCalls: boolean;
   declaredTools: any[];
+  /** Effective per-request web-search flag. */
+  webSearch?: boolean;
   tokenEstimationContext?: TokenEstimationContext;
   midStreamRetry?: {
     fullPrompt: string;
@@ -224,6 +236,8 @@ export interface StreamProcessingParams {
     contextMode?: ContextMeterMode;
     releaseAccountLease: () => void;
     messages?: Message[];
+    /** Opt-in web-search flag preserved across retries. */
+    webSearch?: boolean;
     /** How many malformed-tool-call auto-retries have already run (0-based). */
     malformedRetryCount?: number;
   };
@@ -265,6 +279,7 @@ export async function processNonStreamingResponse(
     userPrompt,
     shouldParseToolCalls,
     declaredTools,
+    webSearch = false,
     tokenEstimationContext,
     midStreamRetry,
     onAssistantComplete,
@@ -295,6 +310,7 @@ export async function processNonStreamingResponse(
         })
       : null;
     const toolCallsOut: any[] = [];
+    let searchSources: SearchSource[] = [];
     let buffer = "";
     let protocolBuffer = "";
     let protocolProbeBytes = 0;
@@ -446,6 +462,12 @@ export async function processNonStreamingResponse(
           ) {
             const delta = chunk.choices[0].delta;
 
+            const searchInfo = extractSearchInfo(delta, chunk);
+            if (searchInfo) {
+              searchSources = mergeSearchSources(searchSources, searchInfo);
+            }
+            const searchMetaDelta = isSearchMetadataDelta(delta);
+
             if (delta.extra?.update_member || chunk.update_member) {
               throw toRetryableStreamError(
                 "membership_limit",
@@ -480,7 +502,7 @@ export async function processNonStreamingResponse(
               }
             } else if (isAnswerPhase(delta.phase)) {
               isThinkingChunk = false;
-              if (delta.content !== undefined) {
+              if (!searchMetaDelta && delta.content !== undefined) {
                 const newContent = delta.content || "";
                 if (isOverloadMessage(newContent)) {
                   throw toRetryableStreamError(
@@ -701,6 +723,7 @@ export async function processNonStreamingResponse(
         contextMode: "replay",
         requestSignal: c.req.raw.signal,
         messages: midStreamRetry.messages,
+        webSearch: midStreamRetry.webSearch,
       });
 
       if ("error" in newStreamResult) {
@@ -790,6 +813,32 @@ export async function processNonStreamingResponse(
       );
     }
 
+    if (webSearch || searchSources.length > 0) {
+      const annotations = buildUrlCitationAnnotations(finalContent, searchSources);
+      if (webSearch || annotations.length > 0) {
+        message.annotations = annotations;
+      }
+      message.search_results = toSearchResults(searchSources);
+      if (webSearch) {
+        metrics.increment("search.requests");
+        if (searchSources.length > 0) {
+          metrics.increment("search.results", searchSources.length);
+        } else {
+          metrics.increment("search.no_results");
+          logger.warn("[search] requested but no sources returned", {
+            completionId,
+          });
+        }
+      }
+    }
+    const searchOutcome = webSearch
+      ? buildSearchOutcome(true, searchSources)
+      : undefined;
+    c.header(
+      "X-QwenProxy-Web-Search",
+      webSearchHeaderValue(webSearch, searchSources),
+    );
+
     if (isToolcallDebugEnabled()) {
       logger.debug("[chat] non-stream: sending response", {
         completionId,
@@ -849,6 +898,7 @@ export async function processNonStreamingResponse(
         },
       ],
       usage,
+      ...(searchOutcome ? { search: searchOutcome } : {}),
     });
   } finally {
     if (isToolcallDebugEnabled()) {
@@ -882,6 +932,7 @@ export async function processStreamingResponse(
     userPrompt,
     shouldParseToolCalls,
     declaredTools,
+    webSearch = false,
     tokenEstimationContext,
     midStreamRetry,
     onAssistantComplete,
@@ -914,6 +965,9 @@ export async function processStreamingResponse(
   c.header("Cache-Control", "no-cache, no-transform");
   c.header("Connection", "keep-alive");
   c.header("X-Accel-Buffering", "no");
+  // The final result is only known at the end of the stream; announce the
+  // request here and report the actual outcome in the terminal metadata chunk.
+  c.header("X-QwenProxy-Web-Search", webSearchHeaderValue(webSearch, null));
   // Store retry context for transparent mid-stream recovery
   const retryContext = {
     activeAccountId,
@@ -1228,6 +1282,7 @@ export async function processStreamingResponse(
       let lastRawContentSuffix = "";
       let finalContent = "";
       let reasoningBuffer = "";
+      let searchSources: SearchSource[] = [];
       let emittedModelOutput = false;
       let targetResponseId: string | null = null;
       let toolParser = shouldParseToolCalls
@@ -1592,6 +1647,7 @@ export async function processStreamingResponse(
           requestSignal: c.req.raw.signal,
           allowTemporarilyBusyAccountId: currentAccountId,
           messages: midStreamRetry.messages,
+          webSearch: midStreamRetry.webSearch,
         });
 
         if ("error" in newStreamResult) {
@@ -1627,6 +1683,7 @@ export async function processStreamingResponse(
         buffer = "";
         pendingParentId = null;
         upstreamDone = false;
+        searchSources = [];
 
         const newEntry = getStream(newStreamResult.completionId);
         removeStream(newStreamResult.completionId);
@@ -1875,6 +1932,12 @@ export async function processStreamingResponse(
             ) {
               const delta = chunk.choices[0].delta;
 
+              const searchInfo = extractSearchInfo(delta, chunk);
+              if (searchInfo) {
+                searchSources = mergeSearchSources(searchSources, searchInfo);
+              }
+              const searchMetaDelta = isSearchMetadataDelta(delta);
+
               if (delta.extra?.update_member || chunk.update_member) {
                 throw toRetryableStreamError(
                   "membership_limit",
@@ -1919,7 +1982,7 @@ export async function processStreamingResponse(
                 }
               } else if (isAnswerPhase(delta.phase)) {
                 isThinkingChunk = false;
-                if (delta.content !== undefined) {
+                if (!searchMetaDelta && delta.content !== undefined) {
                   const newContent = delta.content || "";
                   if (!emittedModelOutput && isOverloadMessage(newContent)) {
                     throw toRetryableStreamError(
@@ -2278,6 +2341,7 @@ export async function processStreamingResponse(
             contextMode: "replay",
             requestSignal: c.req.raw.signal,
             messages: midStreamRetry.messages,
+            webSearch: midStreamRetry.webSearch,
           });
 
           if ("error" in newStreamResult) {
@@ -2336,6 +2400,7 @@ export async function processStreamingResponse(
           targetResponseId = null;
           pendingParentId = null;
           upstreamDone = false;
+          searchSources = [];
           let retryErrorPayload: unknown = null;
           let retrySeedPending = true;
 
@@ -2423,6 +2488,12 @@ export async function processStreamingResponse(
                 continue;
               }
 
+              const retrySearchInfo = extractSearchInfo(delta, parsedChunk);
+              if (retrySearchInfo) {
+                searchSources = mergeSearchSources(searchSources, retrySearchInfo);
+              }
+              const retrySearchMetaDelta = isSearchMetadataDelta(delta);
+
               // The retry stream may also terminate with an answer-finished
               // delta when upstream sends no [DONE]. Leave the read loop
               // immediately so we don't stall on the keep-alive connection.
@@ -2451,7 +2522,7 @@ export async function processStreamingResponse(
                   lastThinkingSummarySuffix = result.contentSuffix;
                   if (vStr) foundStr = true;
                 }
-              } else if (delta.content !== undefined) {
+              } else if (!retrySearchMetaDelta && delta.content !== undefined) {
                 const newContent = delta.content || "";
                 const result = getIncrementalDelta(
                   lastRawContent,
@@ -2614,6 +2685,40 @@ export async function processStreamingResponse(
             completionId,
           },
         );
+      }
+
+      if (!clientDisconnected && (webSearch || searchSources.length > 0)) {
+        const annotations = buildUrlCitationAnnotations(
+          finalContent,
+          searchSources,
+        );
+        const searchOutcome = webSearch
+          ? buildSearchOutcome(true, searchSources)
+          : undefined;
+        if (webSearch) {
+          metrics.increment("search.requests");
+          if (searchSources.length > 0) {
+            metrics.increment("search.results", searchSources.length);
+          } else {
+            metrics.increment("search.no_results");
+            logger.warn("[search] requested but no sources returned", {
+              completionId,
+            });
+          }
+        }
+        await writeEvent({
+          id: completionId,
+          object: "chat.completion.chunk",
+          created: createdTimestamp,
+          model: body.model,
+          choices: [
+            makeChoice({
+              ...(webSearch || annotations.length > 0 ? { annotations } : {}),
+              search_results: toSearchResults(searchSources),
+            }),
+          ],
+          ...(searchOutcome ? { search: searchOutcome } : {}),
+        });
       }
 
       await writeEvent({

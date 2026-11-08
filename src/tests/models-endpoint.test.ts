@@ -16,7 +16,7 @@ const modelsPayload = {
         meta: {
           max_context_length: 4096,
           max_summary_generation_length: 2048,
-          capabilities: { thinking: true, vision: true },
+          capabilities: { thinking: true, vision: true, search: true },
           modality: ["text", "image"],
           chat_type: ["t2t", "t2i"],
           think_skip: { enable: true },
@@ -74,6 +74,19 @@ test("models endpoint returns ETag and supports 304", async () => {
       false,
       "synthetic -fast and -thinking variants must not be published",
     );
+    assert.equal(
+      body.data.some((m: any) => m.id.endsWith("-search")),
+      false,
+      "synthetic -search variants must not be published",
+    );
+    const searchModel = body.data.find(
+      (model: any) => model.id === "qwen-test-model",
+    );
+    assert.equal(searchModel.supports_search, true);
+    const nonSearchModel = body.data.find(
+      (model: any) => model.id === "qwen-text-only-model",
+    );
+    assert.equal(nonSearchModel.supports_search, false);
     assert.equal(
       body.data.filter((model: any) => model.id === "qwen-test-model").length,
       1,

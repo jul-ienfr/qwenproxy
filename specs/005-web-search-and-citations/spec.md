@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Implemented (2026-11-08)
 
 **Input**: Gap analysis vs `Rfym21/Qwen2API` (smart search) and
 `encryptarun/qwen-api` (web search with clickable citations and OpenAI-compatible
@@ -95,8 +95,9 @@ search-capable model.
 
 - **FR-001**: The system MUST accept an opt-in search flag per request (body
   field, header or documented model suffix).
-- **FR-002**: The system MUST set the Qwen search feature flags only when search
-  is requested and the model supports it.
+- **FR-002**: The system MUST set the Qwen search flags only when search is
+  requested, using Qwen's `search` chat type (`auto_search: true`); search
+  capability is advertised per model in `/v1/models`.
 - **FR-003**: The system MUST expose search capability in `/v1/models`
   metadata.
 - **FR-004**: The system MUST map upstream search results to OpenAI-compatible

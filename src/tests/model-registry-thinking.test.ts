@@ -119,7 +119,29 @@ test("model-registry: parses qwen3.8-max live metadata", () => {
   assert.equal(capabilities.supportsAudio, true);
   assert.equal(capabilities.canSkipThinking, true);
   assert.equal(capabilities.supportsCodeExecution, true);
+  assert.equal(capabilities.supportsSearch, true);
   assert.equal(capabilities.chatTypes.includes("t2i"), true);
+  assert.equal(
+    getModelCapabilities("qwen3.8-max-search", "qwen3.8-account").supportsSearch,
+    true,
+  );
+});
+
+test("model-registry: derives search support from chat type and defaults off", () => {
+  syncModelMetadata([
+    {
+      id: "qwen-search-chat-type",
+      info: { meta: { chat_type: ["t2t", "search"] } },
+    },
+    {
+      id: "qwen-no-search",
+      info: { meta: { capabilities: { thinking: true } } },
+    },
+  ]);
+
+  assert.equal(getModelCapabilities("qwen-search-chat-type").supportsSearch, true);
+  assert.equal(getModelCapabilities("qwen-no-search").supportsSearch, false);
+  assert.equal(getModelCapabilities("qwen-search-chat-type-search").supportsSearch, true);
 });
 
 test("model-registry: syncs the live Qwen context window and capabilities", () => {

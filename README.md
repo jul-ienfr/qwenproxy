@@ -60,6 +60,7 @@ Every contribution helps cover infrastructure costs, proxy bandwidth, and test a
 - **On-Demand Warmup & Multi-Account Pool** — Boots instantly with the **primary account ready**; standby accounts remain idle and warm up lazily on demand (during failover or rotation).
 - **Clean Personalization Synchronization** — System prompts and tools ride account personalization (`/settings/personalization`), mirroring the official web client and avoiding WAF bot triggers.
 - **Large-Context Externalization** — When the full agent history exceeds `QWEN_EXTERNALIZE_CONTEXT_BYTES` (default 90 KB) and the request carries tools, the history is uploaded as a Qwen text attachment and only the latest turn stays inline. This avoids Qwen's ~128 KiB WAF/captcha tripwire on long agentic loops. A prefix cache (`QWEN_EXTERNALIZE_CACHE_*`) reuses the previous attachment across turns and inlines only the delta, avoiding a 100–300 KB re-upload per agent turn.
+- **Opt-In Web Search with Citations** — Enable Qwen web search per request (`web_search`, `web_search_options`, the `X-QwenProxy-Web-Search` header, or a `-search` model suffix). Returned sources are exposed as OpenAI-style `annotations` (`url_citation`) plus a `search_results` extension, with `X-QwenProxy-Web-Search` and `search` metadata reporting whether search actually ran.
 - **Self-Healing Tool Call Parser** — Handles fragmented streams, broken JSON parameters, unified `<qpx_call>` tags, fuzzy name matching (`readFile` → `read_file`), and intelligent auto-retry ladders.
 - **Image & Video Generation** — Dedicated `/v1/images/generations` and `/v1/videos/generations` endpoints with flagship models (`qwen-image-3.0-pro`, `wan3.0-video`, `wan2.7-image-pro`).
 - **Observability & Health Monitoring** — Real-time metrics at `/health`, `/metrics` (Prometheus), RSS watchdog, and unified clean log pairs per turn.
@@ -388,6 +389,35 @@ Models and context windows are synchronized dynamically from Qwen's live `/api/m
 - Base Model — **Auto mode** (Qwen decides whether to reason), e.g.: `qwen3.8-max`
 - `-fast` — Thinking disabled for rapid generation, e.g.: `qwen3.8-max-fast`
 - `-thinking` — Thinking forced ON, e.g.: `qwen3.8-max-thinking`
+- `-search` — Web search ON for this request, e.g.: `qwen3.8-max-search`. Combine with a reasoning suffix in either order (`qwen3.8-max-search-thinking`, `qwen3.8-max-high-search`).
+
+### Web Search & Citations
+
+Web search is **opt-in per request**; requests that do not ask for it keep
+`auto_search: false`. Enable it with any of:
+
+- body `"web_search": true` (or `"webSearch": true`);
+- body `"web_search_options": { ... }` (presence enables search);
+- header `X-QwenProxy-Web-Search: 1` (or `true`/`on`/`yes`);
+- a `-search` model suffix.
+
+All enabling paths use Qwen's `search` chat type (`auto_search: true` plus
+`chat_type`/`sub_chat_type: "search"`); `auto_search` alone with `t2t` was
+live-verified to answer without searching. An explicit `false` in the body or
+header wins over every enabling source.
+Sources returned upstream are normalised, de-duplicated and URL-validated
+(http/https only, no credentials, no local/private hosts). They appear as
+OpenAI `annotations` (`type: "url_citation"`), as the documented
+`search_results` array, and in the final response metadata:
+
+```json
+{ "search": { "requested": true, "ran": true, "source_count": 3 } }
+```
+
+`X-QwenProxy-Web-Search` reports `not_requested`, `requested` (streaming, before
+the outcome is known), `ran`, or `no_results`. `/v1/models` exposes
+`supports_search` per model; synthetic `-search` variants are not listed
+separately.
 
 ### `reasoning_effort` Parameter
 

@@ -87,6 +87,47 @@ export function stripThinkingSuffix(model: string): {
 }
 
 /**
+ * Remove a `-search` suffix (alone or combined with a reasoning suffix).
+ * `-thinking-search` and `-search-thinking` both normalise to `-thinking`.
+ */
+export function stripSearchSuffix(model: string): {
+  baseModel: string;
+  search: boolean;
+} {
+  const normalized = model.trim();
+  const combined = normalized.match(
+    /-search-(low|medium|high|fast|no-thinking|thinking)$/,
+  );
+  if (combined) {
+    return {
+      baseModel: `${normalized.slice(0, -combined[0].length)}-${combined[1]}`,
+      search: true,
+    };
+  }
+  if (normalized.endsWith("-search")) {
+    return {
+      baseModel: normalized.slice(0, -"-search".length),
+      search: true,
+    };
+  }
+  return { baseModel: normalized, search: false };
+}
+
+/**
+ * Parse all public suffixes in one pass: `-search` first, then the reasoning
+ * suffix. The returned base model is always sent upstream.
+ */
+export function parseModelSuffix(model: string): {
+  baseModel: string;
+  enableThinking: boolean;
+  reasoningMode: ReasoningMode;
+  search: boolean;
+} {
+  const { baseModel, search } = stripSearchSuffix(model);
+  return { ...stripThinkingSuffix(baseModel), search };
+}
+
+/**
  * Mapeia modelos populares de terceiros (OpenAI / Anthropic) para o tier Qwen equivalente:
  * - mini / haiku / 3.5 -> qwen3.7-plus
  * - gpt-4* / o1* / o3* / opus / sonnet / claude-* -> qwen3.8-max
@@ -132,7 +173,7 @@ export function mapClientModelToQwen(
   enableAliases = true,
 ): string {
   if (!model) return model;
-  const base = stripThinkingSuffix(model.trim()).baseModel;
+  const base = parseModelSuffix(model).baseModel;
   if (enableAliases) {
     return mapKnownModelAlias(base);
   }

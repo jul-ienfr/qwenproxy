@@ -54,6 +54,10 @@ export interface OpenAIRequest {
   reasoning_effort?: string | null;
   /** camelCase alias overlaid by OpenCode-style configs. */
   reasoningEffort?: string | null;
+  /** Opt-in Qwen web search for this request. */
+  web_search?: boolean;
+  /** Presence also enables search, matching OpenAI's web search options. */
+  web_search_options?: Record<string, unknown>;
   stream_options?: {
     include_usage?: boolean;
   };

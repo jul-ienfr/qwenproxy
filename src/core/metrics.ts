@@ -39,6 +39,10 @@ export class Metrics extends EventEmitter {
       ["toolcalls.malformed", "counter", "Malformed tool calls detected"],
       ["toolcalls.recovered", "counter", "Malformed tool calls recovered/healed"],
       ["chats.cleaned", "counter", "Remote chats automatically cleaned"],
+      // Web search metrics
+      ["search.requests", "counter", "Requests that opted into web search"],
+      ["search.results", "counter", "Search sources returned to clients"],
+      ["search.no_results", "counter", "Search requests that returned no sources"],
       // Stream metrics
       ["streams.active", "gauge", "Active SSE streams"],
       ["streams.errors", "counter", "Stream errors"],

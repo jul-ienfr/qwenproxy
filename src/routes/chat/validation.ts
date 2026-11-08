@@ -8,7 +8,7 @@ import { getBasicHeaders } from "../../services/auth-playwright.ts";
 import { buildToolInstructions } from "../../tools/instructions.ts";
 import {
   mapClientModelToQwen,
-  stripThinkingSuffix,
+  parseModelSuffix,
   type ReasoningMode,
 } from "../../core/model-alias.ts";
 
@@ -35,6 +35,8 @@ export interface ParsedRequest {
   modelId: string;
   enableThinking: boolean;
   reasoningMode: ReasoningMode;
+  /** Effective per-request web-search flag (selects Qwen's search chat type). */
+  webSearch: boolean;
   messageCount: number;
   currentMessageCount: number;
 }
@@ -62,8 +64,15 @@ export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
   const prompt = promptParts.join("");
   const currentPrompt = currentPromptParts.join("");
 
-  // Thinking suffixes → base model + reasoning mode
-  const { baseModel, enableThinking, reasoningMode } = stripThinkingSuffix(body.model);
+  // Thinking suffixes → base model + reasoning mode; an optional -search
+  // suffix is stripped as well and enables web search for this request.
+  const {
+    baseModel,
+    enableThinking,
+    reasoningMode,
+    search: searchSuffix,
+  } = parseModelSuffix(body.model);
+  const webSearch = resolveWebSearch(c, body, searchSuffix);
   const modelId = mapClientModelToQwen(baseModel, config.qwen.mapOpenAiModels);
 
   // OpenAI `reasoning_effort` (none|minimal|low|medium|high|xhigh|max).
@@ -97,9 +106,53 @@ export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
     modelId,
     enableThinking: finalEnableThinking,
     reasoningMode: finalReasoningMode,
+    webSearch,
     messageCount: promptParts.length,
     currentMessageCount: currentPromptParts.length,
   };
+}
+
+function parseBooleanFlag(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on", "enabled"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "off", "disabled"].includes(normalized)) {
+      return false;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the per-request search opt-in. Sources: body `web_search` (or its
+ * camelCase alias), the `X-QwenProxy-Web-Search` header, the presence of
+ * `web_search_options`, and a `-search` model suffix. An explicit `false` from
+ * the body or header wins over every enabling source.
+ */
+export function resolveWebSearch(
+  c: Context,
+  body: OpenAIRequest,
+  suffixSearch: boolean,
+): boolean {
+  const bodyAny = body as any;
+  const bodyFlag =
+    parseBooleanFlag(bodyAny.web_search) ??
+    parseBooleanFlag(bodyAny.webSearch);
+  const headerFlag = parseBooleanFlag(
+    c.req.header("x-qwenproxy-web-search"),
+  );
+
+  if (bodyFlag === false || headerFlag === false) return false;
+
+  const optionsEnabled =
+    bodyAny.web_search_options !== null &&
+    typeof bodyAny.web_search_options === "object";
+
+  return bodyFlag === true || headerFlag === true || optionsEnabled || suffixSearch;
 }
 
 async function buildPromptFromMessages(

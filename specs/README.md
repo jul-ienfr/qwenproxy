@@ -17,7 +17,7 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 | 002 | [Multi-user API keys and quotas](002-multi-user-api-keys-and-quotas/spec.md) | P1 | — | Implemented (live-verified) |
 | 003 | [Web administration dashboard](003-web-admin-dashboard/spec.md) | P1 | 002 | Implemented (live-verified) |
 | 004 | [Gemini-compatible API](004-gemini-compatible-api/spec.md) | P2 | — | Draft |
-| 005 | [Web search and citations](005-web-search-and-citations/spec.md) | P2 | — | Draft |
+| 005 | [Web search and citations](005-web-search-and-citations/spec.md) | P2 | — | Implemented (opt-in search, URL citations) |
 | 006 | [Image editing](006-image-editing/spec.md) | P2 | — | Draft |
 | 007 | [Qwen specialized modes](007-qwen-specialized-modes/spec.md) | P3 | 008 for async tasks | Draft |
 | 008 | [Redis persistence and scaling](008-redis-persistence-and-scaling/spec.md) | P2 | — | Draft |

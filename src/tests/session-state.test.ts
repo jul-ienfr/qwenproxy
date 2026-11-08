@@ -122,7 +122,25 @@ test("createQwenStream matches the latest browser completion payload", async () 
       "thinking_format" in capturedPayload.messages[0].feature_config,
       false,
     );
+    assert.equal(capturedPayload.messages[0].chat_type, "t2t");
+    assert.equal(capturedPayload.messages[0].sub_chat_type, "t2t");
     await result.stream.cancel();
+
+    const searchResult = await createQwenStream(
+      "Search payload",
+      true,
+      "qwen3.7-plus",
+      null,
+      "canonical-search-account",
+      undefined,
+      { chatSessionId: "canonical-search-chat", search: true },
+    );
+
+    assert.equal(capturedPayload.messages[0].feature_config.auto_search, true);
+    assert.equal(capturedPayload.messages[0].chat_type, "search");
+    assert.equal(capturedPayload.messages[0].sub_chat_type, "search");
+    assert.equal(capturedPayload.messages[0].extra.meta.subChatType, "search");
+    await searchResult.stream.cancel();
 
     const thinkingResult = await createQwenStream(
       "Thinking payload",

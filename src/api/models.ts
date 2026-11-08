@@ -57,9 +57,16 @@ export type PublicModel = {
 };
 
 function baseModelId(modelId: string): string {
-  // Strip any reasoning suffix (-low, -medium, -high, -fast, -thinking) so the
-  // public /v1/models catalog returns strictly canonical unique base models without duplicates.
-  return modelId.replace(/-(?:low|medium|high|fast|no-thinking|thinking)$/, "");
+  // Strip any search/reasoning suffix (-search, -low, -medium, -high, -fast,
+  // -thinking) so the public /v1/models catalog returns strictly canonical
+  // unique base models without duplicates.
+  const withoutSearch = modelId
+    .replace(/-search-(?:low|medium|high|fast|no-thinking|thinking)$/, "")
+    .replace(/-search$/, "");
+  return withoutSearch.replace(
+    /-(?:low|medium|high|fast|no-thinking|thinking)$/,
+    "",
+  );
 }
 /**
  * Returns the public model catalog from the selected account's live
@@ -80,10 +87,12 @@ export function expandModelVariants(
     if (!model?.id) continue;
     const baseId = baseModelId(model.id);
     if (!baseModels.has(baseId)) {
+      const capabilities = getModelCapabilities(baseId, accountId);
       baseModels.set(baseId, {
         ...model,
         id: baseId,
         object: "model",
+        supports_search: capabilities.supportsSearch,
       });
     }
   }

@@ -2890,6 +2890,8 @@ export async function createQwenStream(
     parallelEscape?: boolean;
     /** "thread" (chat_mode:"normal") or "temp" (chat_mode:"local"). */
     chatMode?: ChatMode;
+    /** Opt-in Qwen web search for this request. */
+    search?: boolean;
   },
   signal?: AbortSignal,
 ): Promise<{
@@ -2965,6 +2967,8 @@ async function createQwenStreamInternal(
     parallelEscape?: boolean;
     /** "thread" (chat_mode:"normal") or "temp" (chat_mode:"local"). */
     chatMode?: ChatMode;
+    /** Opt-in Qwen web search for this request. */
+    search?: boolean;
   } | undefined,
   signal: AbortSignal | undefined,
   releaseStreamLock: () => void,
@@ -3020,6 +3024,16 @@ async function createQwenStreamInternal(
   // The upstream always receives the real base model ID. Reasoning mode is
   // selected exclusively by feature_config, not by a synthetic model suffix.
   const model = mapClientModelToQwen(modelId);
+  const searchEnabled = options?.search === true;
+  // Qwen only performs search with its `search` chat type; `auto_search: true`
+  // with `t2t` was live-verified to answer without searching.
+  const chatType = searchEnabled ? "search" : "t2t";
+  if (searchEnabled && logger.isLevelEnabled("info")) {
+    // Never log the prompt or query contents here.
+    console.log(
+      `🔎 [Qwen] Web search enabled | account=${accountId ?? "global"} | model=${model} | mode=search`,
+    );
+  }
   let createdNewChat = false;
   let chatSessionId: string | null | undefined;
   let leasedWarmChat = false;
@@ -3199,7 +3213,7 @@ async function createQwenStreamInternal(
         timestamp: timestamp,
         models: [model],
         model: "",
-        chat_type: "t2t",
+        chat_type: chatType,
         feature_config: (() => {
           // Determine reasoning mode: explicit option takes precedence, otherwise derive from enableThinking
           // - reasoningMode="auto": Qwen decides (auto_thinking=true, thinking_mode="Auto")
@@ -3217,15 +3231,15 @@ async function createQwenStreamInternal(
             auto_thinking: mode === "auto",
             thinking_mode: thinkingMode,
             ...(thinkingEnabled ? { thinking_format: "summary" } : {}),
-            auto_search: false,
+            auto_search: searchEnabled,
           };
         })(),
         extra: {
           meta: {
-            subChatType: "t2t",
+            subChatType: chatType,
           },
         },
-        sub_chat_type: "t2t",
+        sub_chat_type: chatType,
         parent_id: actualParentId,
       },
     ],

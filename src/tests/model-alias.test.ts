@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   mapClientModelToQwen,
   mapKnownModelAlias,
+  parseModelSuffix,
+  stripSearchSuffix,
   stripThinkingSuffix,
 } from "../core/model-alias.ts";
 
@@ -94,4 +96,47 @@ test("stripThinkingSuffix maps base and public Fast variants", () => {
     enableThinking: false,
     reasoningMode: "fast",
   });
+});
+
+test("stripSearchSuffix handles -search alone and combined suffixes", () => {
+  assert.deepEqual(stripSearchSuffix("qwen3.7-plus-search"), {
+    baseModel: "qwen3.7-plus",
+    search: true,
+  });
+  assert.deepEqual(stripSearchSuffix("qwen3.7-plus-search-thinking"), {
+    baseModel: "qwen3.7-plus-thinking",
+    search: true,
+  });
+  assert.deepEqual(stripSearchSuffix("qwen3.7-plus-thinking-search"), {
+    baseModel: "qwen3.7-plus-thinking",
+    search: true,
+  });
+  assert.deepEqual(stripSearchSuffix("qwen3.7-plus-search-high"), {
+    baseModel: "qwen3.7-plus-high",
+    search: true,
+  });
+  assert.deepEqual(stripSearchSuffix("qwen3.7-plus"), {
+    baseModel: "qwen3.7-plus",
+    search: false,
+  });
+});
+
+test("parseModelSuffix normalises search and reasoning in one pass", () => {
+  assert.deepEqual(parseModelSuffix("qwen3.7-plus-search"), {
+    baseModel: "qwen3.7-plus",
+    enableThinking: true,
+    reasoningMode: "auto",
+    search: true,
+  });
+  assert.deepEqual(parseModelSuffix("qwen3.7-plus-search-low"), {
+    baseModel: "qwen3.7-plus",
+    enableThinking: false,
+    reasoningMode: "fast",
+    search: true,
+  });
+  assert.equal(mapClientModelToQwen("qwen3.7-plus-search"), "qwen3.7-plus");
+  assert.equal(
+    mapClientModelToQwen("qwen3.7-plus-search-thinking"),
+    "qwen3.7-plus",
+  );
 });

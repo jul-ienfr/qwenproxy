@@ -21,6 +21,7 @@ export interface ModelCapabilities {
   supportsAudio: boolean;
   supportsVideo: boolean;
   supportsCitations: boolean;
+  supportsSearch: boolean;
   supportsCodeExecution: boolean;
   supportsStructuredOutputs: boolean;
   modalities: string[];
@@ -48,6 +49,7 @@ const defaultCapabilities: ModelCapabilities = {
   supportsAudio: false,
   supportsVideo: false,
   supportsCitations: false,
+  supportsSearch: false,
   supportsCodeExecution: false,
   supportsStructuredOutputs: false,
   modalities: ["text"],
@@ -71,13 +73,19 @@ function accountKey(accountId?: string): string {
 }
 
 export function getBaseModelId(modelId: string): string {
-  // `-fast` is the only public variant. Keep legacy suffixes normalized for
-  // account metadata lookups and old clients, without publishing them.
-  // Check `-no-thinking` before `-thinking` (the former ends with the latter).
-  if (modelId.endsWith("-no-thinking")) return modelId.slice(0, -12);
-  if (modelId.endsWith("-thinking")) return modelId.slice(0, -9);
-  if (modelId.endsWith("-fast")) return modelId.slice(0, -5);
-  return modelId;
+  // Strip public search/reasoning variants so account metadata lookups and
+  // legacy clients resolve the same canonical entry. `-no-thinking` must be
+  // checked before `-thinking` (the former ends with the latter).
+  let base = modelId;
+  if (base.endsWith("-search")) base = base.slice(0, -7);
+  else base = base.replace(/-search-(?:low|medium|high|fast|no-thinking|thinking)$/, "");
+  if (base.endsWith("-no-thinking")) base = base.slice(0, -12);
+  else if (base.endsWith("-thinking")) base = base.slice(0, -9);
+  else if (base.endsWith("-fast")) base = base.slice(0, -5);
+  else if (base.endsWith("-low")) base = base.slice(0, -4);
+  else if (base.endsWith("-medium")) base = base.slice(0, -7);
+  else if (base.endsWith("-high")) base = base.slice(0, -5);
+  return base;
 }
 
 function getAccountRegistry(accountId?: string): Map<string, RegistryEntry> {
@@ -298,6 +306,20 @@ function deriveCapabilities(
     positiveFlag(abilities.citations) ??
     fallback.supportsCitations;
 
+  const supportsSearch =
+    booleanValue(
+      model.supports_search,
+      model.supportsSearch,
+      model.web_search,
+      upstreamCapabilities.search,
+      upstreamCapabilities.web_search,
+      upstreamCapabilities.supports_search,
+      metadata.search,
+      metadata.web_search,
+    ) ??
+    positiveFlag(abilities.search, abilities.web_search) ??
+    (chatTypes.includes("search") || fallback.supportsSearch);
+
   const supportsCodeExecution =
     booleanValue(
       model.supports_code_execution,
@@ -394,6 +416,7 @@ function deriveCapabilities(
       supportsAudio,
       supportsVideo,
       supportsCitations,
+      supportsSearch,
       supportsCodeExecution,
       supportsStructuredOutputs,
       modalities,

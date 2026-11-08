@@ -348,6 +348,8 @@ export interface AcquireParams {
 	   * yet: run on its OWN chat and hop accounts fast instead of waiting.
 	   */
 	  parallelEscape?: boolean;
+	  /** Opt-in Qwen web search for this attempt. */
+	  webSearch?: boolean;
 	}
 
 /** Exported for unit tests — selects the first account for a request. */
@@ -897,6 +899,7 @@ export async function acquireUpstreamStream(
 					completionId,
 					parallelEscape: params.parallelEscape,
 					chatMode,
+					webSearch: params.webSearch,
 				},
 				accountId,
 				accountEmail,
@@ -1216,6 +1219,8 @@ async function tryCreateStreamWithRetry(
 		parallelEscape?: boolean;
 		/** "thread" (reuse upstream chat) or "temp" (new ephemeral chat per request). */
 		chatMode: ChatMode;
+		/** Opt-in Qwen web search for this attempt. */
+		webSearch?: boolean;
 	},
 	accountId: string,
 	accountEmail: string,
@@ -1604,6 +1609,29 @@ async function tryCreateStreamWithRetry(
 					acquireDeadlineTimer = setTimeout(checkDeadline, acquireDeadlineMs);
 					acquireDeadlineTimer.unref?.();
 				});
+				const createOptions: NonNullable<
+					Parameters<typeof createQwenStream>[6]
+				> = {};
+				if (
+					params.forceNewChat ||
+					params.useThreadNative ||
+					params.parallelEscape
+				) {
+					createOptions.chatSessionId =
+						params.forceNewChat || params.parallelEscape
+							? null
+							: (params.existingThread?.chatSessionId ?? null);
+					createOptions.forceNewChat = false;
+					createOptions.reasoningMode = params.reasoningMode;
+					createOptions.parallelEscape = params.parallelEscape;
+					createOptions.chatMode = params.chatMode;
+				} else if (params.reasoningMode) {
+					createOptions.reasoningMode = params.reasoningMode;
+				}
+				if (params.webSearch) {
+					createOptions.search = true;
+				}
+
 				result = await Promise.race([
 					createQwenStream(
 						promptForUpstream,
@@ -1612,18 +1640,9 @@ async function tryCreateStreamWithRetry(
 						threadParentId,
 						currentAccountId === "global" ? undefined : currentAccountId,
 						params.allFiles.length > 0 ? params.allFiles : undefined,
-						params.forceNewChat || params.useThreadNative || params.parallelEscape
-							? {
-									chatSessionId:
-										params.forceNewChat || params.parallelEscape
-											? null
-											: (params.existingThread?.chatSessionId ?? null),
-									forceNewChat: false,
-									reasoningMode: params.reasoningMode,
-									parallelEscape: params.parallelEscape,
-									chatMode: params.chatMode,
-								}
-							: params.reasoningMode ? { reasoningMode: params.reasoningMode } : undefined,
+						Object.keys(createOptions).length > 0
+							? createOptions
+							: undefined,
 						combinedSignal,
 					),
 					acquireDeadline,

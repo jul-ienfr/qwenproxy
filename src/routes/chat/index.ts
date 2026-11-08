@@ -134,6 +134,7 @@ async function handleChatCompletions(c: Context) {
       modelId,
       enableThinking,
       reasoningMode,
+      webSearch,
       allFiles,
       currentFiles,
       shouldParseToolCalls,
@@ -296,6 +297,7 @@ async function handleChatCompletions(c: Context) {
       messages,
       parallelEscape,
       chatMode,
+      webSearch,
     });
 
 
@@ -354,6 +356,7 @@ async function handleChatCompletions(c: Context) {
       userPrompt: currentPrompt || prompt,
       shouldParseToolCalls,
       declaredTools,
+      webSearch,
       tokenEstimationContext: streamResult.tokenEstimationContext,
       midStreamRetry: {
         fullPrompt: fullPromptForRequest,
@@ -381,6 +384,7 @@ async function handleChatCompletions(c: Context) {
         contextMode: initialContextMode as ContextMeterMode,
         releaseAccountLease: streamResult.releaseAccountLease,
         messages,
+        webSearch,
       },
       onAssistantComplete,
       onStreamComplete: () => {
@@ -582,6 +586,7 @@ async function handleChatCompletions(c: Context) {
               messages,
               parallelEscape: retryParallelEscape,
               chatMode,
+              webSearch,
             });
 
             if ("error" in newStreamResult) {
@@ -617,6 +622,7 @@ async function handleChatCompletions(c: Context) {
               userPrompt: currentPrompt || prompt,
               shouldParseToolCalls,
               declaredTools,
+              webSearch,
               tokenEstimationContext: newStreamResult.tokenEstimationContext,
               midStreamRetry: {
                 fullPrompt: fullPromptForRequest,
@@ -644,6 +650,7 @@ async function handleChatCompletions(c: Context) {
                   : initialContextMode,
                 releaseAccountLease: newStreamResult.releaseAccountLease,
                 messages,
+                webSearch,
               },
               onAssistantComplete,
               onStreamComplete: () => {

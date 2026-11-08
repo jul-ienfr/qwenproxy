@@ -41,7 +41,7 @@ for this architecture).
 | 002 | Multi-user API keys with RPM and concurrency quotas, admin/normal key roles | **implemented** (hashed keys, admin API + CLI, 429 live-verified) | pedrofariasx: `users` table, `rate_limit_rpm`, `max_concurrency`, `USER_API_KEYS`; 429 on quota | **P1** | [002](../specs/002-multi-user-api-keys-and-quotas/spec.md) |
 | 003 | Authenticated web administration dashboard (accounts, keys, usage, settings, logs) | **implemented** (signed cookie + CSRF, SSE/polling, account/user/settings/logs, audit) | pedrofariasx: React + shadcn `/admin`; Rfym21: WebUI; Chat2API: dashboard | **P1** | [003](../specs/003-web-admin-dashboard/spec.md) |
 | 004 | Gemini-compatible API (`/v1beta/models/{model}:generateContent`, stream) | **missing** | YuJunZhiXue and 123hi123 expose OpenAI + Anthropic + Gemini | **P2** | [004](../specs/004-gemini-compatible-api/spec.md) |
-| 005 | Web search toggle with citations/annotations | **missing** (`auto_search: false` hardcoded) | Rfym21 smart search; encryptarun search + clickable citations/annotations | **P2** | [005](../specs/005-web-search-and-citations/spec.md) |
+| 005 | Web search toggle with citations/annotations | **implemented** (per-request opt-in; OpenAI annotations + `search_results`; URL-validated sources) | Rfym21 smart search; encryptarun search + clickable citations/annotations | **P2** | [005](../specs/005-web-search-and-citations/spec.md) |
 | 006 | Image editing endpoint (`POST /v1/images/edits`) | **missing** (generation only) | Rfym21 `/v1/images/edits`; encryptarun image edit | **P2** | [006](../specs/006-image-editing/spec.md) |
 | 007 | Qwen specialized modes: Deep Research, Web Dev, Full-Stack, Slides | **missing** | encryptarun exposes `qwen-deep-research`, `qwen-web-dev`, `qwen-full-stack`, `qwen-slides` | **P3** | [007](../specs/007-qwen-specialized-modes/spec.md) |
 | 008 | Redis persistence and multi-instance coordination | **missing** (SQLite single process) | Rfym21 `DATA_SAVE_MODE=redis` + `REDIS_URL`; multi-worker Docker | **P2** | [008](../specs/008-redis-persistence-and-scaling/spec.md) |
@@ -66,6 +66,8 @@ project:
 - Multimodal uploads via Qwen OSS.
 - Hybrid sessions, personalization sync, large-context externalization (added
   2026-11-07: history attached as a Qwen text file above 90 KB).
+- Opt-in web search with OpenAI-style URL citations and a `search_results`
+  extension (added 2026-11-08), including `supports_search` in `/v1/models`.
 - `/health`, Prometheus `/metrics`, structured logs, TUI.
 - Docker and `docker compose` deployment.
 

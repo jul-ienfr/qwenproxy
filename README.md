@@ -323,6 +323,36 @@ same state. Use TLS or a trusted tunnel before exposing the dashboard beyond
 loopback; the UI shows a warning when served over plain HTTP on a non-loopback
 address.
 
+### Access from another machine (LAN)
+
+1. In `.env`, bind all interfaces and set a strong key. A non-loopback bind is
+   refused at startup when `API_KEY` is empty or still the placeholder:
+
+   ```bash
+   HOST=0.0.0.0
+   API_KEY=<long-random-key>
+   ```
+
+   Clients then send `Authorization: Bearer <long-random-key>` (or use a
+   spec 002 `sk-qpx-...` user key) for `/v1` and `/admin`.
+
+2. Allow inbound TCP 3000 on private networks. On Windows, run once in an
+   elevated PowerShell:
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "QwenProxy 3000" -Direction Inbound `
+     -Protocol TCP -LocalPort 3000 -Action Allow -Profile Private,Domain
+   ```
+
+3. Open `http://<lan-ip>:3000/admin` from the other machine and sign in with
+   `API_KEY`. The dashboard shows the TLS warning because the transport is
+   plain HTTP; that is expected on a trusted LAN.
+
+4. Keep only one proxy process bound to the port. On Windows, a `127.0.0.1`
+   bind and a `0.0.0.0` bind can coexist, which silently splits local and LAN
+   traffic between two instances. Check with `netstat -ano | findstr :3000`
+   and stop any stale instance before starting the LAN one.
+
 See [`specs/003-web-admin-dashboard/quickstart.md`](specs/003-web-admin-dashboard/quickstart.md)
 for API examples and troubleshooting.
 

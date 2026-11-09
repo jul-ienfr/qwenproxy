@@ -78,6 +78,9 @@
       Automated smoke on Windows passed: the tray/window were created with
       WebView2, the GUI reused a healthy external server, and the webview
       loaded `/admin` (`GET /health`, `GET /admin`, `GET /favicon.ico`).
+      Auto-login was confirmed end to end: the GUI recorded `session.login` in
+      the audit trail, produced no fallback warning, and WebView2 accepted the
+      `qpx_admin` cookie for `127.0.0.1` with `HttpOnly` + `SameSite=Strict`.
       Interactive tray actions (left/right click, close-to-tray, Restart,
       Quit) still need a human at the desktop.
 

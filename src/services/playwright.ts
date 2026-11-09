@@ -9,10 +9,24 @@ import fs from "fs";
 import crypto from "crypto";
 import { spawnSync } from "child_process";
 import { createRequire } from "module";
+import { isStandaloneBuild } from "../core/build-info.ts";
 
 const requireLocal = createRequire(import.meta.url);
 
 function autoInstallPlaywrightChromium(): void {
+  if (isStandaloneBuild()) {
+    console.error(
+      [
+        "[Playwright] Chromium is required but no bundled browser was found.",
+        "  Standalone binaries ship without Chromium. Choose one:",
+        "    1. Install Node.js, then run: npx patchright install chromium",
+        "    2. Use the Docker image, which bundles Chromium.",
+        "    3. Set PLAYWRIGHT_BROWSERS_PATH to an existing Playwright browser cache.",
+      ].join("\n"),
+    );
+    return;
+  }
+
   const tryInstall = (mirror?: string): number | null => {
     const installEnv = {
       ...process.env,

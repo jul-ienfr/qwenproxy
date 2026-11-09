@@ -14,6 +14,7 @@ import { listUsers } from "../core/users.ts";
 import { getPoolDailyUsageSummary } from "../core/daily-usage.ts";
 import { getOverviewWindows } from "../core/overview-stats.ts";
 import { getRuntimeChatMode } from "../core/config.ts";
+import { getBuildMetadata } from "../core/build-info.ts";
 
 export interface AccountSnapshot {
   id: string;
@@ -79,6 +80,7 @@ export function buildOverview(now = Date.now()) {
   const heapLimit = v8.getHeapStatistics().heap_size_limit;
   const usage = getPoolDailyUsageSummary();
   const watchdog = numericMetric("watchdog.overall");
+  const build = getBuildMetadata();
 
   const errorRatePercent =
     windows.requestCount > 0
@@ -88,7 +90,10 @@ export function buildOverview(now = Date.now()) {
   return {
     status:
       watchdog >= 2 ? "unhealthy" : watchdog >= 1 ? "degraded" : "healthy",
-    version: process.env.npm_package_version || "dev",
+    version: build.version,
+    commit: build.commit,
+    buildDate: build.buildDate,
+    runtime: build.runtime,
     uptimeSec: Math.round(process.uptime()),
     timestamp: now,
     chatMode: getRuntimeChatMode(),

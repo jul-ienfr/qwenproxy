@@ -152,6 +152,19 @@ pnpm add -g qwenproxy-cli
 # bun add -g qwenproxy-cli
 ```
 
+Alternatively, download a standalone binary from the GitHub releases page
+(Windows x64, Linux x64/arm64). No Node.js is required:
+
+```bash
+sha256sum -c SHA256SUMS
+./qwenproxy-linux-x64 --version
+```
+
+Standalone binaries do not bundle Chromium: install Node.js and run
+`npx patchright install chromium`, or use the Docker image. See
+[docs/STANDALONE.md](docs/STANDALONE.md) for portable data/`.env` paths,
+checksum verification and the unsigned-binary trust model.
+
 ### 2. Launch the Interactive Dashboard (TUI)
 
 Open your terminal and run:
@@ -535,6 +548,11 @@ The canonical, reviewable contract is [`docs/openapi.yaml`](docs/openapi.yaml); 
 ---
 
 ## 🐳 Docker Deployment
+
+The image is published for `linux/amd64` and `linux/arm64` and includes
+Chromium. Persist `/app/data` so the database, encryption key and browser
+profiles survive upgrades. Images are tagged `latest`, by commit SHA and by
+package version.
 
 ```yaml
 services:

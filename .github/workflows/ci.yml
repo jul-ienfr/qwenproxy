@@ -38,6 +38,55 @@ jobs:
           CI: true
           TEST_MOCK_QWEN_AUTH: true
 
+  standalone:
+    name: Standalone (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win-x64
+            os: windows-latest
+            asset: qwenproxy-windows-x64.exe
+          - target: linux-x64
+            os: ubuntu-latest
+            asset: qwenproxy-linux-x64
+          - target: linux-arm64
+            os: ubuntu-latest
+            asset: qwenproxy-linux-arm64
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: npm ci
+
+      - name: Build standalone binary
+        shell: bash
+        run: node scripts/build-standalone.mjs --target=${{ matrix.target }} --no-checksums
+        env:
+          QWENPROXY_BUILD_COMMIT: ${{ github.sha }}
+          QWENPROXY_BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+
+      - name: Smoke test --version
+        if: matrix.target != 'linux-arm64'
+        shell: bash
+        run: ./dist/standalone/${{ matrix.asset }} --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: standalone-${{ matrix.target }}
+          path: dist/standalone/${{ matrix.asset }}
+          if-no-files-found: error
+
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
@@ -46,6 +95,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v5
+
+      - name: Read package version
+        id: meta
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Check secrets
         id: secrets
@@ -66,20 +119,30 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            QWENPROXY_VERSION=${{ steps.meta.outputs.version }}
+            QWENPROXY_COMMIT=${{ github.sha }}
+            QWENPROXY_BUILD_DATE=${{ github.event.head_commit.timestamp }}
           tags: |
             johngbl/qwenproxy:latest
             johngbl/qwenproxy:${{ github.sha }}
+            johngbl/qwenproxy:${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Build Docker image (smoke test)
         if: steps.secrets.outputs.available != 'true'
-        run: docker build --tag qwenproxy:test .
+        run: |
+          docker build \
+            --build-arg QWENPROXY_VERSION="${{ steps.meta.outputs.version }}" \
+            --build-arg QWENPROXY_COMMIT="${{ github.sha }}" \
+            --build-arg QWENPROXY_BUILD_DATE="${{ github.event.head_commit.timestamp }}" \
+            --tag qwenproxy:test .
 
   release:
     name: Auto Release & NPM Publish
     runs-on: ubuntu-latest
-    needs: [check]
+    needs: [check, standalone]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
@@ -96,6 +159,16 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - run: npm ci
+
+      - name: Download standalone binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: standalone-*
+          path: dist/standalone
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        run: node scripts/checksums.mjs dist/standalone
 
       - name: Check version and tag status
         id: check_version
@@ -173,14 +246,19 @@ jobs:
               }
               body += "\n";
             }
+            body += "### 📦 Standalone binaries\n";
+            body += "Download the asset for your platform, verify it, then check the embedded version:\n";
+            body += "```bash\nsha256sum -c SHA256SUMS\n./qwenproxy-<platform> --version\n```\n";
+            body += "Standalone binaries do not bundle Chromium: install Node.js and run `npx patchright install chromium`, or use the Docker image, which includes it. Existing npm and Docker installs remain supported; back up the `data/` directory before upgrading and follow any breaking-change note above.\n\n";
             if (prevTag) {
-              body += `**Full Changelog**: https://github.com/johngbl/qwenproxy/compare/${prevTag}...${tag}\n`;
+              body += `**Full Changelog**: https://github.com/jul-ienfr/qwenproxy/compare/${prevTag}...${tag}\n`;
             }
             fs.writeFileSync("RELEASE_NOTES.md", body.trim() || `Release ${tag}\n`, "utf-8");
           '
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
-          gh release create "$TAG" --title "$TAG" --notes-file RELEASE_NOTES.md
+          gh release create "$TAG" --title "$TAG" --notes-file RELEASE_NOTES.md \
+            dist/standalone/qwenproxy-* dist/standalone/SHA256SUMS
 
       - name: Publish to NPM Registry
         if: steps.check_version.outputs.exists == 'false' && env.NODE_AUTH_TOKEN != ''

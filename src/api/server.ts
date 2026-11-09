@@ -44,6 +44,7 @@ import {
 } from "../core/auth-identity.ts";
 import { authenticateAdminRequest } from "../admin/auth.ts";
 import { adminDashboardApp } from "../admin/app.ts";
+import { getBuildMetadata } from "../core/build-info.ts";
 import {
   recordOverviewError,
   recordOverviewRequest,
@@ -401,8 +402,13 @@ app.get("/health", async (c) => {
     return c.json(publicBody);
   }
 
+  const build = getBuildMetadata();
   return c.json({
     ...publicBody,
+    version: build.version,
+    commit: build.commit,
+    buildDate: build.buildDate,
+    runtime: build.runtime,
     ram: status?.ram || "unknown",
     streams: status?.streams || "unknown",
     heap: status?.heap

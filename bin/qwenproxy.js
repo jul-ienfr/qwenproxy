@@ -25,18 +25,32 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(__dirname, "..");
 const packageJsonPath = path.join(packageRoot, "package.json");
+const buildMetaPath = path.join(packageRoot, "dist", "build-meta.json");
+
+function readJsonFile(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  } catch {
+    return {};
+  }
+}
 
 const rawArgs = process.argv.slice(2);
 const firstArg = rawArgs[0]?.toLowerCase();
 
 // 1. Version check
 if (rawArgs.includes("-v") || rawArgs.includes("--version") || firstArg === "version") {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
-    console.log(`QwenProxy v${pkg.version || "1.0.0"}`);
-  } catch {
-    console.log("QwenProxy v1.0.0");
-  }
+  const pkg = readJsonFile(packageJsonPath);
+  const meta = readJsonFile(buildMetaPath);
+  const version = meta.version || pkg.version || "1.0.0";
+  const commit =
+    process.env.QWENPROXY_BUILD_COMMIT ||
+    process.env.GIT_COMMIT ||
+    process.env.GITHUB_SHA ||
+    (meta.commit && meta.commit !== "unknown" ? meta.commit : "");
+  console.log(
+    `QwenProxy v${version}${commit ? ` (commit ${String(commit).slice(0, 12)})` : ""}`,
+  );
   process.exit(0);
 }
 

@@ -442,7 +442,20 @@ npm run tui      # Abre a TUI interativa
 # ou: npm start  # Inicia apenas o servidor HTTP headless
 ```
 
-### Opção 4: Via Docker
+### Opção 4: Binário Standalone
+Baixe o binário da página de releases do GitHub (Windows x64, Linux x64/arm64).
+Não é necessário instalar Node.js:
+```bash
+sha256sum -c SHA256SUMS
+chmod +x qwenproxy-linux-x64
+./qwenproxy-linux-x64 --version
+```
+Os binários standalone não incluem o Chromium: instale Node.js e execute
+`npx patchright install chromium`, ou use a imagem Docker. Veja
+[docs/STANDALONE.md](docs/STANDALONE.md) para caminhos portáveis de dados/`.env`,
+verificação de checksums e o modelo de confiança de binários sem assinatura.
+
+### Opção 5: Via Docker
 ```bash
 docker-compose up -d
 ```
@@ -933,6 +946,11 @@ O proxy envia o id do modelo ao Qwen **como está**. Apenas os sufixos de racioc
 ---
 
 ## Deploy com Docker
+
+A imagem é publicada para `linux/amd64` e `linux/arm64` e inclui o Chromium.
+Persista `/app/data` para manter o banco, a chave de criptografia e os perfis de
+navegador entre atualizações. As imagens são marcadas com `latest`, o SHA do
+commit e a versão do pacote.
 
 ```yaml
 services:

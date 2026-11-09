@@ -5,6 +5,17 @@ process.env.DOTENV_CONFIG_QUIET = 'true'
 import dotenv from 'dotenv'
 import fs from 'node:fs'
 import { getEnvFilePath, ensureDataDirs } from './core/paths.ts'
+import { formatVersionLine } from './core/build-info.ts'
+
+// `--version` must work before data directories, .env or the server are touched.
+if (
+  process.argv.includes('--version') ||
+  process.argv.includes('-v') ||
+  process.argv[2] === 'version'
+) {
+  console.log(formatVersionLine())
+  process.exit(0)
+}
 
 // Ensure persistent user data directory exists
 ensureDataDirs()

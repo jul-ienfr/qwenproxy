@@ -18,10 +18,42 @@ export interface ResolveDataDirOptions {
   envDataDir?: string;
   isNodeTest?: boolean;
   localDataExists?: boolean;
+  executableDir?: string;
+  executableDataExists?: boolean;
   platform?: NodeJS.Platform;
   appData?: string;
   homeDir?: string;
   xdgDataHome?: string;
+}
+
+/**
+ * Directory of a packaged executable. Node/Bun development runtimes are
+ * ignored so `npm start` never treats the runtime's install directory as a
+ * portable install location.
+ */
+function defaultExecutableDir(): string | undefined {
+  try {
+    const base = path
+      .basename(process.execPath)
+      .toLowerCase()
+      .replace(/\.exe$/, "");
+    if (base === "node" || base === "bun") return undefined;
+    return path.dirname(process.execPath);
+  } catch {
+    return undefined;
+  }
+}
+
+/** `.env` placed next to a packaged executable (portable install). */
+function executableEnvPath(): string | undefined {
+  const dir = defaultExecutableDir();
+  if (!dir) return undefined;
+  const candidate = path.join(dir, ".env");
+  try {
+    return fs.existsSync(candidate) ? candidate : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -88,7 +120,19 @@ export function resolveDataDir(options?: ResolveDataDirOptions): string {
   if (isTest) {
     return path.resolve("data-test");
   }
-  // 3. Local repository checkout (development mode)
+  // 3. Portable install: a `data` directory next to the executable wins over
+  // the current directory so a binary can be moved with its data.
+  const executableDir = options?.executableDir ?? defaultExecutableDir();
+  const executableDataExists =
+    options?.executableDataExists ??
+    (executableDir
+      ? fs.existsSync(path.join(executableDir, "data"))
+      : false);
+  if (executableDir && executableDataExists) {
+    return path.resolve(executableDir, "data");
+  }
+
+  // 4. Local repository checkout (development mode)
   const localDir = path.resolve("data");
   const localExists =
     options?.localDataExists ??
@@ -99,7 +143,7 @@ export function resolveDataDir(options?: ResolveDataDirOptions): string {
     return localDir;
   }
 
-  // 4. Global OS user directory (npm/pnpm/bun/yarn global mode)
+  // 5. Global OS user directory (npm/pnpm/bun/yarn global mode)
   return getOsGlobalDataDir({
     platform: options?.platform,
     appData: options?.appData,
@@ -188,6 +232,10 @@ export function getEnvFilePath(customDataDir?: string): string {
   if (isRunningUnderNodeTest()) {
     return path.join(customDataDir || getDataDir(), ".env");
   }
+  // Packaged binaries are often launched from a shortcut or service manager,
+  // so a `.env` beside the executable is the most predictable location.
+  const portableEnv = executableEnvPath();
+  if (portableEnv) return portableEnv;
   const localEnv = path.resolve(".env");
   if (fs.existsSync(localEnv)) {
     return localEnv;

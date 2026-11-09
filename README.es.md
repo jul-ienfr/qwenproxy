@@ -132,6 +132,19 @@ pnpm add -g qwenproxy-cli
 # bun add -g qwenproxy-cli
 ```
 
+También puedes descargar un binario standalone desde GitHub Releases
+(Windows x64, Linux x64/arm64). No requiere Node.js:
+
+```bash
+sha256sum -c SHA256SUMS
+./qwenproxy-linux-x64 --version
+```
+
+Los binarios standalone no incluyen Chromium: instala Node.js y ejecuta
+`npx patchright install chromium`, o usa la imagen Docker. Consulta
+[docs/STANDALONE.md](docs/STANDALONE.md) para rutas portables de datos/`.env`,
+verificación de checksums y el modelo de confianza de binarios sin firma.
+
 ### 2. Iniciar el Dashboard Interactivo (TUI)
 
 Abre tu terminal y ejecuta:
@@ -263,6 +276,11 @@ Admin API: `GET|PUT|DELETE /admin/api/model-mappings`.
 ---
 
 ## 🐳 Despliegue con Docker
+
+La imagen se publica para `linux/amd64` y `linux/arm64` e incluye Chromium.
+Persiste `/app/data` para conservar la base de datos, la clave de cifrado y los
+perfiles de navegador entre actualizaciones. Las imágenes se etiquetan con
+`latest`, el SHA del commit y la versión del paquete.
 
 ```yaml
 services:

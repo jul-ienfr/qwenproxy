@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: Gap analysis vs `Rfym21/Qwen2API`: it publishes Windows x64 and Linux
 x64/arm64 native binaries plus multi-arch Docker images. The current project

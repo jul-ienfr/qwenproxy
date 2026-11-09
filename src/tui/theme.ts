@@ -74,12 +74,12 @@ export function setClipboardText(text: string): boolean {
       });
       return p.status === 0;
     } else if (process.platform === "darwin") {
-      const p = spawnSync("pbcopy", { input: text, encoding: "utf-8" });
+      const p = spawnSync("pbcopy", { input: text, encoding: "utf-8", windowsHide: true });
       return p.status === 0;
     } else {
-      let p = spawnSync("wl-copy", { input: text, encoding: "utf-8" });
+      let p = spawnSync("wl-copy", { input: text, encoding: "utf-8", windowsHide: true });
       if (p.status !== 0) {
-        p = spawnSync("xclip", ["-selection", "clipboard"], { input: text, encoding: "utf-8" });
+        p = spawnSync("xclip", ["-selection", "clipboard"], { input: text, encoding: "utf-8", windowsHide: true });
       }
       return p.status === 0;
     }

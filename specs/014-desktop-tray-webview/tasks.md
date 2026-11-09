@@ -107,13 +107,19 @@
       `docs/GUI.md`, the READMEs and `.env.example`.
 - [x] T036 Spawn the server child with `windowsHide: true` and piped stdio, and
       assert the option in the server-manager tests (constitution principle X).
+- [x] T037 Audit every `spawn` / `spawnSync` / `execFileSync` / `execSync` call
+      site in `src`, `scripts` and `bin` and pass `windowsHide: true`
+      (constitution principle X). Only the explicit interactive launcher keeps
+      `stdio: "inherit"`; background helpers pipe or hide their output.
 
 ## Verification
 
 - `npm run typecheck`: pass.
-- Focused GUI/CLI tests: 30 pass, 0 fail (icon, server-manager, main, dashboard
-  auth, CLI).
-- Full `npm run test:mock`: 1037 pass, 0 fail (175 s).
+- Focused GUI/CLI tests: 45 pass, 0 fail (icon, server-manager, main, dashboard
+  auth, CLI, packaging, TUI clipboard).
+- Full `npm run test:mock`: 1037 pass, 0 fail (226 s).
+- Spawn audit: every `child_process` call site in `src`, `scripts` and `bin`
+  passes `windowsHide: true`; `node --check` passes on the touched JS/MJS files.
 - Auto-login against a live server: `POST /admin/api/session` returned a
   `qpx_admin` cookie (231-byte token) and the client built the correct
   `127.0.0.1` domain, `/` path, `HttpOnly`, `SameSite=Strict` attributes.

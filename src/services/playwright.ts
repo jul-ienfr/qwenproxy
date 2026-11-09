@@ -42,6 +42,7 @@ function autoInstallPlaywrightChromium(): void {
         const res = spawnSync(process.execPath, [cliPath, "install", "chromium"], {
           stdio: "inherit",
           env: installEnv,
+          windowsHide: true,
         });
         return res.status;
       }
@@ -52,6 +53,7 @@ function autoInstallPlaywrightChromium(): void {
     const res = spawnSync(cmd, ["--yes", "patchright", "install", "chromium"], {
       stdio: "inherit",
       env: installEnv,
+      windowsHide: true,
     });
     return res.status;
   };

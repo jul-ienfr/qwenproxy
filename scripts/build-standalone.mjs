@@ -84,7 +84,7 @@ function resolveBun() {
 
 function assertBun() {
   const bun = resolveBun();
-  const probe = spawnSync(bun, ["--version"], { encoding: "utf-8" });
+  const probe = spawnSync(bun, ["--version"], { encoding: "utf-8", windowsHide: true });
   if (probe.error || probe.status !== 0) {
     throw new Error(
       "Bun is required to build standalone binaries. Install it from https://bun.sh and retry.",
@@ -234,7 +234,7 @@ function buildTarget({ bun, root, meta, outdir, name, target }) {
   console.log(`[standalone] Building ${name} -> ${path.relative(root, outfile)}`);
   const restoreSqlite = patchSqliteBinding(root, target);
   try {
-    const result = spawnSync(bun, args, { cwd: root, stdio: "inherit" });
+    const result = spawnSync(bun, args, { cwd: root, stdio: "inherit", windowsHide: true });
     if (result.error) throw result.error;
     if (result.status !== 0) {
       throw new Error(`Bun build failed for ${name} (exit ${result.status})`);

@@ -87,6 +87,7 @@ function gitCommit(): string | undefined {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1500,
+      windowsHide: true,
     });
     const commit = output.trim();
     return commit || undefined;

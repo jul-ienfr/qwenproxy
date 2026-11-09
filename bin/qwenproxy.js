@@ -206,12 +206,14 @@ if (isBrowserCommand) {
           return spawnSync(process.execPath, [cliPath, "install", "chromium"], {
             stdio: "inherit",
             env: installEnv,
+            windowsHide: true,
           });
         }
         const cmd = process.platform === "win32" ? "npx.cmd" : "npx";
         return spawnSync(cmd, ["--yes", "patchright", "install", "chromium"], {
           stdio: "inherit",
           env: installEnv,
+          windowsHide: true,
         });
       };
 
@@ -261,6 +263,7 @@ const child = spawn(process.execPath, nodeArgs, {
   stdio: "inherit",
   cwd: process.cwd(),
   env: process.env,
+  windowsHide: true,
 });
 
 const restoreTerminal = () => {

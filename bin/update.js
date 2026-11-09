@@ -91,6 +91,7 @@ export async function fetchLatestNpmVersion(packageName) {
       encoding: "utf-8",
       shell: true,
       timeout: 30000,
+      windowsHide: true,
     });
     if (res.stdout) {
       const lines = res.stdout.trim().split(/\r?\n/);
@@ -143,6 +144,7 @@ export async function runUpdateCommand() {
   const updateProc = spawnSync(fullUpdateCmd, {
     stdio: "inherit",
     shell: true,
+    windowsHide: true,
   });
 
   if (updateProc.status === 0) {

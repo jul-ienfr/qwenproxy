@@ -11,6 +11,7 @@ const binPath = path.join(packageRoot, "bin", "qwenproxy.js");
 test("CLI: --version outputs version and exits with code 0", () => {
   const result = spawnSync(process.execPath, [binPath, "--version"], {
     encoding: "utf-8",
+    windowsHide: true,
   });
   assert.equal(result.status, 0);
   assert.ok(result.stdout.includes("QwenProxy v"));
@@ -19,6 +20,7 @@ test("CLI: --version outputs version and exits with code 0", () => {
 test("CLI: --help outputs usage options and exits with code 0", () => {
   const result = spawnSync(process.execPath, [binPath, "--help"], {
     encoding: "utf-8",
+    windowsHide: true,
   });
   assert.equal(result.status, 0);
   assert.ok(result.stdout.includes("Usage:"));
@@ -33,6 +35,7 @@ test("CLI: gui --dry-run selects the GUI entrypoint without launching", () => {
   const result = spawnSync(process.execPath, [binPath, "gui", "--dry-run"], {
     encoding: "utf-8",
     timeout: 30_000,
+    windowsHide: true,
   });
   assert.equal(result.status, 0);
   assert.ok(result.stdout.includes("GUI_ENTRY=src/gui/main.ts"));

@@ -200,7 +200,7 @@ test("Packaging: build-standalone help and target validation do not build", () =
   const help = spawnSync(
     process.execPath,
     [path.join(scriptsDir, "build-standalone.mjs"), "--help"],
-    { encoding: "utf-8" },
+    { encoding: "utf-8", windowsHide: true },
   );
   assert.equal(help.status, 0);
   assert.ok(help.stdout.includes("win-x64"));
@@ -209,7 +209,7 @@ test("Packaging: build-standalone help and target validation do not build", () =
   const invalid = spawnSync(
     process.execPath,
     [path.join(scriptsDir, "build-standalone.mjs"), "--target=bogus"],
-    { encoding: "utf-8" },
+    { encoding: "utf-8", windowsHide: true },
   );
   assert.equal(invalid.status, 1);
   assert.ok(invalid.stderr.includes("Unknown target 'bogus'"));
@@ -221,7 +221,7 @@ test("Packaging: checksums CLI writes and verifies a directory", () => {
     const write = spawnSync(
       process.execPath,
       [path.join(scriptsDir, "checksums.mjs"), dir],
-      { encoding: "utf-8" },
+      { encoding: "utf-8", windowsHide: true },
     );
     assert.equal(write.status, 0);
     assert.match(write.stdout, /Wrote .*SHA256SUMS \(1 file\(s\)\)/);
@@ -229,7 +229,7 @@ test("Packaging: checksums CLI writes and verifies a directory", () => {
     const verify = spawnSync(
       process.execPath,
       [path.join(scriptsDir, "checksums.mjs"), dir, "--verify"],
-      { encoding: "utf-8" },
+      { encoding: "utf-8", windowsHide: true },
     );
     assert.equal(verify.status, 0);
     assert.match(verify.stdout, /OK: 1 file\(s\) match SHA256SUMS/);

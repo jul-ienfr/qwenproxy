@@ -18,6 +18,7 @@ function git(root, args) {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 5000,
+      windowsHide: true,
     }).trim();
   } catch {
     return "";

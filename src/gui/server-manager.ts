@@ -44,6 +44,7 @@ export type SpawnFn = (
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     stdio: ["ignore", "pipe", "pipe"];
+    windowsHide?: boolean;
   },
 ) => ManagedChild;
 
@@ -297,6 +298,8 @@ export class ServerManager extends EventEmitter {
         cwd: this.cwd,
         env: this.env,
         stdio: ["ignore", "pipe", "pipe"],
+        // Never flash a console window when the GUI is launched without one.
+        windowsHide: true,
       });
     } catch (error) {
       this.running = false;

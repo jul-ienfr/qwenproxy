@@ -81,13 +81,32 @@
       Interactive tray actions (left/right click, close-to-tray, Restart,
       Quit) still need a human at the desktop.
 
+## Phase 8 - Dashboard auto-login
+
+- [x] T031 Add `src/gui/dashboard-auth.ts`: POST `/admin/api/session` with
+      `QWEN_GUI_ADMIN_KEY || API_KEY`, parse `Set-Cookie`, build the
+      `qpx_admin` cookie and inject it through the webview.
+- [x] T032 Guard auto-login to loopback targets and fall back to the login form
+      on timeout, network error, non-2xx, missing cookie or cookie rejection.
+- [x] T033 Call auto-login in `connectDashboard()` after `/health` and before
+      `view.loadUrl(/admin)`.
+- [x] T034 Add `src/tests/gui-dashboard-auth.test.ts` and register it in
+      `test:mock` / `test:mock:fast`.
+- [x] T035 Document auto-login, `QWEN_GUI_ADMIN_KEY` and `QWEN_GUI_DEVTOOLS` in
+      `docs/GUI.md`, the READMEs and `.env.example`.
+- [x] T036 Spawn the server child with `windowsHide: true` and piped stdio, and
+      assert the option in the server-manager tests (constitution principle X).
+
 ## Verification
 
 - `npm run typecheck`: pass.
-- Focused GUI/CLI tests: 26 pass, 0 fail.
-- Full `npm run test:mock`: 1028 pass, 0 fail (181 s).
-- `npm run build`: emits `dist/gui/main.js` (59.5 kB) with
-  `@webviewjs/webview` external.
+- Focused GUI/CLI tests: 30 pass, 0 fail (icon, server-manager, main, dashboard
+  auth, CLI).
+- Full `npm run test:mock`: 1037 pass, 0 fail (175 s).
+- Auto-login against a live server: `POST /admin/api/session` returned a
+  `qpx_admin` cookie (231-byte token) and the client built the correct
+  `127.0.0.1` domain, `/` path, `HttpOnly`, `SameSite=Strict` attributes.
+- `npm run build`: emits `dist/gui/main.js` with `@webviewjs/webview` external.
 - `qpx gui --dry-run`: prints `GUI_ENTRY=src/gui/main.ts`, exit 0.
 - `qpx gui --help`: lists the GUI command and `--gui`, exit 0.
 - `@webviewjs/webview` 0.6.0 imports successfully on Node 24.13.0.

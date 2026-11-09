@@ -27,6 +27,7 @@ import {
   type ServerExitInfo,
   type ServerTarget,
 } from "./server-manager.ts";
+import { loginDashboard } from "./dashboard-auth.ts";
 
 export interface GuiArgs {
   port?: number;
@@ -249,6 +250,14 @@ export async function runGui(options: RunGuiOptions = {}): Promise<number> {
 
   const { config } = await import("../core/config.ts");
   const target = resolveServerTarget(config.server.host, config.server.port);
+  // Auto-login credential: an explicit override wins over the global API_KEY.
+  // An empty key still works on a no-key loopback server (local admin).
+  const adminKey = (
+    process.env.QWEN_GUI_ADMIN_KEY ||
+    config.apiKey ||
+    process.env.API_KEY ||
+    ""
+  ).trim();
   const packageRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../..",
@@ -327,6 +336,15 @@ export async function runGui(options: RunGuiOptions = {}): Promise<number> {
       if (quitting) return;
       serverReady = true;
       setTrayTooltip(`QwenProxy — ${target.dashboardUrl}`);
+      if (view) {
+        const auth = await loginDashboard(view, { target, apiKey: adminKey });
+        if (!auth.ok) {
+          console.warn(
+            `⚠️  [GUI] Dashboard auto-login unavailable (${auth.reason}); showing the login form.`,
+          );
+        }
+      }
+      if (quitting) return;
       view.loadUrl(target.dashboardUrl);
     } catch (error) {
       if (quitting) return;

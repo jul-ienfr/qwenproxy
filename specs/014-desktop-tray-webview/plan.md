@@ -38,12 +38,14 @@ directory, same browser profiles, same `HOST`/`PORT` semantics.
 | --- | --- |
 | `src/gui/icon.ts` | Deterministic RGBA tray/window icon generation (no image assets). |
 | `src/gui/server-manager.ts` | Resolve the server target, detect an existing server, spawn/poll/restart/stop the child, capture recent output. |
-| `src/gui/main.ts` | GUI entrypoint: env/data bootstrap, lazy webview load, tray menu, window, webview navigation guard, lifecycle cleanup. |
+| `src/gui/dashboard-auth.ts` | Loopback-only dashboard auto-login: create a session with `API_KEY`/`QWEN_GUI_ADMIN_KEY` and inject the `qpx_admin` cookie. |
+| `src/gui/main.ts` | GUI entrypoint: env/data bootstrap, lazy webview load, tray menu, window, webview navigation guard, auto-login, lifecycle cleanup. |
 | `bin/qwenproxy.js` | Dispatch `gui` / `--gui`, `--port` normalization, help text, `--dry-run` dispatch check, Chromium preflight. |
 | `scripts/build.mjs` | Add `src/gui/main.ts` to the esbuild entrypoints; keep the webview package external. |
 | `package.json` | Add `@webviewjs/webview` as an optional dependency. |
 | `src/tests/gui-icon.test.ts` | Icon buffer shape, transparency, color, and size checks. |
 | `src/tests/gui-server-manager.test.ts` | Target resolution, reuse, spawn/poll, timeout, restart, stop, output capture. |
+| `src/tests/gui-dashboard-auth.test.ts` | Auto-login request, loopback guard, cookie extraction/attributes, failure fallbacks. |
 | `src/tests/cli.test.ts` | `gui` / `--gui` help and dispatch dry-run. |
 | `docs/GUI.md` | User-facing install, usage, menu, troubleshooting. |
 | `README*.md` | Short GUI section pointing at `docs/GUI.md`. |
@@ -58,7 +60,8 @@ directory, same browser profiles, same `HOST`/`PORT` semantics.
 - **Spawn**: prefer `dist/index.js` when present; otherwise use the same `tsx`
   loader resolution as `bin/qwenproxy.js` with `src/index.ts`. The child receives
   the current environment, so `PORT`, `HOST`, `API_KEY`, `QWEN_DATA_DIR` and all
-  proxy settings are shared.
+  proxy settings are shared. Spawn with `windowsHide: true` and piped stdio so no
+  extra console window appears.
 - **Readiness**: poll `/health` every 250 ms for up to 60 s. Fail fast if the
   child exits; the rejection includes the last bounded stderr/stdout lines.
 - **Restart**: stop the owned child, spawn again, and re-poll. Reuse an external
@@ -87,6 +90,11 @@ directory, same browser profiles, same `HOST`/`PORT` semantics.
   other navigations and new-window requests are cancelled.
 - A dedicated `WebContext` rooted at `<data>/gui-webview` persists dashboard
   cookies across hide/show and restarts.
+- After the server is ready and before loading `/admin`, auto-login POSTs to
+  `/admin/api/session` with `QWEN_GUI_ADMIN_KEY || API_KEY`, extracts the
+  `qpx_admin` cookie from `Set-Cookie`, and injects it with `view.setCookie()`.
+  This only happens for loopback targets; failures log a generic reason and let
+  the dashboard login form take over.
 - On any failure, render a self-contained error page with the escaped message,
   the dashboard URL, and a hint to use **Restart server**.
 - Cleanup runs once on Quit, `SIGINT`, `SIGTERM`, uncaught exceptions, and
@@ -124,8 +132,10 @@ directory, same browser profiles, same `HOST`/`PORT` semantics.
 
 ## Verification
 
-- `npm run typecheck` passes; focused GUI/CLI tests pass 26/26.
-- Full `npm run test:mock` passes 1028/1028.
+- `npm run typecheck` passes; focused GUI/CLI tests pass 30/30.
+- Full `npm run test:mock` passes 1037/1037.
+- Auto-login against a live server created a `qpx_admin` session and built the
+  expected cookie attributes; the API key is never sent to a remote host.
 - `npm run build` emits `dist/gui/main.js` and keeps
   `@webviewjs/webview` external.
 - Windows smoke with a local stub server: the GUI created the tray/window,

@@ -113,12 +113,14 @@ test("ServerManager: spawns and waits for health", async () => {
   const child = new MockChild();
   let spawns = 0;
   let probes = 0;
+  let spawnOptions: { windowsHide?: boolean } | undefined;
   const manager = new ServerManager({
     target: resolveServerTarget("127.0.0.1", 7936),
     command: baseCommand,
     fetch: async () => response(probes++ < 2 ? 503 : 200),
-    spawn: () => {
+    spawn: (_command, _args, options) => {
       spawns += 1;
+      spawnOptions = options;
       return child;
     },
     sleep: async () => {},
@@ -130,6 +132,7 @@ test("ServerManager: spawns and waits for health", async () => {
   assert.equal(probes, 3);
   assert.equal(manager.isRunning, true);
   assert.equal(manager.ownsServerProcess, true);
+  assert.equal(spawnOptions?.windowsHide, true);
 });
 
 test("ServerManager: fails fast when the child exits during startup", async () => {

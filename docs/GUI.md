@@ -57,8 +57,19 @@ Closing the window hides it to the tray. The proxy keeps serving.
 
 The GUI is a local client, not a bypass:
 
-- With an `API_KEY` (or an admin `sk-qpx-...` key), the normal dashboard login
-  is shown inside the webview.
+- On a loopback target, the GUI signs in automatically: it creates a dashboard
+  session through `POST /admin/api/session` with `API_KEY` (or the
+  `QWEN_GUI_ADMIN_KEY` override) and injects the returned `qpx_admin` cookie
+  into the webview before loading `/admin`. The audit log records
+  `session.login`.
+- If auto-login fails (wrong key, session endpoint unavailable), the normal
+  dashboard login form is shown instead. The failure reason is logged without
+  the key.
+- The API key is never sent to a non-loopback target. A remote `HOST` keeps the
+  normal login form, so the operator credential stays off the network.
+- `QWEN_GUI_ADMIN_KEY` is only needed when the GUI must use a different admin
+  key than its own `.env` (for example an external server started with another
+  `API_KEY`, or a runtime-generated key).
 - The dashboard session cookie is stored in `<data>/gui-webview`, so hiding the
   window or restarting the GUI does not log you out.
 - `HOST=0.0.0.0` still binds the server for LAN clients; only the GUI's own URL
@@ -73,6 +84,10 @@ surface.
 
 - The GUI process only manages a child; server logs keep going to the normal
   server log and to the console that launched `qpx gui`.
+- The server child is spawned hidden (`windowsHide`), so launching the GUI from
+  Explorer or autostart never flashes a second console window. The child's
+  stdout/stderr are piped; nothing opens unless the user starts an interactive
+  command.
 - WebView2 data lives in `<data>/gui-webview`.
 - `QWEN_DATA_DIR` and portable `data/` lookup behave exactly as for `qpx start`.
 

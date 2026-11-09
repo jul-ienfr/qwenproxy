@@ -113,11 +113,15 @@ another machine is unchanged.
 
 1. **Given** `HOST=0.0.0.0`, **When** the GUI builds its URL, **Then** it uses
    `127.0.0.1` rather than the wildcard address.
-2. **Given** `API_KEY` is set, **When** the dashboard opens, **Then** the normal
-   session login is required inside the webview.
-3. **Given** the webview, **When** the page tries to navigate to a foreign
+2. **Given** `API_KEY` is set and the GUI target is loopback, **When** the
+   dashboard opens, **Then** the GUI creates an admin session with that key and
+   injects the `qpx_admin` cookie, so the dashboard opens signed in.
+3. **Given** auto-login fails or the target is not loopback, **When** the
+   dashboard opens, **Then** the normal session login form is shown and the API
+   key is never sent to a remote host.
+4. **Given** the webview, **When** the page tries to navigate to a foreign
    origin, **Then** navigation is blocked and stays on the dashboard origin.
-4. **Given** the GUI is running, **Then** the HTTP server still binds according
+5. **Given** the GUI is running, **Then** the HTTP server still binds according
    to `HOST`/`PORT` and remains reachable from allowed LAN clients.
 
 ## Requirements *(mandatory)*
@@ -147,6 +151,14 @@ another machine is unchanged.
   `/admin` HTTP surface, or the search opt-in behavior.
 - **FR-012**: The GUI MUST be an optional surface: `qpx`, `qpx start`, Docker,
   and standalone server binaries MUST keep working without it.
+- **FR-013**: On a loopback target, the GUI MUST create a dashboard session
+  through the existing `POST /admin/api/session` endpoint using `API_KEY` or the
+  `QWEN_GUI_ADMIN_KEY` override, and MUST inject the returned `qpx_admin` cookie
+  before loading `/admin`. It MUST NOT send the key to a non-loopback target and
+  MUST fall back to the normal login form when auto-login fails.
+- **FR-014**: The server child MUST be spawned hidden (`windowsHide`) with piped
+  stdout/stderr, so the GUI never opens a second console window when launched
+  without a terminal.
 
 ### Key Entities
 

@@ -213,7 +213,9 @@ de la bandeja detiene el servidor hijo.
 
 El GUI requiere Node.js 24+ y el paquete opcional `@webviewjs/webview`. Reutiliza
 un servidor ya en ejecución, guarda la cookie de sesión en `<data>/gui-webview`,
-traduce `HOST=0.0.0.0` a `127.0.0.1` para su propia ventana y no modifica la
+traduce `HOST=0.0.0.0` a `127.0.0.1` para su propia ventana e inicia sesión
+automáticamente en loopback con `API_KEY` (se puede sobrescribir con
+`QWEN_GUI_ADMIN_KEY`). El autologin solo funciona en loopback y no modifica la
 autenticación ni el acceso LAN. Los binarios standalone y Docker siguen siendo
 solo servidor.
 

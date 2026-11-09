@@ -383,8 +383,10 @@ window after it is closed; **Quit** in the tray menu stops the server child.
 The GUI requires Node.js 24+ and the optional `@webviewjs/webview` package. It
 reuses an already-running server, keeps the dashboard session cookie in
 `<data>/gui-webview`, maps `HOST=0.0.0.0` to `127.0.0.1` for its own window, and
-does not change dashboard authentication or LAN access. Standalone server
-binaries and Docker remain server-only.
+signs in automatically on loopback with `API_KEY` (override with
+`QWEN_GUI_ADMIN_KEY`). Auto-login is loopback-only and does not change dashboard
+authentication or LAN access. Standalone server binaries and Docker remain
+server-only.
 
 See [`docs/GUI.md`](docs/GUI.md) for setup and troubleshooting.
 

@@ -59,10 +59,12 @@ export function constantTimeStringEqual(
   );
 }
 
-/** Accept OpenAI-style Bearer and x-api-key. */
+/** Accept OpenAI-style Bearer, x-api-key, and Gemini's x-goog-api-key. */
 export function extractProvidedApiKeys(headers: {
   authorization?: string;
   apiKey?: string;
+  googApiKey?: string;
+  queryKey?: string;
 }): string[] {
   const keys: string[] = [];
   const auth = headers.authorization;
@@ -72,6 +74,10 @@ export function extractProvidedApiKeys(headers: {
   }
   const xApiKey = headers.apiKey?.trim();
   if (xApiKey) keys.push(xApiKey);
+  const googApiKey = headers.googApiKey?.trim();
+  if (googApiKey) keys.push(googApiKey);
+  const queryKey = headers.queryKey?.trim();
+  if (queryKey) keys.push(queryKey);
   return keys;
 }
 

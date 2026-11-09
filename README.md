@@ -8,7 +8,7 @@
   <a href="README.es.md">Español</a>
 </p>
 
-High-performance OpenAI- and Anthropic-compatible API gateway that bridges modern AI coding agents and clients (Claude Code CLI, OpenAI Codex, OpenCode, Cursor, OMP, Zed, Grok) to **Qwen (`chat.qwen.ai`)** with multi-account rotation, intelligent failover, robust tool calling, thread-native delta execution, image & video generation, **full OpenAI Responses API with persistent memory**, and durable sessions. Powered by stealth headless Chromium, transient retry ladders, public base/`-fast`/`-thinking` variants, compressed caching, dynamic model capability registry, and full observability.
+High-performance OpenAI-, Anthropic- and Gemini-compatible API gateway that bridges modern AI coding agents and clients (Claude Code CLI, OpenAI Codex, OpenCode, Cursor, OMP, Zed, Grok) to **Qwen (`chat.qwen.ai`)** with multi-account rotation, intelligent failover, robust tool calling, thread-native delta execution, image & video generation, **full OpenAI Responses API with persistent memory**, and durable sessions. Powered by stealth headless Chromium, transient retry ladders, public base/`-fast`/`-thinking` variants, compressed caching, dynamic model capability registry, and full observability.
 
 ---
 
@@ -49,7 +49,7 @@ Every contribution helps cover infrastructure costs, proxy bandwidth, and test a
 
 ## 🚀 Key Features
 
-- **Native OpenAI & Anthropic Compatibility** — `/v1/chat/completions`, `/v1/models`, `/v1/messages` (**native Anthropic Messages API** for **Claude Code CLI** and official `@anthropic-ai/sdk`), `/v1/messages/count_tokens`, **OpenAI Responses API** (`/v1/responses`), and `/v1/completions` (legacy adapter).
+- **Native OpenAI, Anthropic & Gemini Compatibility** — `/v1/chat/completions`, `/v1/models`, `/v1/messages` (**native Anthropic Messages API** for **Claude Code CLI** and official `@anthropic-ai/sdk`), `/v1/messages/count_tokens`, **OpenAI Responses API** (`/v1/responses`), **Gemini `generateContent` / `streamGenerateContent`** (`/v1beta/models/{model}:...`), and `/v1/completions` (legacy adapter).
 - **Full 4-Mode Conversation Matrix** — `thread` (default persistent), `thread-temp` (delta ~1KB ephemeral, recommended for coding agents), `stateless-temp` (OpenAI official stateless standard, ephemeral), and `stateless` (OpenAI official stateless standard, saved to web account).
 - **Real-Time Dynamic Mode Switching** — Switch the global proxy API mode instantly via TUI (`M` on the status screen or `F4` in Chat) or via `/v1/chat/mode` HTTP endpoint, without restarting the server.
 - **Full Terminal Dashboard TUI (`qpx`)** — Interactive monospace UI with full mouse support (hover, click, drag, and scroll), vertical model/mode selectors, and native `QwenProxy` terminal window title.
@@ -74,12 +74,14 @@ flowchart TD
     Client["Client: Claude Code / Codex / OpenCode / Cursor / OMP"] -->|HTTP / SSE| Proxy["QwenProxy - Hono"]
     Proxy --> Chat["/v1/chat/completions"]
     Proxy --> Anthropic["/v1/messages"]
+    Proxy --> Gemini["/v1beta/models/{model}:generateContent"]
     Proxy --> Completions["/v1/completions (legacy)"]
     Proxy --> Responses["/v1/responses"]
     Proxy --> Media["/v1/images | /v1/videos"]
     Proxy --> Models["/v1/models"]
     Proxy --> Upload["/v1/upload"]
     Anthropic --> Chat
+    Gemini --> Chat
     Completions --> Chat
     Responses --> Chat
     Responses --> Effort["Effort normalization"]
@@ -446,6 +448,20 @@ Standard OpenAI `reasoning_effort` values (`low`, `medium`, `high`) are supporte
 | :--- | :---: | :--- |
 | `/v1/messages` | POST | Native Anthropic Messages API (Claude Code CLI, SDK) |
 | `/v1/messages/count_tokens` | POST | Token counting endpoint |
+
+### Gemini Compatible
+| Endpoint | Method | Description |
+| :--- | :---: | :--- |
+| `/v1beta/models/{model}:generateContent` | POST | Gemini `generateContent` (text, multimodal, function calling) |
+| `/v1beta/models/{model}:streamGenerateContent` | POST | Gemini SSE streaming variant |
+| `/v1beta/models` | GET | Gemini-format model catalog |
+| `/v1beta/models/{model}` | GET | Gemini-format model details |
+
+Gemini routes accept `Authorization: Bearer`, `x-api-key`, `x-goog-api-key`, or
+`?key=` and report unsupported translation fields through
+`X-QwenProxy-Gemini-Warnings`. Gemini model families are aliased to Qwen tiers
+(`gemini-*pro*` → `qwen3.8-max`, `gemini-*flash*` → `qwen3.7-plus`), while
+direct Qwen ids pass through unchanged.
 
 ### Media Generation (Images & Videos)
 | Endpoint | Method | Description |

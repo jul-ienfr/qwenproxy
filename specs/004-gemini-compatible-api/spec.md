@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: Gap analysis vs `YuJunZhiXue/qwen2API` and `123hi123/qwen2api-rs`:
 both expose Gemini `generateContent` / `streamGenerateContent` alongside OpenAI

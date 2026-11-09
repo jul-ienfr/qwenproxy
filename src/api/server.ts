@@ -17,6 +17,7 @@ import { videosGenerations, videoTaskStatus } from "../routes/videos.js";
 import { responsesApp } from "../routes/responses/index.js";
 import { completionsLegacy } from "../routes/completions.js";
 import { anthropicApp } from "../routes/anthropic/index.ts";
+import { geminiApp } from "../routes/gemini/index.ts";
 import { sendOpenAIError } from "./error-helpers.js";
 import { AuthError, NotFoundError } from "../core/errors.js";
 import type { QwenAccount } from "../core/accounts.js";
@@ -135,7 +136,7 @@ app.use("*", async (c, next) => {
     );
     c.header(
       "Access-Control-Allow-Headers",
-      "Authorization, Content-Type, X-Request-Id, x-api-key, OpenAI-Organization, OpenAI-Project, X-Client-Request-Id, X-QwenProxy-Chat-Mode",
+      "Authorization, Content-Type, X-Request-Id, x-api-key, x-goog-api-key, OpenAI-Organization, OpenAI-Project, X-Client-Request-Id, X-QwenProxy-Chat-Mode",
     );
     c.header(
       "Access-Control-Expose-Headers",
@@ -154,7 +155,7 @@ app.use("*", async (c, next) => {
         "Access-Control-Allow-Methods":
           "GET, POST, PUT, PATCH, DELETE, OPTIONS",
         "Access-Control-Allow-Headers":
-          "Authorization, Content-Type, X-Request-Id, x-api-key, OpenAI-Organization, OpenAI-Project, X-Client-Request-Id, X-QwenProxy-Chat-Mode",
+          "Authorization, Content-Type, X-Request-Id, x-api-key, x-goog-api-key, OpenAI-Organization, OpenAI-Project, X-Client-Request-Id, X-QwenProxy-Chat-Mode",
         "Access-Control-Expose-Headers":
           "X-Request-Id, X-Response-Time, openai-version, openai-processing-ms, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-ratelimit-limit-tokens, x-ratelimit-remaining-tokens, x-ratelimit-reset-tokens",
       },
@@ -192,6 +193,8 @@ app.use("*", async (c, next) => {
     c.req.path === "/favicon.ico" ||
     c.req.path === "/v1/models" ||
     c.req.path.startsWith("/v1/models/") ||
+    c.req.path === "/v1beta/models" ||
+    c.req.path.startsWith("/v1beta/models/") ||
     c.req.path === "/models" ||
     c.req.path.startsWith("/models/") ||
     c.req.path === "/v1/chat/mode" ||
@@ -219,6 +222,20 @@ type AuthResult =
   | { identity?: undefined; error: Response };
 
 function authErrorResponse(c: Context, message: string): Response {
+  const isGemini = c.req.path.startsWith("/v1beta/");
+  if (isGemini) {
+    return c.json(
+      {
+        error: {
+          code: 401,
+          message,
+          status: "UNAUTHENTICATED",
+        },
+      },
+      401,
+    );
+  }
+
   const isAnthropic =
     c.req.path.startsWith("/v1/messages") ||
     Boolean(c.req.header("anthropic-version"));
@@ -248,6 +265,13 @@ function authenticateRequest(c: Context): AuthResult {
   const candidates = extractProvidedApiKeys({
     authorization: c.req.header("Authorization"),
     apiKey: c.req.header("x-api-key"),
+    googApiKey: c.req.header("x-goog-api-key"),
+    // Gemini SDKs may put the key in the query string. Scope this to
+    // /v1beta/* so the key never lands in logs for other routes more than it
+    // already would through explicit headers.
+    queryKey: c.req.path.startsWith("/v1beta/")
+      ? c.req.query("key")
+      : undefined,
   });
   const resolution = resolveIdentity(candidates);
   if (resolution.error || !resolution.identity) {
@@ -262,6 +286,25 @@ function authenticateRequest(c: Context): AuthResult {
 }
 
 app.use("/v1/*", async (c, next) => {
+  const auth = authenticateRequest(c);
+  if (auth.error) return auth.error;
+  setUserIdentity(c, auth.identity);
+
+  const decision = checkUserRequest(auth.identity);
+  if (!decision.allowed) {
+    return quotaErrorResponse(
+      c,
+      decision.retryAfterSec ?? 1,
+      decision.reason ?? "rpm",
+    );
+  }
+
+  await next();
+});
+
+// Gemini-compatible surface. It shares identity resolution with /v1 but uses
+// the Gemini error envelope (via authErrorResponse / quotaErrorResponse).
+app.use("/v1beta/*", async (c, next) => {
   const auth = authenticateRequest(c);
   if (auth.error) return auth.error;
   setUserIdentity(c, auth.identity);
@@ -320,6 +363,8 @@ app.post("/v1/chat/mode", async (c) => {
 // OpenAI Responses API compatible routes
 app.route("", responsesApp);
 app.route("", anthropicApp);
+// Gemini Generative Language API compatible routes
+app.route("", geminiApp);
 
 // Accept paths without the /v1 prefix via a 308 redirect (method + body are
 // preserved on redirect). Most clients append /v1 themselves; the redirect
@@ -469,6 +514,8 @@ app.onError((err, c) => {
     c.req.path === "/favicon.ico" ||
     c.req.path === "/v1/models" ||
     c.req.path.startsWith("/v1/models/") ||
+    c.req.path === "/v1beta/models" ||
+    c.req.path.startsWith("/v1beta/models/") ||
     c.req.path === "/models" ||
     c.req.path.startsWith("/models/") ||
     c.req.path === "/v1/chat/mode" ||

@@ -317,6 +317,114 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /v1beta/models:
+    get:
+      operationId: geminiListModels
+      summary: List models in Gemini format
+      tags:
+        - Gemini
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+        - geminiApiKey: []
+      responses:
+        "200":
+          description: Gemini model catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GeminiModel"
+        "401":
+          $ref: "#/components/responses/GeminiUnauthorized"
+
+  /v1beta/models/{model}:generateContent:
+    post:
+      operationId: geminiGenerateContent
+      summary: Gemini-compatible non-streaming content generation
+      tags:
+        - Gemini
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+        - geminiApiKey: []
+      parameters:
+        - name: model
+          in: path
+          required: true
+          description: Gemini or Qwen model id (Gemini families are aliased to Qwen tiers)
+          schema:
+            type: string
+          example: gemini-2.5-pro
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeminiGenerateContentRequest"
+      responses:
+        "200":
+          description: Gemini generateContent response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiGenerateContentResponse"
+        "400":
+          $ref: "#/components/responses/GeminiInvalidArgument"
+        "401":
+          $ref: "#/components/responses/GeminiUnauthorized"
+        "404":
+          $ref: "#/components/responses/GeminiNotFound"
+        "429":
+          $ref: "#/components/responses/GeminiRateLimited"
+
+  /v1beta/models/{model}:streamGenerateContent:
+    post:
+      operationId: geminiStreamGenerateContent
+      summary: Gemini-compatible streaming content generation (SSE)
+      tags:
+        - Gemini
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+        - geminiApiKey: []
+      parameters:
+        - name: model
+          in: path
+          required: true
+          description: Gemini or Qwen model id (Gemini families are aliased to Qwen tiers)
+          schema:
+            type: string
+          example: gemini-2.5-flash
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeminiGenerateContentRequest"
+      responses:
+        "200":
+          description: |
+            Server-sent events. Each `data:` line is a Gemini
+            GenerateContentResponse chunk; the final chunk carries
+            `finishReason` and `usageMetadata`.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/GeminiInvalidArgument"
+        "401":
+          $ref: "#/components/responses/GeminiUnauthorized"
+        "404":
+          $ref: "#/components/responses/GeminiNotFound"
+        "429":
+          $ref: "#/components/responses/GeminiRateLimited"
+
   /health:
     get:
       operationId: healthCheck
@@ -362,6 +470,11 @@ components:
       in: header
       name: x-api-key
       description: "Bearer-style API key header (same secret as `API_KEY`)"
+    geminiApiKey:
+      type: apiKey
+      in: header
+      name: x-goog-api-key
+      description: "Gemini-style API key header. The `?key=` query parameter is also accepted on /v1beta routes."
 
   schemas:
     CreateChatCompletionRequest:
@@ -947,6 +1060,309 @@ components:
               type: [string, "null"]
               description: Request parameter associated with the error, if any
 
+    GeminiPart:
+      type: object
+      properties:
+        text:
+          type: string
+        thought:
+          type: boolean
+          description: Thought-summary part emitted for thinking models.
+        inlineData:
+          type: object
+          properties:
+            mimeType:
+              type: string
+            data:
+              type: string
+              description: Base64-encoded payload.
+          required:
+            - data
+        fileData:
+          type: object
+          properties:
+            mimeType:
+              type: string
+            fileUri:
+              type: string
+              format: uri
+          required:
+            - fileUri
+        functionCall:
+          type: object
+          properties:
+            name:
+              type: string
+            args:
+              type: object
+              additionalProperties: true
+          required:
+            - name
+        functionResponse:
+          type: object
+          properties:
+            name:
+              type: string
+            response:
+              description: Arbitrary JSON tool result.
+          required:
+            - name
+      additionalProperties: true
+
+    GeminiContent:
+      type: object
+      required:
+        - parts
+      properties:
+        role:
+          type: string
+          enum: [user, model, function]
+          default: user
+        parts:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/GeminiPart"
+
+    GeminiFunctionDeclaration:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        parameters:
+          type: object
+          additionalProperties: true
+          description: OpenAPI-subset JSON schema for the function arguments.
+        response:
+          type: object
+          additionalProperties: true
+
+    GeminiTool:
+      type: object
+      properties:
+        functionDeclarations:
+          type: array
+          items:
+            $ref: "#/components/schemas/GeminiFunctionDeclaration"
+
+    GeminiGenerationConfig:
+      type: object
+      properties:
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+        topP:
+          type: number
+          minimum: 0
+          maximum: 1
+        topK:
+          type: integer
+          minimum: 0
+          description: Forwarded to Qwen but not honored by the web backend.
+        candidateCount:
+          type: integer
+          minimum: 1
+          description: Only one candidate is supported; higher values are clamped.
+        maxOutputTokens:
+          type: integer
+          minimum: 1
+          description: Enforced by the adapter with a token-estimate guard.
+        stopSequences:
+          type: array
+          items:
+            type: string
+        presencePenalty:
+          type: number
+        frequencyPenalty:
+          type: number
+        seed:
+          type: integer
+          description: Ignored (reported via X-QwenProxy-Gemini-Warnings).
+        responseMimeType:
+          type: string
+        responseSchema:
+          type: object
+          additionalProperties: true
+        thinkingConfig:
+          type: object
+          properties:
+            thinkingBudget:
+              type: integer
+              description: 0 forces Fast mode; a positive value forces Thinking.
+            includeThoughts:
+              type: boolean
+
+    GeminiFunctionCallingConfig:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [AUTO, ANY, NONE, VALIDATED]
+        allowedFunctionNames:
+          type: array
+          items:
+            type: string
+
+    GeminiToolConfig:
+      type: object
+      properties:
+        functionCallingConfig:
+          $ref: "#/components/schemas/GeminiFunctionCallingConfig"
+
+    GeminiSafetySetting:
+      type: object
+      properties:
+        category:
+          type: string
+        threshold:
+          type: string
+      additionalProperties: true
+
+    GeminiGenerateContentRequest:
+      type: object
+      required:
+        - contents
+      properties:
+        model:
+          type: string
+          description: Optional; must match the URL model when present.
+        contents:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/GeminiContent"
+        systemInstruction:
+          oneOf:
+            - type: string
+            - $ref: "#/components/schemas/GeminiContent"
+        generationConfig:
+          $ref: "#/components/schemas/GeminiGenerationConfig"
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/GeminiTool"
+        toolConfig:
+          $ref: "#/components/schemas/GeminiToolConfig"
+        safetySettings:
+          type: array
+          items:
+            $ref: "#/components/schemas/GeminiSafetySetting"
+        cachedContent:
+          type: string
+          description: Ignored (reported via X-QwenProxy-Gemini-Warnings).
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: Ignored (reported via X-QwenProxy-Gemini-Warnings).
+
+    GeminiCandidate:
+      type: object
+      properties:
+        content:
+          $ref: "#/components/schemas/GeminiContent"
+        finishReason:
+          type: string
+          enum:
+            - STOP
+            - MAX_TOKENS
+            - SAFETY
+            - RECITATION
+            - BLOCKLIST
+            - PROHIBITED_CONTENT
+            - SPII
+            - MALFORMED_FUNCTION_CALL
+            - OTHER
+        index:
+          type: integer
+        safetyRatings:
+          type: array
+          items:
+            type: object
+
+    GeminiUsageMetadata:
+      type: object
+      properties:
+        promptTokenCount:
+          type: integer
+        candidatesTokenCount:
+          type: integer
+        totalTokenCount:
+          type: integer
+        cachedContentTokenCount:
+          type: integer
+        thoughtsTokenCount:
+          type: integer
+
+    GeminiGenerateContentResponse:
+      type: object
+      properties:
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/GeminiCandidate"
+        usageMetadata:
+          $ref: "#/components/schemas/GeminiUsageMetadata"
+        modelVersion:
+          type: string
+        promptFeedback:
+          type: object
+          properties:
+            blockReason:
+              type: string
+            safetyRatings:
+              type: array
+              items:
+                type: object
+
+    GeminiModel:
+      type: object
+      properties:
+        name:
+          type: string
+          example: models/qwen3.8-max
+        displayName:
+          type: string
+        description:
+          type: string
+        inputTokenLimit:
+          type: integer
+        outputTokenLimit:
+          type: integer
+        supportedGenerationMethods:
+          type: array
+          items:
+            type: string
+
+    GeminiError:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+            - status
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
+            status:
+              type: string
+              example: INVALID_ARGUMENT
+            details:
+              type: array
+              items:
+                type: object
+
   responses:
     BadRequest:
       description: Invalid request parameters
@@ -1032,12 +1448,58 @@ components:
               type: upstream_timeout_error
               code: upstream_timeout
               param: null
+    GeminiInvalidArgument:
+      description: Invalid Gemini request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GeminiError"
+          example:
+            error:
+              code: 400
+              message: "'contents' array cannot be empty"
+              status: INVALID_ARGUMENT
+    GeminiUnauthorized:
+      description: Missing or invalid Gemini API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GeminiError"
+          example:
+            error:
+              code: 401
+              message: "Missing or invalid API key"
+              status: UNAUTHENTICATED
+    GeminiNotFound:
+      description: Unknown Gemini model or method
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GeminiError"
+          example:
+            error:
+              code: 404
+              message: "Model 'gemini-unknown' not found"
+              status: NOT_FOUND
+    GeminiRateLimited:
+      description: Gemini request quota exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/GeminiError"
+          example:
+            error:
+              code: 429
+              message: "Rate limit exceeded (requests per minute). Retry in 1s."
+              status: RESOURCE_EXHAUSTED
 
 tags:
   - name: Chat
     description: Chat completion operations (OpenAI-compatible)
   - name: Responses
     description: OpenAI Responses API compatibility layer
+  - name: Gemini
+    description: Gemini Generative Language API compatibility layer (/v1beta)
   - name: Models
     description: Model listing and retrieval (OpenAI shape)
   - name: Files

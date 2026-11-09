@@ -128,15 +128,23 @@ export function parseModelSuffix(model: string): {
 }
 
 /**
- * Mapeia modelos populares de terceiros (OpenAI / Anthropic) para o tier Qwen equivalente:
- * - mini / haiku / 3.5 -> qwen3.7-plus
- * - gpt-4* / o1* / o3* / opus / sonnet / claude-* -> qwen3.8-max
+ * Mapeia modelos populares de terceiros (OpenAI / Anthropic / Gemini) para o tier Qwen equivalente:
+ * - mini / haiku / 3.5 / gemini-*flash* -> qwen3.7-plus
+ * - gpt-4* / o1* / o3* / opus / sonnet / claude-* / gemini-*pro* -> qwen3.8-max
  * Modelos que já começam com "qwen" passam intactos.
  */
 export function mapKnownModelAlias(model: string): string {
   if (!model) return model;
   const lower = model.toLowerCase();
   if (lower.startsWith("qwen")) return model;
+
+  // Gemini tiers must be handled before the generic "mini" substring check
+  // below, because "gemini" itself contains "mini". Flash models map to the
+  // lightweight tier, Pro/Ultra (and anything else under the Gemini family)
+  // to the flagship tier.
+  if (lower.startsWith("gemini")) {
+    return lower.includes("flash") ? "qwen3.7-plus" : "qwen3.8-max";
+  }
 
   // Lightweight / mini models
   if (

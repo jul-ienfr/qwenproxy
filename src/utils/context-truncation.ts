@@ -6,11 +6,20 @@
  * final Math.ceil, keeping the result identical to the concatenated form).
  */
 export function estimateTokenCount(...parts: string[]): number {
+  return Math.ceil(estimateTokenCountFloat(...parts));
+}
+
+/**
+ * Unrounded variant of {@link estimateTokenCount}. Streaming adapters that
+ * accumulate many small deltas can sum the raw weights and round once at the
+ * end instead of paying a rounding error per chunk.
+ */
+export function estimateTokenCountFloat(...parts: string[]): number {
   let tokens = 0;
   for (const part of parts) {
     if (part) tokens += estimatePart(part);
   }
-  return Math.ceil(tokens);
+  return tokens;
 }
 
 function estimatePart(text: string): number {

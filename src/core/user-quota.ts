@@ -159,11 +159,24 @@ export function quotaErrorResponse(
   const isAnthropic =
     c.req.path.startsWith("/v1/messages") ||
     Boolean(c.req.header("anthropic-version"));
+  const isGemini = c.req.path.startsWith("/v1beta/");
   const message =
     reason === "rpm"
       ? `Rate limit exceeded (requests per minute). Retry in ${retryAfterSec}s.`
       : `Concurrency limit exceeded. Retry in ${retryAfterSec}s.`;
   c.header("Retry-After", String(Math.max(1, retryAfterSec)));
+  if (isGemini) {
+    return c.json(
+      {
+        error: {
+          code: 429,
+          message,
+          status: "RESOURCE_EXHAUSTED",
+        },
+      },
+      429,
+    );
+  }
   if (isAnthropic) {
     c.header(
       "anthropic-version",

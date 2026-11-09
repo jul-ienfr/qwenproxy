@@ -5,7 +5,8 @@
 <p align="center">
   <a href="README.md">English</a> ·
   <a href="README.pt-BR.md">Português</a> ·
-  <b>Español</b>
+  <b>Español</b> ·
+  <a href="README.fr.md">Français</a>
 </p>
 
 Gateway y API de alto rendimiento compatible con **OpenAI** y **Anthropic** que conecta clientes y agentes de programación (Claude Code CLI, OpenAI Codex, OpenCode, Cursor, OMP, Zed, Grok) con **Qwen (`chat.qwen.ai`)** con rotación multi-cuenta, failover inteligente, llamada de herramientas (tool calling) robusta, ejecución delta nativa, generación de imágenes y vídeos, **Responses API completa de OpenAI con memoria persistente** y sesiones duraderas. Desarrollado con Chromium headless stealth, reintentos ante errores transitorios, variantes públicas base/`-fast`/`-thinking`, caché comprimida, registro dinámico de capacidades por modelo y observabilidad completa.

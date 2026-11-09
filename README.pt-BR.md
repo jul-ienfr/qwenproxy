@@ -6,7 +6,8 @@
 <p align="center">
   <a href="README.md">English</a> ·
   <b>Português</b> ·
-  <a href="README.es.md">Español</a>
+  <a href="README.es.md">Español</a> ·
+  <a href="README.fr.md">Français</a>
 </p>
 
 

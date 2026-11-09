@@ -5,7 +5,8 @@
 <p align="center">
   <b>English</b> ·
   <a href="README.pt-BR.md">Português</a> ·
-  <a href="README.es.md">Español</a>
+  <a href="README.es.md">Español</a> ·
+  <a href="README.fr.md">Français</a>
 </p>
 
 High-performance OpenAI-, Anthropic- and Gemini-compatible API gateway that bridges modern AI coding agents and clients (Claude Code CLI, OpenAI Codex, OpenCode, Cursor, OMP, Zed, Grok) to **Qwen (`chat.qwen.ai`)** with multi-account rotation, intelligent failover, robust tool calling, thread-native delta execution, image & video generation, **full OpenAI Responses API with persistent memory**, and durable sessions. Powered by stealth headless Chromium, transient retry ladders, public base/`-fast`/`-thinking` variants, compressed caching, dynamic model capability registry, and full observability.

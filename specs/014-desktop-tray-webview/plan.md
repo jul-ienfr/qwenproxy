@@ -88,8 +88,9 @@ directory, same browser profiles, same `HOST`/`PORT` semantics.
 - `application-close-requested` is ignored while the tray is alive.
 - Navigation guard allows only the dashboard origin (plus `about:blank`); all
   other navigations and new-window requests are cancelled.
-- A dedicated `WebContext` rooted at `<data>/gui-webview` persists dashboard
-  cookies across hide/show and restarts.
+- A dedicated `WebContext` rooted at `<data>/gui-webview` persists the webview
+  profile (storage and cookies) across hide/show; the `qpx_admin` cookie is a
+  session cookie, so auto-login re-creates it on every GUI start.
 - After the server is ready and before loading `/admin`, auto-login POSTs to
   `/admin/api/session` with `QWEN_GUI_ADMIN_KEY || API_KEY`, extracts the
   `qpx_admin` cookie from `Set-Cookie`, and injects it with `view.setCookie()`.

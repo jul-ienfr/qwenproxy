@@ -374,11 +374,12 @@ do relógio, reabre a janela depois de fechada; **Quit** no menu da bandeja para
 servidor filho.
 
 O GUI exige Node.js 24+ e o pacote opcional `@webviewjs/webview`. Ele reutiliza
-um servidor já em execução, guarda o cookie de sessão em `<data>/gui-webview`,
-mapeia `HOST=0.0.0.0` para `127.0.0.1` na própria janela e entra automaticamente
-no loopback com `API_KEY` (pode ser substituída por `QWEN_GUI_ADMIN_KEY`). O
-autologin é apenas para loopback e não altera a autenticação nem o acesso LAN.
-Binários standalone e Docker continuam apenas servidor.
+um servidor já em execução, mantém o perfil do webview em `<data>/gui-webview`
+(o autologin recria o cookie de sessão a cada início), mapeia `HOST=0.0.0.0` para
+`127.0.0.1` na própria janela e entra automaticamente no loopback com `API_KEY`
+(pode ser substituída por `QWEN_GUI_ADMIN_KEY`). O autologin é apenas para
+loopback e não altera a autenticação nem o acesso LAN. Binários standalone e
+Docker continuam apenas servidor.
 
 Veja [`docs/GUI.md`](docs/GUI.md) para instalação e diagnóstico.
 

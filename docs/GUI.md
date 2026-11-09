@@ -70,8 +70,9 @@ The GUI is a local client, not a bypass:
 - `QWEN_GUI_ADMIN_KEY` is only needed when the GUI must use a different admin
   key than its own `.env` (for example an external server started with another
   `API_KEY`, or a runtime-generated key).
-- The dashboard session cookie is stored in `<data>/gui-webview`, so hiding the
-  window or restarting the GUI does not log you out.
+- The webview profile lives in `<data>/gui-webview`; hiding the window keeps the
+  session. On every GUI start the auto-login re-creates the `qpx_admin` cookie
+  before `/admin` loads, so a restart does not log you out.
 - `HOST=0.0.0.0` still binds the server for LAN clients; only the GUI's own URL
   uses `127.0.0.1`.
 - Navigation is restricted to the dashboard origin. Foreign links and

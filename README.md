@@ -381,9 +381,10 @@ dashboard in a native WebView2 window. A tray icon next to the clock reopens the
 window after it is closed; **Quit** in the tray menu stops the server child.
 
 The GUI requires Node.js 24+ and the optional `@webviewjs/webview` package. It
-reuses an already-running server, keeps the dashboard session cookie in
-`<data>/gui-webview`, maps `HOST=0.0.0.0` to `127.0.0.1` for its own window, and
-signs in automatically on loopback with `API_KEY` (override with
+reuses an already-running server, keeps the webview profile in
+`<data>/gui-webview` (auto-login re-creates the session cookie on each start),
+maps `HOST=0.0.0.0` to `127.0.0.1` for its own window, and signs in
+automatically on loopback with `API_KEY` (override with
 `QWEN_GUI_ADMIN_KEY`). Auto-login is loopback-only and does not change dashboard
 authentication or LAN access. Standalone server binaries and Docker remain
 server-only.

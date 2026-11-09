@@ -72,7 +72,7 @@
 - [x] T028 Full `npm run test:mock` passes.
 - [x] T029 `npm run build` emits `dist/gui/main.js` and keeps the webview
       package external.
-- [ ] T030 Manual Windows smoke: tray icon, left/right click, close-to-tray,
+- [x] T030 Manual Windows smoke: tray icon, left/right click, close-to-tray,
       Restart server, Quit, no orphan process.
 
       Automated smoke on Windows passed: the tray/window were created with
@@ -81,8 +81,16 @@
       Auto-login was confirmed end to end: the GUI recorded `session.login` in
       the audit trail, produced no fallback warning, and WebView2 accepted the
       `qpx_admin` cookie for `127.0.0.1` with `HttpOnly` + `SameSite=Strict`.
-      Interactive tray actions (left/right click, close-to-tray, Restart,
-      Quit) still need a human at the desktop.
+      Tray interactions were driven with UI Automation:
+      - left-click raised the dashboard window;
+      - closing the window hid it while the GUI and the external server stayed
+        alive (close-to-tray);
+      - the tray menu exposed `Open dashboard | Restart server | Quit`;
+      - `Open dashboard` restored the window;
+      - `Restart server` reloaded the dashboard and re-authenticated (new
+        `session.login` audit row, GUI + external server still alive);
+      - `Quit` exited the GUI (PID gone, tray icon removed) while the external
+        server kept running, leaving no orphan process.
 
 ## Phase 8 - Dashboard auto-login
 

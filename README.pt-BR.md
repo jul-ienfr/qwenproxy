@@ -157,6 +157,25 @@ interface ModelCapabilities {
 
 **Destaque `qwen3.8-max`**: modelo flagship com suporte a visão (o `qwen3.7-max` não suporta). Permite desativar thinking (`canSkipThinking: true`).
 
+### Mapeamento de modelos em runtime
+
+Mantenha nomes de modelos usados por clientes funcionando quando o catálogo do
+Qwen muda. Defina `MODEL_MAP` (semente inicial) ou edite no dashboard em
+**Settings → Model mappings**:
+
+```dotenv
+MODEL_MAP=gpt-4o=qwen3.8-max,claude-sonnet=qwen3.8-max,*=qwen3.7-plus
+```
+
+- Aliases exatos (case-insensitive) têm precedência sobre os aliases embutidos.
+- `*=qwen-id` é um fallback opcional para modelos desconhecidos.
+- IDs nativos (`qwen*`, `wan*`, `z-image*`) nunca são reescritos.
+- Alterações são recarregadas de `data/model-mappings.json` sem reiniciar.
+- `/v1/models` publica os aliases com contexto e capabilities do modelo alvo.
+- Mapeamentos inválidos são rejeitados com mensagem clara.
+
+Admin API: `GET|PUT|DELETE /admin/api/model-mappings`.
+
 ### Variantes sintéticas
 
 - modelo base — modo **Auto** (o Qwen decide se raciocina), ex.: `qwen3.7-plus`

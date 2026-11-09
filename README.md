@@ -316,7 +316,8 @@ The proxy also serves an authenticated dashboard from the same process at
 - **Models**: live catalog with context window and capabilities.
 - **Settings**: allowlisted hot-applied values persisted to `.env`
   (`chat_mode`, `global_proxy_url`, `chat_request_log`, `rate_limit_requests`,
-  `rate_limit_tokens`, `user_default_rpm`, `user_default_concurrency`).
+  `rate_limit_tokens`, `user_default_rpm`, `user_default_concurrency`), plus a
+  **Model mappings** editor for the runtime `MODEL_MAP` aliases.
 - **Logs / Audit**: recent logs with secret redaction and a durable record of
   every dashboard/API mutation.
 
@@ -386,6 +387,27 @@ Models and context windows are synchronized dynamically from Qwen's live `/api/m
 | `qwen3.7-plus` | 1,000,000 | 65,536 | ✅ Yes | ✅ Yes |
 | `qwen3.7-max` | 1,000,000 | 65,536 | ✅ Yes | ❌ No |
 | **Fallback** | **1,048,576** | **65,536** | — | — |
+
+### Runtime Model Mapping
+
+Keep hardcoded client model names working when Qwen rotates its catalog. Set
+`MODEL_MAP` (a seed used until the admin-managed file exists) or edit the
+mapping from the dashboard's **Settings → Model mappings** card:
+
+```dotenv
+MODEL_MAP=gpt-4o=qwen3.8-max,claude-sonnet=qwen3.8-max,*=qwen3.7-plus
+```
+
+- Exact aliases are case-insensitive and win over built-in family aliases.
+- `*=qwen-id` is an optional wildcard fallback for unknown model names.
+- Qwen-native ids (`qwen*`, `wan*`, `z-image*`) always pass through unchanged.
+- Changes are hot-reloaded from `data/model-mappings.json`; no restart needed.
+- `/v1/models` lists aliases with the target's context window and capabilities.
+- Invalid mappings (empty target, duplicate alias, alias chain, reserved
+  `-search`/`-fast`/`-thinking` suffix, Qwen alias key) are rejected.
+
+The admin API is `GET|PUT|DELETE /admin/api/model-mappings`; `PUT` accepts
+`{"map":"alias=qwen-id,*=fallback"}` or `{"mappings":{"alias":"qwen-id"},"fallback":"qwen-id"}`.
 
 ### Synthetic Variants
 

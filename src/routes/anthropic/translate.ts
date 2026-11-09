@@ -9,6 +9,11 @@ import type {
   OpenAIResponse,
 } from "./types.ts";
 import { stripThinkingSuffix } from "../../core/model-alias.ts";
+import {
+  findExactModelMapping,
+  getModelMappingFallback,
+} from "../../core/model-mapping.ts";
+import { logger } from "../../core/logger.ts";
 
 /**
  * Resolves Anthropic model requests dynamically to internal Qwen models.
@@ -17,7 +22,8 @@ import { stripThinkingSuffix } from "../../core/model-alias.ts";
  *  - opus / sonnet / generic claude -> qwen3.8-max
  *  - haiku -> qwen3.7-plus
  *  - direct qwen* models pass through as-is
- * Preserves -fast and -thinking reasoning suffixes.
+ * Preserves -fast and -thinking reasoning suffixes. Runtime aliases from the
+ * admin mapping editor take precedence over the built-in family logic.
  */
 export function mapAnthropicModel(model: string): string {
   if (!model) return "qwen3.8-max";
@@ -26,9 +32,16 @@ export function mapAnthropicModel(model: string): string {
   const normalized = baseModel.toLowerCase();
 
   let targetBase = baseModel;
-
-  // Direct Qwen models pass through untouched (e.g. qwen3.8-max, qwen3.7-plus)
-  if (!normalized.startsWith("qwen")) {
+  const exact = findExactModelMapping(baseModel);
+  if (exact) {
+    targetBase = exact.target;
+    logger.debug("[models] runtime mapping applied", {
+      requested: model,
+      effective: exact.target,
+      source: "exact",
+    });
+  } else if (!normalized.startsWith("qwen")) {
+    // Direct Qwen models pass through untouched (e.g. qwen3.8-max, qwen3.7-plus)
     if (normalized.includes("haiku")) {
       targetBase = "qwen3.7-plus";
     } else if (
@@ -37,6 +50,16 @@ export function mapAnthropicModel(model: string): string {
       normalized.startsWith("claude")
     ) {
       targetBase = "qwen3.8-max";
+    } else {
+      const fallback = getModelMappingFallback(baseModel);
+      if (fallback) {
+        targetBase = fallback;
+        logger.debug("[models] runtime wildcard fallback applied", {
+          requested: model,
+          effective: fallback,
+          source: "wildcard",
+        });
+      }
     }
   }
 

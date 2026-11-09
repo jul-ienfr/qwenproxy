@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { Hono } from "hono";
 import { fetchQwenModels, getAnyCachedQwenModels } from "../services/qwen.js";
 import { DEFAULT_FALLBACK_MODELS } from "../core/model-alias.ts";
+import { getModelMappingState } from "../core/model-mapping.ts";
 import { loadAccounts } from "../core/accounts.ts";
 import { getAccountCooldownInfo } from "../core/account-manager.ts";
 import { getAccountsByPriority } from "../core/account-priority.ts";
@@ -101,10 +102,16 @@ export function expandModelVariants(
 }
 
 function toAnthropicModel(model: PublicModel, accountId?: string) {
-  const capabilities = getModelCapabilities(model.id, accountId);
+  // Alias entries advertise the target model's capabilities and context
+  // window, never the alias name's (nonexistent) metadata.
+  const metadataModel =
+    typeof model.mapped_to === "string" && model.mapped_to
+      ? model.mapped_to
+      : model.id;
+  const capabilities = getModelCapabilities(metadataModel, accountId);
   const isFastVariant = model.id.endsWith("-fast");
   const contextWindow =
-    model.context_window ?? getModelContextWindow(model.id, accountId);
+    model.context_window ?? getModelContextWindow(metadataModel, accountId);
 
   return {
     id: model.id,
@@ -201,8 +208,32 @@ export async function loadModelsWithVariants(): Promise<{
       ),
     }));
 
+  // Runtime aliases are first-class catalog entries: clients can discover
+  // them and read the target's context window/capabilities. The `/v1/models`
+  // ETag is derived from this list, so a mapping change invalidates it.
+  const advertised = new Set(
+    [...expandedWithMedia, ...mediaModels].map((model) =>
+      model.id.toLowerCase(),
+    ),
+  );
+  const aliasModels: PublicModel[] = getModelMappingState()
+    .mappings.filter((entry) => !advertised.has(entry.alias.toLowerCase()))
+    .map((entry) => {
+      const capabilities = getModelCapabilities(entry.target, accountId);
+      return {
+        id: entry.alias,
+        object: "model",
+        created: MEDIA_MODELS_CREATED_AT,
+        owned_by: "qwen",
+        context_window: getModelContextWindow(entry.target, accountId),
+        is_active: true,
+        supports_search: capabilities.supportsSearch,
+        mapped_to: entry.target,
+      };
+    });
+
   return {
-    models: [...expandedWithMedia, ...mediaModels],
+    models: [...expandedWithMedia, ...mediaModels, ...aliasModels],
     accountId,
   };
 }

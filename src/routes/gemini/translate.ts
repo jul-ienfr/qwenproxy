@@ -1,4 +1,7 @@
-import { mapKnownModelAlias, parseModelSuffix } from "../../core/model-alias.ts";
+import {
+  mapClientModelToQwen,
+  parseModelSuffix,
+} from "../../core/model-alias.ts";
 import { logger } from "../../core/logger.js";
 import {
   estimateTokenCountFloat,
@@ -95,7 +98,7 @@ export function mapGeminiModel(model: string): string {
   if (!normalized) return "";
 
   const { baseModel, reasoningMode, search } = parseModelSuffix(normalized);
-  const mapped = mapKnownModelAlias(baseModel);
+  const mapped = mapClientModelToQwen(baseModel);
 
   const suffixes: string[] = [];
   if (search) suffixes.push("search");

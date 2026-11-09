@@ -31,6 +31,14 @@ import { accountsApp } from "./accounts-api.ts";
 import { buildOverview } from "./overview.ts";
 import { redactLogHistory, redactLogEntry } from "./logs.ts";
 import { applySettings, listSettings } from "./settings.ts";
+import {
+  getModelMappingState,
+  parseModelMap,
+  resetModelMappings,
+  saveModelMappings,
+  validateModelMappings,
+  type ModelMappingState,
+} from "../core/model-mapping.ts";
 import { ADMIN_CSS, ADMIN_HTML, ADMIN_JS } from "./ui.ts";
 
 export const adminDashboardApp = new Hono();
@@ -58,6 +66,25 @@ async function readJson(
   const body = await c.req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   return body as Record<string, unknown>;
+}
+
+function serializeModelMappings(state: ModelMappingState) {
+  return {
+    mappings: Object.fromEntries(
+      state.mappings.map((entry) => [entry.alias, entry.target]),
+    ),
+    entries: state.mappings,
+    fallback: state.fallback,
+    source: state.source,
+    updatedAt: state.updatedAt,
+  };
+}
+
+function modelMappingTarget(state: ModelMappingState): string {
+  const aliases = state.mappings.map((entry) => entry.alias);
+  const parts = [...aliases];
+  if (state.fallback) parts.push("*");
+  return parts.join(",") || "none";
 }
 
 // ─── Static UI ──────────────────────────────────────────────────────────────
@@ -196,6 +223,106 @@ adminDashboardApp.put("/api/settings", async (c) => {
       message,
     });
     return adminJsonError(c, 400, message);
+  }
+});
+
+// ─── Model mappings ─────────────────────────────────────────────────────────
+
+function mappingPayload(body: Record<string, unknown>): {
+  mappings: Array<{ alias: string; target: string }>;
+  fallback: string | null;
+} {
+  if (typeof body.map === "string") {
+    const parsed = parseModelMap(body.map);
+    if (parsed.errors.length > 0) {
+      throw new Error(parsed.errors.join("; "));
+    }
+    return { mappings: parsed.mappings, fallback: parsed.fallback };
+  }
+
+  const raw = body.mappings;
+  if (raw === undefined || raw === null) {
+    throw new Error("Field 'map' or 'mappings' is required");
+  }
+
+  let mappings: Array<{ alias: string; target: string }>;
+  if (Array.isArray(raw)) {
+    mappings = raw.map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new Error("Each mapping entry must be an object with alias/target");
+      }
+      const record = entry as Record<string, unknown>;
+      return {
+        alias: String(record.alias ?? ""),
+        target: String(record.target ?? ""),
+      };
+    });
+  } else if (typeof raw === "object") {
+    mappings = Object.entries(raw as Record<string, unknown>).map(
+      ([alias, target]) => ({ alias, target: String(target ?? "") }),
+    );
+  } else {
+    throw new Error("Field 'mappings' must be an object or an array");
+  }
+
+  let fallback: string | null = null;
+  if (typeof body.fallback === "string") {
+    fallback = body.fallback;
+  } else if (body.fallback !== undefined && body.fallback !== null) {
+    throw new Error("Field 'fallback' must be a string or null");
+  }
+
+  return { mappings, fallback };
+}
+
+adminDashboardApp.get("/api/model-mappings", (c) => {
+  return c.json(serializeModelMappings(getModelMappingState()));
+});
+
+adminDashboardApp.put("/api/model-mappings", async (c) => {
+  const body = await readJson(c);
+  if (!body) {
+    return adminJsonError(c, 400, "A JSON object body is required");
+  }
+  let target = "unknown";
+  try {
+    const payload = mappingPayload(body);
+    target = payload.mappings.map((entry) => entry.alias).join(",") || "none";
+    const validation = validateModelMappings(
+      payload.mappings,
+      payload.fallback,
+    );
+    if (!validation.valid) {
+      throw new Error(validation.errors.join("; "));
+    }
+    const state = saveModelMappings(payload);
+    recordAudit(
+      actor(c),
+      "model_mappings.update",
+      modelMappingTarget(state),
+      "ok",
+    );
+    return c.json(serializeModelMappings(state));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    recordAudit(actor(c), "model_mappings.update", target, "error", {
+      message,
+    });
+    return adminJsonError(c, 400, message);
+  }
+});
+
+adminDashboardApp.delete("/api/model-mappings", (c) => {
+  try {
+    const state = resetModelMappings();
+    recordAudit(actor(c), "model_mappings.reset", "model-mappings.json", "ok");
+    return c.json(serializeModelMappings(state));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    recordAudit(actor(c), "model_mappings.reset", "model-mappings.json", "error", {
+      message,
+    });
+    return adminJsonError(c, 500, message);
   }
 });
 

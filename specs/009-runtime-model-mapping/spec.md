@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: Gap analysis vs `Rfym21/Qwen2API`: `MODEL_MAP` supports
 `alias=qwen-id,...,*=fallback`, editable in the admin settings. The current

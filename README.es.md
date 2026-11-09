@@ -215,6 +215,27 @@ Los modelos y ventanas de contexto se sincronizan dinámicamente desde el catál
 | `qwen3.7-max` | 1.000.000 | 65.536 | ✅ Sí | ❌ No |
 | **Fallback** | **1.048.576** | **65.536** | — | — |
 
+### Mapeo de modelos en runtime
+
+Mantén funcionando los nombres de modelo que usan los clientes cuando el
+catálogo de Qwen cambia. Define `MODEL_MAP` (semilla inicial) o edítalo en el
+dashboard en **Settings → Model mappings**:
+
+```dotenv
+MODEL_MAP=gpt-4o=qwen3.8-max,claude-sonnet=qwen3.8-max,*=qwen3.7-plus
+```
+
+- Los alias exactos (sin distinguir mayúsculas) tienen prioridad sobre los
+  alias integrados.
+- `*=qwen-id` es un fallback opcional para modelos desconocidos.
+- Los IDs nativos (`qwen*`, `wan*`, `z-image*`) nunca se reescriben.
+- Los cambios se recargan de `data/model-mappings.json` sin reiniciar.
+- `/v1/models` publica los alias con el contexto y las capabilities del modelo
+  destino.
+- Los mapeos inválidos se rechazan con un mensaje claro.
+
+Admin API: `GET|PUT|DELETE /admin/api/model-mappings`.
+
 ### Variantes Sintéticas
 
 - Modelo Base — **Modo Auto** (Qwen decide cuándo razonar), ej.: `qwen3.8-max`

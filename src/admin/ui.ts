@@ -100,6 +100,19 @@ export const ADMIN_HTML = `<!doctype html>
       <div class="section-head"><h2>Settings</h2><span class="muted">Only allowlisted values can be changed.</span></div>
       <form id="settings-form" class="card"></form>
       <p id="settings-error" class="error" role="alert"></p>
+      <form id="model-mappings-form" class="card mapping-editor">
+        <h3>Model mappings</h3>
+        <p class="muted">Rewrite client model names to Qwen ids without restarting. Format: <code>alias=qwen-id</code> separated by commas or new lines; use <code>*=qwen-id</code> for a wildcard fallback. Exact aliases win over wildcard, and Qwen-native ids are never rewritten.</p>
+        <label>Mappings
+          <textarea id="model-mappings-map" rows="5" spellcheck="false" placeholder="gpt-4o=qwen3.8-max,claude-sonnet=qwen3.8-max,*=qwen3.7-plus"></textarea>
+        </label>
+        <p id="model-mappings-meta" class="muted"></p>
+        <div class="actions">
+          <button type="submit">Save mappings</button>
+          <button id="model-mappings-reset" class="ghost" type="button">Reset to MODEL_MAP</button>
+        </div>
+        <p id="model-mappings-error" class="error" role="alert"></p>
+      </form>
     </section>
 
     <section id="tab-logs" class="tab hidden">
@@ -150,7 +163,8 @@ h1 { font-size: 26px; } h2 { font-size: 20px; } h3 { font-size: 16px; }
 label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
 label.inline { display: inline-flex; align-items: center; gap: 8px; }
 input, select, button { font: inherit; }
-input, select { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; min-width: 0; }
+input, select, textarea { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; min-width: 0; }
+textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; }
 button { background: var(--accent); color: #071022; border: 0; border-radius: 9px; padding: 9px 14px; font-weight: 650; cursor: pointer; }
 button:disabled { opacity: .55; cursor: wait; }
 button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); font-weight: 500; }
@@ -639,6 +653,53 @@ export const ADMIN_JS = `(function () {
       .catch(function (error) { setError("settings-error", error.message); });
   }
 
+  function mappingText(state) {
+    var lines = (state.entries || []).map(function (entry) {
+      return entry.alias + "=" + entry.target;
+    });
+    if (state.fallback) lines.push("*=" + state.fallback);
+    return lines.join(",\n");
+  }
+
+  function mappingSourceLabel(state) {
+    if (state.source === "file") return "saved file";
+    if (state.source === "env") return "MODEL_MAP seed";
+    return "no mapping";
+  }
+
+  function renderModelMappings(state) {
+    byId("model-mappings-map").value = mappingText(state);
+    var meta = "Source: " + mappingSourceLabel(state);
+    if (state.updatedAt) meta += " (updated " + state.updatedAt + ")";
+    byId("model-mappings-meta").textContent = meta;
+  }
+
+  function loadModelMappings() {
+    return api("/admin/api/model-mappings").then(function (state) {
+      renderModelMappings(state);
+      setError("model-mappings-error", "");
+    }).catch(function (error) { setError("model-mappings-error", error.message); });
+  }
+
+  function saveModelMappings(event) {
+    event.preventDefault();
+    setError("model-mappings-error", "");
+    api("/admin/api/model-mappings", {
+      method: "PUT",
+      body: { map: byId("model-mappings-map").value }
+    }).then(function (state) {
+      renderModelMappings(state);
+    }).catch(function (error) { setError("model-mappings-error", error.message); });
+  }
+
+  function resetModelMappings() {
+    if (!window.confirm("Reset model mappings to the MODEL_MAP seed?")) return;
+    setError("model-mappings-error", "");
+    api("/admin/api/model-mappings", { method: "DELETE" })
+      .then(function (state) { renderModelMappings(state); })
+      .catch(function (error) { setError("model-mappings-error", error.message); });
+  }
+
   function renderLogs(logs) {
     var list = byId("logs-list");
     var nodes = logs.map(function (entry) {
@@ -694,7 +755,10 @@ export const ADMIN_JS = `(function () {
     if (tab === "accounts") loadAccounts();
     if (tab === "users") loadUsers();
     if (tab === "models") loadModels();
-    if (tab === "settings") loadSettings();
+    if (tab === "settings") {
+      loadSettings();
+      loadModelMappings();
+    }
     if (tab === "logs") {
       loadLogs();
       state.logsTimer = setInterval(function () {
@@ -778,6 +842,8 @@ export const ADMIN_JS = `(function () {
     });
 
     byId("settings-form").addEventListener("submit", saveSettings);
+    byId("model-mappings-form").addEventListener("submit", saveModelMappings);
+    byId("model-mappings-reset").addEventListener("click", resetModelMappings);
     byId("log-level").addEventListener("change", loadLogs);
   }
 

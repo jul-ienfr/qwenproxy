@@ -172,6 +172,16 @@ export function getTuiSettingsPath(customDataDir?: string): string {
 }
 
 /**
+ * Path to the runtime model mapping file (alias -> Qwen id).
+ *
+ * The file is managed by the admin API/dashboard and reloaded on mtime
+ * changes, so mapping edits never require a process restart.
+ */
+export function getModelMappingsPath(customDataDir?: string): string {
+  return path.join(customDataDir || getDataDir(), "model-mappings.json");
+}
+
+/**
  * Path to user configuration .env file (either local or in global data dir).
  */
 export function getEnvFilePath(customDataDir?: string): string {

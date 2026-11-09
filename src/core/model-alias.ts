@@ -4,6 +4,12 @@
  * - "thinking": força thinking ON
  * - "fast": força thinking OFF
  */
+import { logger } from "./logger.ts";
+import {
+  findExactModelMapping,
+  getModelMappingFallback,
+} from "./model-mapping.ts";
+
 export type ReasoningMode = "auto" | "thinking" | "fast";
 
 export const DEFAULT_FALLBACK_MODELS = [
@@ -173,8 +179,10 @@ export function mapKnownModelAlias(model: string): string {
 
 /**
  * Mapeia o id de modelo para o Qwen upstream.
- * Quando enableAliases é verdadeiro (padrão via QWEN_MAP_OPENAI_MODELS),
- * converte gpt-* / o1* / claude-* para os tiers correspondentes do Qwen.
+ *
+ * Precedência: alias exato do runtime -> alias embutido (gpt-* / o1* /
+ * claude-* / gemini-*) -> fallback wildcard -> passthrough. Ids nativos do
+ * Qwen (e mídia wan* ou z-image*) nunca são reescritos pelo wildcard.
  */
 export function mapClientModelToQwen(
   model: string,
@@ -182,8 +190,33 @@ export function mapClientModelToQwen(
 ): string {
   if (!model) return model;
   const base = parseModelSuffix(model).baseModel;
-  if (enableAliases) {
-    return mapKnownModelAlias(base);
+
+  const exact = findExactModelMapping(base);
+  if (exact) {
+    logger.debug("[models] runtime mapping applied", {
+      requested: model,
+      effective: exact.target,
+      source: "exact",
+    });
+    return exact.target;
   }
+
+  if (enableAliases) {
+    const builtIn = mapKnownModelAlias(base);
+    if (builtIn !== base) {
+      return builtIn;
+    }
+  }
+
+  const fallback = getModelMappingFallback(base);
+  if (fallback) {
+    logger.debug("[models] runtime wildcard fallback applied", {
+      requested: model,
+      effective: fallback,
+      source: "wildcard",
+    });
+    return fallback;
+  }
+
   return base;
 }

@@ -110,14 +110,16 @@
 - [x] T037 Audit every `spawn` / `spawnSync` / `execFileSync` / `execSync` call
       site in `src`, `scripts` and `bin` and pass `windowsHide: true`
       (constitution principle X). Only the explicit interactive launcher keeps
-      `stdio: "inherit"`; background helpers pipe or hide their output.
+      `stdio: "inherit"`; background helpers pipe or hide their output. Add
+      `src/tests/silent-spawn.test.ts` to keep the rule enforced.
 
 ## Verification
 
 - `npm run typecheck`: pass.
 - Focused GUI/CLI tests: 45 pass, 0 fail (icon, server-manager, main, dashboard
   auth, CLI, packaging, TUI clipboard).
-- Full `npm run test:mock`: 1037 pass, 0 fail (226 s).
+- Full `npm run test:mock`: 1038 pass, 0 fail (includes the principle X spawn
+  guard).
 - Spawn audit: every `child_process` call site in `src`, `scripts` and `bin`
   passes `windowsHide: true`; `node --check` passes on the touched JS/MJS files.
 - Auto-login against a live server: `POST /admin/api/session` returned a

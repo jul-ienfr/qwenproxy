@@ -32,6 +32,7 @@ Si **QwenProxy** te resulta útil a ti o a tu equipo y deseas apoyar el desarrol
 ## 🚀 Características Principales
 
 - **Compatibilidad Nativa con OpenAI, Anthropic y Gemini** — `/v1/chat/completions`, `/v1/models`, `/v1/messages` (**Anthropic Messages API nativa** para **Claude Code CLI** y SDK oficial), `/v1/messages/count_tokens`, **OpenAI Responses API** (`/v1/responses`), **Gemini `generateContent` / `streamGenerateContent`** (`/v1beta/models/{model}:...`) y `/v1/completions` (adaptador heredado).
+- **Contrato OpenAPI 3.1 y documentación interactiva** — contrato público en `/openapi.json` (fuente canónica `docs/openapi.yaml`) y explorador sin CDN en `/docs`, con la clave mantenida solo en memoria.
 - **Matriz Completa de 4 Modos de Conversación** — `thread` (predeterminado persistente), `thread-temp` (delta ~1KB efímero, recomendado para agentes), `stateless-temp` (estándar oficial OpenAI, efímero) y `stateless` (estándar oficial OpenAI, guardado en la cuenta web).
 - **Control Dinámico de Modos en Tiempo Real** — Cambia el modo global de la API al instante mediante la TUI (tecla `M` en estado o `F4` en Chat) o a través del endpoint `/v1/chat/mode`, sin reiniciar el proxy.
 - **Dashboard TUI Completo en Terminal (`qpx`)** — Interfaz visual con soporte completo para ratón (hover, clic, arrastrar y scroll), selectores verticales de modelos y modos, y título de ventana nativo `QwenProxy`.

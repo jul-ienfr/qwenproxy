@@ -33,7 +33,7 @@ Toda contribuição é muito bem-vinda e ajuda a cobrir custos de infraestrutura
 
 ## 🚀 Principais funcionalidades
 
-- **Compatibilidade Nativa OpenAI & Anthropic** — `/v1/chat/completions`, `/v1/models`, `/v1/messages` (**Anthropic Messages API nativa** para **Claude Code CLI** e SDK oficial), `/v1/messages/count_tokens`, **OpenAI Responses API** (`/v1/responses`) e `/v1/completions` (legado).
+- **Compatibilidade Nativa OpenAI, Anthropic & Gemini** — `/v1/chat/completions`, `/v1/models`, `/v1/messages` (**Anthropic Messages API nativa** para **Claude Code CLI** e SDK oficial), `/v1/messages/count_tokens`, **OpenAI Responses API** (`/v1/responses`), **Gemini `generateContent` / `streamGenerateContent`** (`/v1beta/models/{model}:...`) e `/v1/completions` (legado).
 - **Matriz de 4 Modos de Conversação** — `thread` (padrão persistente), `thread-temp` (delta ~1KB efêmero, recomendado para agentes), `stateless-temp` (OpenAI oficial completo, efêmero) e `stateless` (OpenAI oficial completo, salvo na conta).
 - **Controle Dinâmico de Modos em Tempo Real** — Alterne o modo da API global instantaneamente pela TUI (tecla `M` na tela inicial ou `F4` no Chat) ou via endpoint `/v1/chat/mode`, sem reiniciar o proxy.
 - **Dashboard TUI Completo no Terminal (`qpx`)** — Interface visual com suporte total a mouse (hover, clique, arrasto e scroll), seleção vertical de modelos e modos, e título de terminal nativo `QwenProxy`.
@@ -692,7 +692,8 @@ O solver Baxia/TMD fica ativo por padrão e cobre o slider NC visível em iframe
 
 O README descreve o uso operacional. Para detalhes técnicos da API (schemas, exemplos, headers), veja:
 
-- [`docs/openapi.yaml`](docs/openapi.yaml) — OpenAPI 3.1 spec com todas as rotas (Chat, Completions, Responses, Models, Upload, Health)
+- [`docs/openapi.yaml`](docs/openapi.yaml) — OpenAPI 3.1 spec com todas as rotas (Chat, Completions, Anthropic, Gemini, Responses, Images, Videos, Models, Upload, Health)
+- `/openapi.json` (contrato em runtime) e `/docs` (explorador interativo autocontido, sem CDN) — a chave da API fica apenas em memória.
 
 > **Nota:** A spec OpenAPI é mantida atualizada com as mudanças recentes (auth Bearer + x-api-key, health heap detalhado).
 
@@ -742,6 +743,15 @@ O README descreve o uso operacional. Para detalhes técnicos da API (schemas, ex
 | `/health`    | GET    | Health check                                      |
 | `/metrics`   | GET    | Prometheus (protegido por API key se configurada) |
 | `/v1/upload` | POST   | Upload multimodal                                 |
+
+
+### Contrato OpenAPI e Documentação
+
+
+| Rota            | Método | Descrição                                       |
+| --------------- | ------ | ----------------------------------------------- |
+| `/openapi.json` | GET    | Contrato OpenAPI 3.1 de todas as rotas públicas |
+| `/docs`         | GET    | Explorador interativo autocontido (sem CDN)     |
 
 
 > Rotas sem o prefixo `/v1` (ex.: `/chat/completions`) são redirecionadas com 308 preservando método e corpo. Respostas incluem headers OpenAI (`openai-version`, `openai-processing-ms`, `x-ratelimit-*`).

@@ -50,6 +50,7 @@ Every contribution helps cover infrastructure costs, proxy bandwidth, and test a
 ## 🚀 Key Features
 
 - **Native OpenAI, Anthropic & Gemini Compatibility** — `/v1/chat/completions`, `/v1/models`, `/v1/messages` (**native Anthropic Messages API** for **Claude Code CLI** and official `@anthropic-ai/sdk`), `/v1/messages/count_tokens`, **OpenAI Responses API** (`/v1/responses`), **Gemini `generateContent` / `streamGenerateContent`** (`/v1beta/models/{model}:...`), and `/v1/completions` (legacy adapter).
+- **OpenAPI 3.1 Contract & Interactive Docs** — a machine-readable contract at `/openapi.json`, the canonical source at `docs/openapi.yaml`, and a dependency-free interactive explorer at `/docs` (API key kept in memory only).
 - **Full 4-Mode Conversation Matrix** — `thread` (default persistent), `thread-temp` (delta ~1KB ephemeral, recommended for coding agents), `stateless-temp` (OpenAI official stateless standard, ephemeral), and `stateless` (OpenAI official stateless standard, saved to web account).
 - **Real-Time Dynamic Mode Switching** — Switch the global proxy API mode instantly via TUI (`M` on the status screen or `F4` in Chat) or via `/v1/chat/mode` HTTP endpoint, without restarting the server.
 - **Full Terminal Dashboard TUI (`qpx`)** — Interactive monospace UI with full mouse support (hover, click, drag, and scroll), vertical model/mode selectors, and native `QwenProxy` terminal window title.
@@ -477,6 +478,14 @@ direct Qwen ids pass through unchanged.
 | `/health` | GET | System health check and active stream metrics |
 | `/metrics` | GET | Prometheus exposition |
 | `/v1/upload` | POST | Multimodal asset upload |
+
+### API Contract & Interactive Docs
+| Endpoint | Method | Description |
+| :--- | :---: | :--- |
+| `/openapi.json` | GET | OpenAPI 3.1 contract covering every public route |
+| `/docs` | GET | Self-contained interactive API explorer (no CDN, key in memory only) |
+
+The canonical, reviewable contract is [`docs/openapi.yaml`](docs/openapi.yaml); `/openapi.json` serves the parsed document and `/docs` renders it offline.
 
 ---
 

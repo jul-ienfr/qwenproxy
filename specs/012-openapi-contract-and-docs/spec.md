@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: Gap analysis vs `encryptarun/qwen-api` (OpenAPI 3.1 `qwen.json`,
 hosted docs, examples) and `Rfym21/Qwen2API` (documented API surface). The

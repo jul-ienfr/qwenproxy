@@ -48,7 +48,7 @@ for this architecture).
 | 009 | Runtime model mapping/aliases (env + admin surface) | **partial** (code-level alias only) | Rfym21 `MODEL_MAP` env + dashboard model mapping; Chat2API model mapping | **P3** | [009](../specs/009-runtime-model-mapping/spec.md) |
 | 010 | Native binaries and multi-arch Docker distribution | **partial** (Docker image, npm) | Rfym21 Windows/Linux native binaries + multi-arch Docker; EasyCLIProxyAPI desktop | **P3** | [010](../specs/010-native-packaging-and-multiarch/spec.md) |
 | 011 | Qwen Code CLI endpoint (`/cli`) with 256k context and native tools | **missing** | Rfym21 CLI endpoint; `qwen-code-oai-proxy` (now deprecated) | **P3 / conditional** | [011](../specs/011-qwen-cli-endpoint/spec.md) |
-| 012 | OpenAPI 3.1 contract and interactive API docs | **missing** | encryptarun (`qwen.json` + hosted docs), Rfym21 API docs | **P2** | [012](../specs/012-openapi-contract-and-docs/spec.md) |
+| 012 | OpenAPI 3.1 contract and interactive API docs | **implemented** (OpenAPI 3.1 at `/openapi.json`, offline `/docs` viewer, contract tests) | encryptarun (`qwen.json` + hosted docs), Rfym21 API docs | **P2** | [012](../specs/012-openapi-contract-and-docs/spec.md) |
 | 013 | Externalized-context cache and prefix reuse | **implemented** (prefix cache, TTL + LRU, per-account single-flight) | Rfym21 `AGENT_CONTEXT_PREFIX_REUSE`, TTL and max entries | **P2** | [013](../specs/013-externalized-context-cache/spec.md) |
 | D1 | Serverless/edge stateless deployment | **deferred** | smanx (Vercel/Netlify/CF Workers), encryptarun (Cloudflare Worker) | **Not planned** | See "Deferred" below |
 

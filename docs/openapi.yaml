@@ -96,6 +96,12 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/StopChatCompletionRequest"
+            examples:
+              simple:
+                summary: Stop one active stream
+                value:
+                  chat_id: chat_123
+                  response_id: resp_123
       responses:
         "200":
           description: Stream stopped successfully
@@ -161,6 +167,13 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ImageGenerationRequest"
+            examples:
+              simple:
+                summary: Generate a square image
+                value:
+                  model: qwen-image-3.0-pro
+                  prompt: A red panda reading a book in a library
+                  size: "1024x1024"
       responses:
         "200":
           description: Generated image(s)
@@ -309,9 +322,22 @@ paths:
                   type: array
                   items:
                     type: object
+            examples:
+              simple:
+                summary: Simple Responses request
+                value:
+                  model: gpt-5-mini
+                  input: Hello
       responses:
         "200":
           description: Responses API object or SSE stream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResponsesObject"
+            text/event-stream:
+              schema:
+                type: string
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -342,6 +368,36 @@ paths:
         "401":
           $ref: "#/components/responses/GeminiUnauthorized"
 
+  /v1beta/models/{model}:
+    get:
+      operationId: geminiGetModel
+      summary: Retrieve one model in Gemini format
+      tags:
+        - Gemini
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+        - geminiApiKey: []
+      parameters:
+        - name: model
+          in: path
+          required: true
+          description: Gemini or Qwen model id
+          schema:
+            type: string
+          example: gemini-2.5-pro
+      responses:
+        "200":
+          description: Gemini model metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiModel"
+        "401":
+          $ref: "#/components/responses/GeminiUnauthorized"
+        "404":
+          $ref: "#/components/responses/GeminiNotFound"
+
   /v1beta/models/{model}:generateContent:
     post:
       operationId: geminiGenerateContent
@@ -366,6 +422,14 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/GeminiGenerateContentRequest"
+            examples:
+              simple:
+                summary: Simple text prompt
+                value:
+                  contents:
+                    - role: user
+                      parts:
+                        - text: Hello
       responses:
         "200":
           description: Gemini generateContent response
@@ -406,6 +470,14 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/GeminiGenerateContentRequest"
+            examples:
+              simple:
+                summary: Simple text prompt
+                value:
+                  contents:
+                    - role: user
+                      parts:
+                        - text: Hello
       responses:
         "200":
           description: |
@@ -459,6 +531,362 @@ paths:
                 # TYPE requests_total counter
                 requests_total 1234
 
+  /v1/completions:
+    post:
+      operationId: createLegacyCompletion
+      summary: Legacy OpenAI Completions API adapter
+      description: |
+        Accepts a legacy text completion request, translates it to a chat
+        completion, and returns `text_completion` objects. Streaming uses SSE
+        with `text_completion` chunks and a terminal `data: [DONE]`.
+      tags:
+        - Completions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LegacyCompletionRequest"
+            examples:
+              simple:
+                summary: Legacy text completion
+                value:
+                  model: qwen3.8-max
+                  prompt: Once upon a time
+      responses:
+        "200":
+          description: Legacy completion object or SSE stream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacyCompletionResponse"
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          $ref: "#/components/responses/UpstreamError"
+
+  /v1/messages:
+    post:
+      operationId: createAnthropicMessage
+      summary: Native Anthropic Messages API
+      description: |
+        Accepts Anthropic `messages` requests (Claude Code CLI, official SDK)
+        and translates them to the internal chat pipeline. Streaming emits
+        Anthropic SSE events (`message_start`, `content_block_*`,
+        `message_delta`, `message_stop`).
+      tags:
+        - Anthropic
+      parameters:
+        - name: anthropic-version
+          in: header
+          required: false
+          schema:
+            type: string
+            default: "2023-06-01"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnthropicMessagesRequest"
+            examples:
+              simple:
+                summary: Simple Anthropic message
+                value:
+                  model: claude-3-7-sonnet-latest
+                  max_tokens: 1024
+                  messages:
+                    - role: user
+                      content: Hello
+      responses:
+        "200":
+          description: Anthropic message object or SSE event stream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnthropicMessagesResponse"
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/AnthropicBadRequest"
+        "401":
+          $ref: "#/components/responses/AnthropicUnauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/AnthropicRateLimited"
+        "500":
+          $ref: "#/components/responses/AnthropicServerError"
+
+  /v1/messages/count_tokens:
+    post:
+      operationId: countAnthropicMessageTokens
+      summary: Anthropic token counting endpoint
+      tags:
+        - Anthropic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnthropicCountTokensRequest"
+            examples:
+              simple:
+                summary: Count a short conversation
+                value:
+                  model: claude-3-7-sonnet-latest
+                  messages:
+                    - role: user
+                      content: Hello
+      responses:
+        "200":
+          description: Estimated input token count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnthropicCountTokensResponse"
+        "400":
+          $ref: "#/components/responses/AnthropicBadRequest"
+        "401":
+          $ref: "#/components/responses/AnthropicUnauthorized"
+
+  /v1/responses/{response_id}:
+    get:
+      operationId: getResponse
+      summary: Retrieve a stored Responses API object
+      tags:
+        - Responses
+      parameters:
+        - $ref: "#/components/parameters/ResponseId"
+      responses:
+        "200":
+          description: Stored response object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResponsesObject"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteResponse
+      summary: Delete a stored Responses API object
+      tags:
+        - Responses
+      parameters:
+        - $ref: "#/components/parameters/ResponseId"
+      responses:
+        "200":
+          description: Deletion confirmation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResponseDeleteResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/videos/generations:
+    post:
+      operationId: createVideo
+      summary: Generate a video from a prompt
+      tags:
+        - Videos
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoGenerationRequest"
+            examples:
+              simple:
+                summary: Short video prompt
+                value:
+                  model: wan3.0-video
+                  prompt: A paper boat drifting down a rainy street
+                  size: 1280x720
+                  wait: true
+      responses:
+        "200":
+          description: Video task accepted or completed inline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoGenerationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          $ref: "#/components/responses/UpstreamError"
+
+  /v1/tasks/status/{taskId}:
+    get:
+      operationId: getVideoTaskStatus
+      summary: Poll a video generation task
+      tags:
+        - Videos
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: wait
+          in: query
+          required: false
+          description: Block until the task reaches a terminal state or times out.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Task status and video URL when complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoTaskStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/chat/mode:
+    get:
+      operationId: getChatMode
+      summary: Read the runtime conversation mode
+      tags:
+        - Operations
+      responses:
+        "200":
+          description: Current mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatModeResponse"
+    post:
+      operationId: setChatMode
+      summary: Change the runtime conversation mode
+      tags:
+        - Operations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatModeUpdateRequest"
+      responses:
+        "200":
+          description: Mode updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatModeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /logs:
+    get:
+      operationId: getServerLogs
+      summary: Read buffered server log entries
+      tags:
+        - Operations
+      responses:
+        "200":
+          description: Recent log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LogEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /logs/live:
+    get:
+      operationId: streamServerLogs
+      summary: Stream live server logs over SSE
+      tags:
+        - Operations
+      responses:
+        "200":
+          description: SSE stream of log entries
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /diagnostics/tokens:
+    get:
+      operationId: getTokenDiagnostics
+      summary: Inspect upstream cookie and header lifetimes
+      tags:
+        - Operations
+      parameters:
+        - name: accountId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Token diagnostics per account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenDiagnosticsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/UpstreamError"
+
+  /openapi.json:
+    get:
+      operationId: getOpenApiDocument
+      summary: Machine-readable OpenAPI 3.1 contract
+      tags:
+        - Operations
+      security: []
+      responses:
+        "200":
+          description: OpenAPI document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenApiDocument"
+
+  /docs:
+    get:
+      operationId: getApiDocs
+      summary: Interactive API documentation
+      description: Self-contained HTML viewer with no external CDN dependencies.
+      tags:
+        - Operations
+      security: []
+      responses:
+        "200":
+          description: HTML documentation page
+          content:
+            text/html:
+              schema:
+                type: string
+
 components:
   securitySchemes:
     bearerAuth:
@@ -475,6 +903,14 @@ components:
       in: header
       name: x-goog-api-key
       description: "Gemini-style API key header. The `?key=` query parameter is also accepted on /v1beta routes."
+
+  parameters:
+    ResponseId:
+      name: response_id
+      in: path
+      required: true
+      schema:
+        type: string
 
   schemas:
     CreateChatCompletionRequest:
@@ -1363,6 +1799,457 @@ components:
               items:
                 type: object
 
+    AnthropicContentBlock:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [text, tool_use, tool_result, image, document, thinking]
+        text:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+        tool_use_id:
+          type: string
+        content:
+          description: String or nested content blocks.
+        is_error:
+          type: boolean
+        source:
+          type: object
+          properties:
+            type:
+              type: string
+            media_type:
+              type: string
+            data:
+              type: string
+        thinking:
+          type: string
+      additionalProperties: true
+
+    AnthropicMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: "#/components/schemas/AnthropicContentBlock"
+
+    AnthropicTool:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        input_schema:
+          type: object
+          additionalProperties: true
+
+    AnthropicMessagesRequest:
+      type: object
+      required:
+        - model
+        - max_tokens
+        - messages
+      properties:
+        model:
+          type: string
+          example: claude-3-7-sonnet-latest
+        max_tokens:
+          type: integer
+          minimum: 1
+        system:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: "#/components/schemas/AnthropicContentBlock"
+        messages:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AnthropicMessage"
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnthropicTool"
+        tool_choice:
+          type: object
+          additionalProperties: true
+        thinking:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [enabled, disabled]
+            budget_tokens:
+              type: integer
+        stream:
+          type: boolean
+          default: false
+        temperature:
+          type: number
+        top_p:
+          type: number
+        top_k:
+          type: integer
+
+    AnthropicUsage:
+      type: object
+      properties:
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+
+    AnthropicMessagesResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [message]
+        role:
+          type: string
+          enum: [assistant]
+        model:
+          type: string
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnthropicContentBlock"
+        stop_reason:
+          type: [string, "null"]
+        stop_sequence:
+          type: [string, "null"]
+        usage:
+          $ref: "#/components/schemas/AnthropicUsage"
+
+    AnthropicCountTokensRequest:
+      type: object
+      required:
+        - messages
+      properties:
+        model:
+          type: string
+        system:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: "#/components/schemas/AnthropicContentBlock"
+        messages:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AnthropicMessage"
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnthropicTool"
+
+    AnthropicCountTokensResponse:
+      type: object
+      required:
+        - input_tokens
+      properties:
+        input_tokens:
+          type: integer
+
+    AnthropicError:
+      type: object
+      required:
+        - type
+        - error
+      properties:
+        type:
+          type: string
+          enum: [error]
+        error:
+          type: object
+          required:
+            - type
+            - message
+          properties:
+            type:
+              type: string
+              example: invalid_request_error
+            message:
+              type: string
+        request_id:
+          type: string
+
+    ResponsesObject:
+      type: object
+      required:
+        - id
+        - object
+        - status
+      properties:
+        id:
+          type: string
+          example: resp_123
+        object:
+          type: string
+          enum: [response]
+        created_at:
+          type: integer
+        status:
+          type: string
+          enum: [in_progress, completed, failed, cancelled, incomplete]
+        model:
+          type: string
+        output:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        output_text:
+          type: string
+        usage:
+          type: object
+          additionalProperties: true
+        error:
+          type: [object, "null"]
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+
+    ResponseDeleteResponse:
+      type: object
+      required:
+        - id
+        - object
+        - deleted
+      properties:
+        id:
+          type: string
+          example: resp_123
+        object:
+          type: string
+          enum: [response.deleted]
+        deleted:
+          type: boolean
+          example: true
+
+    LegacyCompletionRequest:
+      type: object
+      required:
+        - model
+        - prompt
+      properties:
+        model:
+          type: string
+          example: qwen3.8-max
+        prompt:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        max_tokens:
+          type: integer
+          minimum: 1
+        temperature:
+          type: number
+        top_p:
+          type: number
+        stream:
+          type: boolean
+          default: false
+        stop:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        presence_penalty:
+          type: number
+        frequency_penalty:
+          type: number
+
+    LegacyCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum: [text_completion]
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              text:
+                type: string
+              index:
+                type: integer
+              logprobs:
+                type: [object, "null"]
+              finish_reason:
+                type: [string, "null"]
+        usage:
+          $ref: "#/components/schemas/Usage"
+
+    VideoGenerationRequest:
+      type: object
+      required:
+        - model
+        - prompt
+      properties:
+        model:
+          type: string
+          example: wan3.0-video
+        prompt:
+          type: string
+        size:
+          type: string
+          description: Aspect ratio or pixel size accepted by the media backend.
+        wait:
+          type: boolean
+          default: true
+          description: Block until the task completes when possible.
+      additionalProperties: true
+
+    VideoGenerationResponse:
+      type: object
+      properties:
+        created:
+          type: integer
+        task_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              url:
+                type: string
+                format: uri
+        video_url:
+          type: [string, "null"]
+      additionalProperties: true
+
+    VideoTaskStatusResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        video_url:
+          type: [string, "null"]
+          format: uri
+        created:
+          type: integer
+      additionalProperties: true
+
+    ChatModeResponse:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [thread, thread-temp, stateless-temp, stateless]
+        success:
+          type: boolean
+
+    ChatModeUpdateRequest:
+      type: object
+      required:
+        - mode
+      properties:
+        mode:
+          type: string
+          enum: [thread, thread-temp, stateless-temp, stateless]
+
+    LogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [debug, info, warn, error]
+        message:
+          type: string
+        context:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+
+    TokenDiagnosticsResponse:
+      type: object
+      properties:
+        cookies:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        headers:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        summary:
+          type: object
+          properties:
+            totalCookies:
+              type: integer
+            sessionCookies:
+              type: integer
+            shortestTtlMin:
+              type: [integer, "null"]
+            shortestTtlCookie:
+              type: [string, "null"]
+      additionalProperties: true
+
+    OpenApiDocument:
+      type: object
+      required:
+        - openapi
+        - info
+        - paths
+      properties:
+        openapi:
+          type: string
+          example: 3.1.0
+        info:
+          type: object
+        paths:
+          type: object
+        components:
+          type: object
+
   responses:
     BadRequest:
       description: Invalid request parameters
@@ -1492,10 +2379,58 @@ components:
               code: 429
               message: "Rate limit exceeded (requests per minute). Retry in 1s."
               status: RESOURCE_EXHAUSTED
+    AnthropicBadRequest:
+      description: Invalid Anthropic request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AnthropicError"
+          example:
+            type: error
+            error:
+              type: invalid_request_error
+              message: "max_tokens: Field required"
+    AnthropicUnauthorized:
+      description: Missing or invalid Anthropic credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AnthropicError"
+          example:
+            type: error
+            error:
+              type: authentication_error
+              message: "Invalid API key"
+    AnthropicRateLimited:
+      description: Anthropic request quota exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AnthropicError"
+          example:
+            type: error
+            error:
+              type: rate_limit_error
+              message: "Rate limit exceeded (requests per minute). Retry in 1s."
+    AnthropicServerError:
+      description: Anthropic upstream or internal failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AnthropicError"
+          example:
+            type: error
+            error:
+              type: api_error
+              message: "Upstream request failed"
 
 tags:
   - name: Chat
     description: Chat completion operations (OpenAI-compatible)
+  - name: Completions
+    description: Legacy OpenAI text completions adapter
+  - name: Anthropic
+    description: Native Anthropic Messages API
   - name: Responses
     description: OpenAI Responses API compatibility layer
   - name: Gemini
@@ -1504,5 +2439,9 @@ tags:
     description: Model listing and retrieval (OpenAI shape)
   - name: Files
     description: Multimodal file upload (OSS putStream / multipart)
+  - name: Images
+    description: Image generation and editing
+  - name: Videos
+    description: Video generation and task polling
   - name: Operations
-    description: Health and metrics endpoints
+    description: Health, metrics, logs, mode switching and API documentation

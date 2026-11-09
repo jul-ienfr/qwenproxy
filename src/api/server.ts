@@ -18,6 +18,7 @@ import { responsesApp } from "../routes/responses/index.js";
 import { completionsLegacy } from "../routes/completions.js";
 import { anthropicApp } from "../routes/anthropic/index.ts";
 import { geminiApp } from "../routes/gemini/index.ts";
+import { docsApp } from "./docs.ts";
 import { sendOpenAIError } from "./error-helpers.js";
 import { AuthError, NotFoundError } from "../core/errors.js";
 import type { QwenAccount } from "../core/accounts.js";
@@ -198,7 +199,9 @@ app.use("*", async (c, next) => {
     c.req.path === "/models" ||
     c.req.path.startsWith("/models/") ||
     c.req.path === "/v1/chat/mode" ||
-    c.req.path === "/chat/mode";
+    c.req.path === "/chat/mode" ||
+    c.req.path === "/openapi.json" ||
+    c.req.path === "/docs";
 
   if (!isProbe) {
     metrics.increment("requests.total");
@@ -365,6 +368,8 @@ app.route("", responsesApp);
 app.route("", anthropicApp);
 // Gemini Generative Language API compatible routes
 app.route("", geminiApp);
+// Public OpenAPI contract and interactive documentation
+app.route("", docsApp);
 
 // Accept paths without the /v1 prefix via a 308 redirect (method + body are
 // preserved on redirect). Most clients append /v1 themselves; the redirect

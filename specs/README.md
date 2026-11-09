@@ -26,7 +26,7 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 | 011 | [Qwen CLI endpoint](011-qwen-cli-endpoint/spec.md) | P3 / conditional | Qwen Code quota | Draft |
 | 012 | [OpenAPI contract and docs](012-openapi-contract-and-docs/spec.md) | P2 | — | Implemented (contract tests + offline docs) |
 | 013 | [Externalized-context cache](013-externalized-context-cache/spec.md) | P2 | 001 for account isolation | Implemented (prefix reuse + TTL/LRU) |
-| 014 | [Desktop tray and webview](014-desktop-tray-webview/spec.md) | P3 | 003 for dashboard | Implemented (automated smoke; interactive tray check pending) |
+| 014 | [Desktop tray and webview](014-desktop-tray-webview/spec.md) | P3 | 003 for dashboard | Implemented (tray + webview + auto-login; interactive smoke verified) |
 
 ## Recommended implementation order
 
@@ -40,7 +40,8 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 7. **004** Gemini API — broadens client compatibility.
 8. **012** OpenAPI contract — locks the growing protocol surface.
 9. **008** Redis — only when a second instance is actually needed.
-10. **007**, **009**, **010**, **011** — opportunistic and conditional.
+10. **007** and **011** — remaining opportunistic and conditional features; 009
+    and 010 are implemented.
 
 ## How to run the Spec Kit flow
 

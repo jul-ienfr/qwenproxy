@@ -1,6 +1,7 @@
 # Feature Gap Analysis — QwenProxy (johngbl fork)
 
 **Date**: 2026-11-07
+**Updated**: 2026-11-09 (reconciled statuses for specs 004, 010 and 014)
 **Baseline**: `jul-ienfr/qwenproxy`, fork of `johngbl/qwenproxy` 1.6.11
 **Scope**: capabilities present in competing Qwen web-to-API projects but absent
 or materially weaker in this project.
@@ -46,7 +47,7 @@ for this architecture).
 | 007 | Qwen specialized modes: Deep Research, Web Dev, Full-Stack, Slides | **missing** | encryptarun exposes `qwen-deep-research`, `qwen-web-dev`, `qwen-full-stack`, `qwen-slides` | **P3** | [007](../specs/007-qwen-specialized-modes/spec.md) |
 | 008 | Redis persistence and multi-instance coordination | **missing** (SQLite single process) | Rfym21 `DATA_SAVE_MODE=redis` + `REDIS_URL`; multi-worker Docker | **P2** | [008](../specs/008-redis-persistence-and-scaling/spec.md) |
 | 009 | Runtime model mapping/aliases (env + admin surface) | **implemented** (`MODEL_MAP` seed, exact aliases + wildcard fallback, hot reload, admin API/dashboard, `/v1/models` aliases) | Rfym21 `MODEL_MAP` env + dashboard model mapping; Chat2API model mapping | **P3** | [009](../specs/009-runtime-model-mapping/spec.md) |
-| 010 | Native binaries and multi-arch Docker distribution | **partial** (Docker image, npm) | Rfym21 Windows/Linux native binaries + multi-arch Docker; EasyCLIProxyAPI desktop | **P3** | [010](../specs/010-native-packaging-and-multiarch/spec.md) |
+| 010 | Native binaries and multi-arch Docker distribution | **implemented** (standalone Windows x64 and Linux x64/arm64 binaries with `SHA256SUMS`, multi-arch Docker for `linux/amd64` + `linux/arm64`, npm package) | Rfym21 Windows/Linux native binaries + multi-arch Docker; EasyCLIProxyAPI desktop | **P3** | [010](../specs/010-native-packaging-and-multiarch/spec.md) |
 | 011 | Qwen Code CLI endpoint (`/cli`) with 256k context and native tools | **missing** | Rfym21 CLI endpoint; `qwen-code-oai-proxy` (now deprecated) | **P3 / conditional** | [011](../specs/011-qwen-cli-endpoint/spec.md) |
 | 012 | OpenAPI 3.1 contract and interactive API docs | **implemented** (OpenAPI 3.1 at `/openapi.json`, offline `/docs` viewer, contract tests) | encryptarun (`qwen.json` + hosted docs), Rfym21 API docs | **P2** | [012](../specs/012-openapi-contract-and-docs/spec.md) |
 | 013 | Externalized-context cache and prefix reuse | **implemented** (prefix cache, TTL + LRU, per-account single-flight) | Rfym21 `AGENT_CONTEXT_PREFIX_REUSE`, TTL and max entries | **P2** | [013](../specs/013-externalized-context-cache/spec.md) |
@@ -102,8 +103,8 @@ slice. Revisit only if a validated HTTP-only transport becomes available.
 7. **012 OpenAPI contract** — locks the growing protocol surface.
 8. **008 Redis** — only when a second instance or multi-worker deployment is
    actually needed.
-9. **007, 009, 010, 011** — opportunistic improvements; 011 remains conditional
-   on Qwen Code quota availability.
+9. **007 and 011** — remaining opportunistic improvements; 011 stays conditional
+   on Qwen Code quota availability. Specs 009 and 010 are implemented.
 
 ## Evidence and limitations
 

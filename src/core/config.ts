@@ -212,6 +212,13 @@ const envSchema = z
     USER_API_KEYS: z.string().default(""),
     USER_RATE_LIMIT_RPM: z.string().default("0"),
     USER_MAX_CONCURRENCY: z.string().default("0"),
+    // Optional shared persistence. SQLite stays the default and needs no Redis.
+    DATA_SAVE_MODE: z.enum(["sqlite", "redis"]).default("sqlite"),
+    REDIS_URL: z.string().default(""),
+    REDIS_PREFIX: z.string().default("qpx"),
+    REDIS_REQUIRED: z.string().default("false"),
+    REDIS_SYNC_INTERVAL_MS: z.string().default("1000"),
+    REDIS_CONNECT_TIMEOUT_MS: z.string().default("5000"),
   })
 ;
 
@@ -239,6 +246,19 @@ export const config = {
       0,
       parseInt(env.USER_MAX_CONCURRENCY) || 0,
     ),
+  },
+  persistence: {
+    mode: env.DATA_SAVE_MODE,
+    redis: {
+      url: env.REDIS_URL.trim(),
+      prefix: env.REDIS_PREFIX.trim() || "qpx",
+      required: env.REDIS_REQUIRED === "true",
+      syncIntervalMs: Math.max(100, parseInt(env.REDIS_SYNC_INTERVAL_MS) || 1000),
+      connectTimeoutMs: Math.max(
+        500,
+        parseInt(env.REDIS_CONNECT_TIMEOUT_MS) || 5000,
+      ),
+    },
   },
   logging: {
     chatRequests: env.CHAT_REQUEST_LOG === "true",

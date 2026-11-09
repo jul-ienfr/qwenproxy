@@ -7,6 +7,7 @@ import { decrypt, encrypt, isEncrypted } from "./crypto-utils.ts";
 import { getAccountProfilePath, getEnvFilePath, getProfilesDir, isRunningUnderNodeTest } from "./paths.ts";
 import { updateEnvVariable } from "./local-auth.ts";
 import { maskProxyUrl, parseAccountProxyEnv, parseProxyUrl } from "./proxy-config.ts";
+import { publishRedisEvent } from "./redis-store.ts";
 
 // Entrypoints that touch accounts before config.ts still need the deployment
 // .env; tests must stay isolated on data-test/.env and never read the real
@@ -58,6 +59,25 @@ function generateId(email: string): string {
     .update(email)
     .digest("hex")
     .replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5");
+}
+
+/**
+ * Publish the raw SQLite row (encrypted password/proxy) so other instances can
+ * store the exact same encrypted material. Only nodes sharing the same
+ * ENCRYPTION_KEY can decrypt it, which is documented in the Redis setup.
+ */
+function publishAccountRow(id: string): void {
+  if (!id) return;
+  try {
+    const row = getDatabase()
+      .prepare(
+        "SELECT id, email, password, proxy, cooldown_until, cooldown_reason, created_at, updated_at FROM accounts WHERE id = ?",
+      )
+      .get(id);
+    if (row) publishRedisEvent("account", "upsert", id, row);
+  } catch {
+    // Sharing is best-effort; local SQLite remains authoritative.
+  }
 }
 
 function parseEnvAccounts(): QwenAccount[] {
@@ -153,6 +173,8 @@ function syncEnvAccounts(): void {
   });
 
   sync();
+
+  for (const acc of accounts) publishAccountRow(acc.id);
 }
 
 let accountsCache: QwenAccount[] | null = null;
@@ -382,6 +404,7 @@ export function addAccountsBatch(
 
   if (added.length > 0) {
     invalidateAccountsCache();
+    for (const account of added) publishAccountRow(account.id);
   }
 
   return { added, skipped, invalid };
@@ -425,6 +448,7 @@ export function addAccount(
   );
 
   invalidateAccountsCache();
+  publishAccountRow(newAccount.id);
   return newAccount;
 }
 
@@ -446,6 +470,7 @@ export function updateAccountProxy(
       id,
     );
   invalidateAccountsCache();
+  if (result.changes > 0) publishAccountRow(id);
   return result.changes > 0;
 }
 
@@ -526,6 +551,7 @@ export function removeAccount(id: string): boolean {
   if (result.changes > 0) {
     wipeAccountSessionFiles(id);
     deleteAuthSession(id);
+    publishRedisEvent("account", "delete", id);
     if (account?.email) {
       removeAccountFromEnv(account.email);
     }
@@ -558,4 +584,5 @@ export function updateAccountCooldown(
     "UPDATE accounts SET cooldown_until = ?, cooldown_reason = ? WHERE id = ?",
   ).run(cooldownUntil, reason, id);
   invalidateAccountsCache();
+  publishAccountRow(id);
 }

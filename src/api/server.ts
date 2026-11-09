@@ -389,9 +389,15 @@ for (const [from, to] of LEGACY_REDIRECTS) {
 
 app.get("/health", async (c) => {
   const status = await watchdog?.getStatus();
+  const persistence = (await import("../core/redis-store.ts")).getRedisHealth();
   const publicBody = {
-    status: status?.overall || "unknown",
+    status: persistence.degraded ? "degraded" : status?.overall || "unknown",
     timestamp: Date.now(),
+    persistence: {
+      mode: persistence.mode,
+      connected: persistence.connected,
+      degraded: persistence.degraded,
+    },
   };
   const apiKeyConfigured = Boolean(getRuntimeApiKey() || config.apiKey);
   const authError = authenticateRequest(c).error;
@@ -442,6 +448,7 @@ app.get("/health", async (c) => {
       chatsCleaned: Number(metrics.get("chats.cleaned")?.value ?? 0),
     },
     dailyUsage: (await import("../core/daily-usage.ts")).getPoolDailyUsageSummary(),
+    persistence: (await import("../core/redis-store.ts")).getRedisHealth(),
   });
 });
 
@@ -785,6 +792,15 @@ async function cleanupServerResources(): Promise<void> {
     // Persistence is best-effort; the in-memory cache already served this run.
   }
 
+  if (config.persistence.mode === "redis") {
+    try {
+      const { shutdownRedisPersistence } = await import("../core/redis-store.ts");
+      await shutdownRedisPersistence();
+    } catch {
+      // Redis shutdown is best-effort; the process still exits cleanly.
+    }
+  }
+
   const { closeDatabase } = await import("../core/database.ts");
   closeDatabase();
 }
@@ -852,6 +868,20 @@ export async function startServer(options?: {
 
     ensureRuntimeApiKey(config.server.host);
     assertBindAllowed(config.server.host, getRuntimeApiKey() || config.apiKey);
+
+    // Optional shared persistence must hydrate SQLite BEFORE accounts/users are
+    // loaded, otherwise a freshly started instance would briefly serve an empty
+    // or stale snapshot. In SQLite mode this is a no-op.
+    if (config.persistence.mode === "redis") {
+      const { initRedisPersistence } = await import("../core/redis-store.ts");
+      const { createRedisHandlers, getLocalSnapshot } = await import(
+        "../core/redis-sync.ts"
+      );
+      await initRedisPersistence({
+        handlers: createRedisHandlers(),
+        snapshot: getLocalSnapshot,
+      });
+    }
 
     const { loadAccounts, getAccountCredentials } =
       await import("../core/accounts.ts");

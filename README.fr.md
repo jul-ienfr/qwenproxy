@@ -487,6 +487,7 @@ Le contrat canonique et vérifiable est [`docs/openapi.yaml`](docs/openapi.yaml)
 | `npm run users limits <id\|label> <rpm> <concurrency>` | Mettre à jour les quotas par utilisateur |
 | `npm run users rotate <id\|label>` | Faire tourner une clé utilisateur et afficher la nouvelle une seule fois |
 | `npm run users revoke <id\|label>` | Révoquer une clé utilisateur |
+| `npm run redis:migrate` | Amorcer Redis depuis l'instantané SQLite local (mode multi-instance optionnel) |
 | `qpx login` | Authentifier de nouveaux comptes via un navigateur visible |
 | `qpx purge` | Supprimer l'historique de chat distant sur les comptes configurés |
 | `qpx update` | Mettre automatiquement à jour QwenProxy vers la dernière version |
@@ -518,6 +519,43 @@ services:
         max-size: "10m"
         max-file: "3"
 ```
+
+### Persistance partagée et mise à l'échelle multi-instance (optionnel)
+
+SQLite reste la valeur par défaut et ne nécessite aucun Redis. Activez
+`DATA_SAVE_MODE=redis` uniquement lorsque plusieurs instances doivent voir les
+mêmes comptes, utilisateurs, sessions logiques, cooldowns, statistiques
+quotidiennes et réponses Responses stockées.
+
+```bash
+DATA_SAVE_MODE=redis \
+REDIS_URL=redis://127.0.0.1:6379 \
+ENCRYPTION_KEY="<même valeur sur chaque instance>" \
+npm start
+```
+
+- **Partagé :** comptes (chiffrés), cooldowns, utilisateurs/métadonnées de clés
+  API, sessions logiques et parents, statistiques quotidiennes, réponses
+  stockées.
+- **Local à chaque instance :** profils Chromium, cookies d'authentification
+  Qwen capturés, cache de personnalisation, journaux et piste d'audit admin.
+- **Propagation :** les mutations sont répliquées dans Redis et annoncées sur le
+  flux `qpx:events` ; les autres instances les appliquent sous
+  `REDIS_SYNC_INTERVAL_MS` (1 s par défaut). La session est aussi préchargée
+  directement avant un tour, ce qui permet une continuation immédiate sur un
+  autre nœud.
+- **Identifiants :** seules les lignes chiffrées AES-256-GCM sont partagées.
+  Chaque nœud doit utiliser la même `ENCRYPTION_KEY` (ou le même fichier
+  `.encryption_key`).
+- **Panne Redis :** le trafic continue sur SQLite local et `/health` renvoie
+  `persistence.connected=false` / `degraded=true`. `REDIS_REQUIRED=true` fait
+  échouer le démarrage à la place.
+- **Migration :** amorcez un Redis vide depuis un déploiement existant avec
+  `DATA_SAVE_MODE=redis REDIS_URL=redis://... npm run redis:migrate`. La base
+  SQLite source n'est jamais modifiée.
+- **Exemple :** [`docker-compose.redis.yml`](docker-compose.redis.yml) lance
+  Redis et deux instances sur les ports 7936/7937. Placez un répartiteur de
+  charge devant pour une vraie montée en charge horizontale.
 
 ---
 

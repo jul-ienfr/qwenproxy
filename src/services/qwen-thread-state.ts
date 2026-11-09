@@ -1,5 +1,6 @@
 import { getDatabase } from "../core/database.ts";
 import { logger } from "../core/logger.ts";
+import { publishRedisEvent } from "../core/redis-store.ts";
 import { isAuthMockEnabled } from "./auth-playwright.ts";
 
 interface SessionEntry {
@@ -275,6 +276,16 @@ export function updateLogicalThreadState(
   // Update in-memory cache
   logicalThreadStates.set(logicalSessionId, merged);
 
+  // Share the logical thread immediately. Remote instances apply it to their
+  // local SQLite snapshot and in-memory cache through the Redis event stream.
+  publishRedisEvent("session", "upsert", logicalSessionId, {
+    accountId: merged.accountId,
+    chatSessionId: merged.chatSessionId,
+    parentId: merged.parentId ?? null,
+    instructionsSent: merged.instructionsSent,
+    timestamp: merged.timestamp,
+  });
+
   if (isAuthMockEnabled()) return;
 
   // Persist to SQLite with a short debounce: turns in the tool-call loop
@@ -312,11 +323,91 @@ export function updateSessionParent(
   }
 
   const existing = sessionStates.get(sessionId);
-  sessionStates.set(sessionId, {
+  const entry = {
     accountId: accountId || existing?.accountId || "global",
     parentId,
     timestamp: Date.now(),
+  };
+  sessionStates.set(sessionId, entry);
+  publishRedisEvent("parent", "upsert", sessionId, entry);
+}
+
+/** Apply a logical thread update received from another instance. */
+export function applyRemoteLogicalThreadState(
+  sessionId: string,
+  data: {
+    accountId?: string;
+    chatSessionId?: string;
+    parentId?: string | null;
+    instructionsSent?: boolean;
+    timestamp?: number;
+  },
+): void {
+  if (!sessionId || !data?.chatSessionId) return;
+  const entry: LogicalThreadEntry = {
+    accountId: data.accountId || "global",
+    chatSessionId: data.chatSessionId,
+    parentId: data.parentId ?? null,
+    instructionsSent: Boolean(data.instructionsSent),
+    timestamp: Number(data.timestamp) || Date.now(),
+  };
+  logicalThreadStates.set(sessionId, entry);
+  logicalThreadDirty.delete(sessionId);
+  if (isAuthMockEnabled()) return;
+  try {
+    getDatabase()
+      .prepare(
+        `INSERT INTO logical_thread_states (session_id, account_id, chat_session_id, parent_id, instructions_sent, updated_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(session_id) DO UPDATE SET
+           account_id = excluded.account_id,
+           chat_session_id = excluded.chat_session_id,
+           parent_id = excluded.parent_id,
+           instructions_sent = excluded.instructions_sent,
+           updated_at = datetime('now')`,
+      )
+      .run(
+        sessionId,
+        entry.accountId,
+        entry.chatSessionId,
+        entry.parentId,
+        entry.instructionsSent ? 1 : 0,
+      );
+  } catch {
+    // The in-memory cache still serves this process.
+  }
+}
+
+/** Apply a logical thread deletion received from another instance. */
+export function applyRemoteLogicalThreadDelete(sessionId: string): void {
+  if (!sessionId) return;
+  logicalThreadStates.delete(sessionId);
+  logicalThreadDirty.delete(sessionId);
+  if (isAuthMockEnabled()) return;
+  try {
+    getDatabase()
+      .prepare("DELETE FROM logical_thread_states WHERE session_id = ?")
+      .run(sessionId);
+  } catch {}
+}
+
+/** Apply a per-chat parent update received from another instance. */
+export function applyRemoteSessionParent(
+  chatSessionId: string,
+  data: { accountId?: string; parentId?: string | null; timestamp?: number },
+): void {
+  if (!chatSessionId) return;
+  sessionStates.set(chatSessionId, {
+    accountId: data.accountId || "global",
+    parentId: data.parentId ?? null,
+    timestamp: Number(data.timestamp) || Date.now(),
   });
+}
+
+/** Apply a per-chat parent deletion received from another instance. */
+export function applyRemoteSessionParentDelete(chatSessionId: string): void {
+  if (!chatSessionId) return;
+  sessionStates.delete(chatSessionId);
 }
 
 /**
@@ -344,10 +435,13 @@ export function invalidateLogicalThreadParent(
 
 export function clearAllSessionsForAccount(accountId: string): void {
   let removed = 0;
+  const removedParents: string[] = [];
+  const removedSessions: string[] = [];
 
   for (const [key, entry] of sessionStates.entries()) {
     if (entry.accountId === accountId) {
       sessionStates.delete(key);
+      removedParents.push(key);
       removed++;
     }
   }
@@ -358,6 +452,7 @@ export function clearAllSessionsForAccount(accountId: string): void {
       // Drop pending writes too, so a later debounce flush cannot resurrect
       // the just-deleted row.
       logicalThreadDirty.delete(key);
+      removedSessions.push(key);
       removed++;
     }
   }
@@ -370,6 +465,9 @@ export function clearAllSessionsForAccount(accountId: string): void {
       .run(accountId);
     removed += result.changes;
   } catch {}
+
+  for (const id of removedParents) publishRedisEvent("parent", "delete", id);
+  for (const id of removedSessions) publishRedisEvent("session", "delete", id);
 
   console.log(
     `🧹 [Qwen] Cleared ${removed} session(s) for account ${accountId}`,
@@ -401,16 +499,35 @@ export function isChatSessionActive(chatId: string): boolean {
 export function removeSessionByChatId(chatId: string): void {
   if (!chatId) return;
   sessionStates.delete(chatId);
+  const removedSessions: string[] = [];
   for (const [key, entry] of logicalThreadStates.entries()) {
     if (entry.chatSessionId === chatId) {
       logicalThreadStates.delete(key);
       logicalThreadDirty.delete(key);
+      removedSessions.push(key);
     }
   }
   try {
     const db = getDatabase();
     db.prepare("DELETE FROM logical_thread_states WHERE chat_session_id = ?").run(chatId);
   } catch {}
+  publishRedisEvent("parent", "delete", chatId);
+  for (const id of removedSessions) publishRedisEvent("session", "delete", id);
+}
+
+/** Snapshot of in-memory per-chat parents for Redis bootstrap. */
+export function getAllSessionParents(): Array<{
+  chat_session_id: string;
+  accountId: string;
+  parentId: string | null;
+  timestamp: number;
+}> {
+  return Array.from(sessionStates.entries()).map(([chatSessionId, entry]) => ({
+    chat_session_id: chatSessionId,
+    accountId: entry.accountId,
+    parentId: entry.parentId,
+    timestamp: entry.timestamp,
+  }));
 }
 
 export function getSessionParent(

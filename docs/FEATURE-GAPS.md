@@ -45,7 +45,7 @@ for this architecture).
 | 005 | Web search toggle with citations/annotations | **implemented** (per-request opt-in; OpenAI annotations + `search_results`; URL-validated sources) | Rfym21 smart search; encryptarun search + clickable citations/annotations | **P2** | [005](../specs/005-web-search-and-citations/spec.md) |
 | 006 | Image editing endpoint (`POST /v1/images/edits`) | **implemented** (multipart image+prompt, OSS upload, `image_edit` upstream; masks explicitly unsupported) | Rfym21 `/v1/images/edits`; encryptarun image edit | **P2** | [006](../specs/006-image-editing/spec.md) |
 | 007 | Qwen specialized modes: Deep Research, Web Dev, Full-Stack, Slides | **missing** | encryptarun exposes `qwen-deep-research`, `qwen-web-dev`, `qwen-full-stack`, `qwen-slides` | **P3** | [007](../specs/007-qwen-specialized-modes/spec.md) |
-| 008 | Redis persistence and multi-instance coordination | **missing** (SQLite single process) | Rfym21 `DATA_SAVE_MODE=redis` + `REDIS_URL`; multi-worker Docker | **P2** | [008](../specs/008-redis-persistence-and-scaling/spec.md) |
+| 008 | Redis persistence and multi-instance coordination | **implemented** (optional `DATA_SAVE_MODE=redis`, shared accounts/users/sessions/cooldowns/usage/responses, migration CLI, degraded `/health`, two-instance compose) | Rfym21 `DATA_SAVE_MODE=redis` + `REDIS_URL`; multi-worker Docker | **P2** | [008](../specs/008-redis-persistence-and-scaling/spec.md) |
 | 009 | Runtime model mapping/aliases (env + admin surface) | **implemented** (`MODEL_MAP` seed, exact aliases + wildcard fallback, hot reload, admin API/dashboard, `/v1/models` aliases) | Rfym21 `MODEL_MAP` env + dashboard model mapping; Chat2API model mapping | **P3** | [009](../specs/009-runtime-model-mapping/spec.md) |
 | 010 | Native binaries and multi-arch Docker distribution | **implemented** (standalone Windows x64 and Linux x64/arm64 binaries with `SHA256SUMS`, multi-arch Docker for `linux/amd64` + `linux/arm64`, npm package) | Rfym21 Windows/Linux native binaries + multi-arch Docker; EasyCLIProxyAPI desktop | **P3** | [010](../specs/010-native-packaging-and-multiarch/spec.md) |
 | 011 | Qwen Code CLI endpoint (`/cli`) with 256k context and native tools | **missing** | Rfym21 CLI endpoint; `qwen-code-oai-proxy` (now deprecated) | **P3 / conditional** | [011](../specs/011-qwen-cli-endpoint/spec.md) |
@@ -101,10 +101,10 @@ slice. Revisit only if a validated HTTP-only transport becomes available.
 6. **004 Gemini API** — broadens client compatibility; depends on stable
    translation fixtures.
 7. **012 OpenAPI contract** — locks the growing protocol surface.
-8. **008 Redis** — only when a second instance or multi-worker deployment is
-   actually needed.
+8. **008 Redis** — implemented; enable it only when a second instance or
+   multi-worker deployment is actually needed.
 9. **007 and 011** — remaining opportunistic improvements; 011 stays conditional
-   on Qwen Code quota availability. Specs 009 and 010 are implemented.
+   on Qwen Code quota availability. Specs 009, 010 and 014 are implemented.
 
 ## Evidence and limitations
 

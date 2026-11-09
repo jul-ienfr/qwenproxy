@@ -9,6 +9,7 @@
 import crypto from "node:crypto";
 import { getDatabase } from "./database.ts";
 import { config } from "./config.ts";
+import { publishRedisEvent } from "./redis-store.ts";
 
 export type UserRole = "admin" | "user";
 
@@ -90,6 +91,16 @@ function toPublicUser(row: UserRecord): PublicUser {
   };
 }
 
+function publishUserRow(id: string): void {
+  if (!id) return;
+  try {
+    const row = getDatabase().prepare("SELECT * FROM users WHERE id = ?").get(id);
+    if (row) publishRedisEvent("user", "upsert", id, row);
+  } catch {
+    // Sharing is best-effort; local SQLite remains authoritative.
+  }
+}
+
 function validateLimit(name: string, value: number): number {
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${name} must be a non-negative integer`);
@@ -140,14 +151,9 @@ export function seedEnvUsers(
       : defaults.concurrency;
     const hash = hashApiKey(key);
     if (exists.get(hash, label)) continue;
-    insert.run(
-      crypto.randomUUID(),
-      label,
-      hash,
-      displayPrefix(key),
-      rpm,
-      concurrency,
-    );
+    const id = crypto.randomUUID();
+    insert.run(id, label, hash, displayPrefix(key), rpm, concurrency);
+    publishUserRow(id);
   }
 
   seededSpecs.add(specKey);
@@ -230,6 +236,7 @@ export function createUser(
     rpm,
     concurrency,
   );
+  publishUserRow(id);
   const user = getUserById(id);
   if (!user) throw new Error("Failed to read created user");
   return { user, apiKey };
@@ -249,6 +256,7 @@ export function updateUserLimits(
     )
     .run(nextRpm, nextConcurrency, id);
   if (result.changes === 0) throw new Error(`Unknown user: ${id}`);
+  publishUserRow(id);
   const user = getUserById(id);
   if (!user) throw new Error(`Unknown user: ${id}`);
   return user;
@@ -263,6 +271,7 @@ export function rotateUserKey(id: string): CreatedUser {
     )
     .run(hashApiKey(apiKey), displayPrefix(apiKey), id);
   if (result.changes === 0) throw new Error(`Unknown user: ${id}`);
+  publishUserRow(id);
   const user = getUserById(id);
   if (!user) throw new Error(`Unknown user: ${id}`);
   return { user, apiKey };
@@ -274,6 +283,7 @@ export function revokeUser(id: string): boolean {
       "UPDATE users SET revoked_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND revoked_at IS NULL",
     )
     .run(id);
+  if (result.changes > 0) publishUserRow(id);
   return result.changes > 0;
 }
 

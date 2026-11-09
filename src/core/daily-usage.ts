@@ -11,6 +11,7 @@
 import { getDatabase } from "./database.ts";
 import { loadAccounts } from "./accounts.ts";
 import { mapClientModelToQwen } from "./model-alias.ts";
+import { publishRedisEvent } from "./redis-store.ts";
 
 /**
  * Calibrated daily output-tokens baseline per account.
@@ -124,6 +125,17 @@ export function recordTurnUsage(
         updated_at = datetime('now')
     `,
     ).run(accountId, dateUtc, prompt, completion, weighted, total);
+
+    // Other instances add the same delta to their local snapshot.
+    publishRedisEvent("usage", "delta", `${accountId}:${dateUtc}`, {
+      accountId,
+      dateUtc,
+      promptTokens: prompt,
+      completionTokens: completion,
+      weightedTokens: weighted,
+      totalTokens: total,
+      turnsCount: 1,
+    });
   } catch (err: any) {
     // Non-fatal telemetry: never fail a user completion if DB recording fails
   }

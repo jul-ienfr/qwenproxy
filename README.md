@@ -558,6 +558,7 @@ The canonical, reviewable contract is [`docs/openapi.yaml`](docs/openapi.yaml); 
 | `npm run users limits <id\|label> <rpm> <concurrency>` | Update per-user quotas |
 | `npm run users rotate <id\|label>` | Rotate a user key and print the new one once |
 | `npm run users revoke <id\|label>` | Revoke a user key |
+| `npm run redis:migrate` | Seed Redis from the local SQLite snapshot (optional multi-instance mode) |
 | `qpx login` | Authenticate new accounts via visible browser |
 | `qpx purge` | Delete remote chat history across configured accounts |
 | `qpx update` | Automatically update QwenProxy to the latest version |
@@ -592,6 +593,39 @@ services:
         max-size: "10m"
         max-file: "3"
 ```
+
+### Shared persistence and multi-instance scaling (optional)
+
+SQLite remains the default and needs no Redis. Set `DATA_SAVE_MODE=redis` only
+when several instances must see the same accounts, users, logical sessions,
+cooldowns, daily usage and stored Responses API state.
+
+```bash
+DATA_SAVE_MODE=redis \
+REDIS_URL=redis://127.0.0.1:6379 \
+ENCRYPTION_KEY="<same value on every instance>" \
+npm start
+```
+
+- **Shared:** accounts (encrypted), cooldowns, users/API-key metadata, logical
+  sessions and parents, daily usage, stored Responses.
+- **Local to each instance:** Chromium profiles, captured Qwen auth cookies,
+  personalization cache, logs and the admin audit trail.
+- **Propagation:** mutations are mirrored to Redis and announced on the
+  `qpx:events` stream; other instances apply them within
+  `REDIS_SYNC_INTERVAL_MS` (default 1s). A session is also prefetched directly
+  before a turn, so immediate continuation on another node works.
+- **Credentials:** only the AES-256-GCM encrypted rows are shared. Every node
+  must use the same `ENCRYPTION_KEY` (or the same `.encryption_key` file).
+- **Outages:** traffic continues on local SQLite and `/health` reports
+  `persistence.connected=false` / `degraded=true`. Set `REDIS_REQUIRED=true` to
+  fail startup instead.
+- **Migration:** seed an empty Redis from an existing deployment with
+  `DATA_SAVE_MODE=redis REDIS_URL=redis://... npm run redis:migrate`. The source
+  SQLite database is never modified.
+- **Example:** [`docker-compose.redis.yml`](docker-compose.redis.yml) runs Redis
+  plus two instances behind ports 7936/7937. Put a load balancer in front for
+  true horizontal scaling.
 
 ---
 

@@ -1,0 +1,69 @@
+# Two QwenProxy instances sharing accounts/users/sessions/cooldowns through
+# Redis. SQLite remains the default for single-instance deployments; this file
+# is an opt-in example.
+#
+# Usage:
+#   export ENCRYPTION_KEY="$(openssl rand -hex 32)"
+#   docker compose -f docker-compose.redis.yml up --build
+#
+# Both instances MUST receive the same ENCRYPTION_KEY. A load balancer should
+# sit in front of ports 7936 and 7937 for true horizontal scaling.
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  qwenproxy-a:
+    build: .
+    container_name: qwenproxy-a
+    ports:
+      - "7936:7936"
+    env_file:
+      - .env
+    environment:
+      PORT: "7936"
+      HOST: "0.0.0.0"
+      DATA_SAVE_MODE: "redis"
+      REDIS_URL: "redis://redis:6379"
+      REDIS_REQUIRED: "true"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?set ENCRYPTION_KEY to the same value on every instance}"
+    volumes:
+      - ./data-a:/app/data
+    shm_size: "2gb"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  qwenproxy-b:
+    build: .
+    container_name: qwenproxy-b
+    ports:
+      - "7937:7937"
+    env_file:
+      - .env
+    environment:
+      PORT: "7937"
+      HOST: "0.0.0.0"
+      DATA_SAVE_MODE: "redis"
+      REDIS_URL: "redis://redis:6379"
+      REDIS_REQUIRED: "true"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?set ENCRYPTION_KEY to the same value on every instance}"
+    volumes:
+      - ./data-b:/app/data
+    shm_size: "2gb"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis-data:

@@ -87,6 +87,26 @@ export function markAccountRateLimited(
   }
 }
 
+/**
+ * Apply a cooldown change received from another instance. This only updates the
+ * in-memory map: the Redis sync layer already wrote the SQLite row locally.
+ */
+export function applyRemoteAccountCooldown(
+  accountId: string,
+  cooldownUntil: number,
+  reason: string | null,
+): void {
+  if (!accountId || accountId === "global") return;
+  if (cooldownUntil && cooldownUntil > Date.now()) {
+    cooldowns.set(accountId, {
+      until: cooldownUntil,
+      reason: reason || "RateLimited",
+    });
+  } else {
+    cooldowns.delete(accountId);
+  }
+}
+
 export function clearAccountCooldown(accountId: string): void {
   cooldowns.delete(accountId);
   if (accountId !== "global") {

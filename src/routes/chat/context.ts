@@ -9,6 +9,7 @@ import type { Message } from "../../utils/types.ts";
 import { estimateTokenCount } from "../../utils/context-truncation.ts";
 import { deriveSessionId } from "../../utils/session-id.ts";
 import { getLogicalThreadState, consumeToolCapNotice } from "../../services/qwen.ts";
+import { prefetchRedisSession } from "../../core/redis-store.ts";
 
 export { estimateTokenCount, getModelContextWindow, deriveSessionId };
 
@@ -101,6 +102,13 @@ export async function buildFinalContext(
           conversationKey ?? "implicit-thread",
         )
       : null;
+
+  // In Redis mode, refresh the session from the shared store first so an
+  // immediate continuation on another instance sees the parent chain without
+  // waiting for the next event-stream tick.
+  if (allowThreadReuse && sessionId) {
+    await prefetchRedisSession(sessionId);
+  }
 
   // Only load existing thread when reuse is allowed
   const existingThread = allowThreadReuse

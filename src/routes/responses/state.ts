@@ -1,5 +1,6 @@
 import type { ResponsesResponse } from "./types.ts";
 import { getDatabase } from "../../core/database.ts";
+import { publishRedisEvent } from "../../core/redis-store.ts";
 
 // ============ State management for previous_response_id ============
 //
@@ -82,6 +83,9 @@ export function storeResponse(
   }
   cache.set(responseId, entry);
 
+  const responseJson = JSON.stringify(response);
+  const chatMessagesJson = JSON.stringify(chatMessages);
+
   // SQLite persistence
   ensureTable();
   if (tableReady) {
@@ -90,16 +94,17 @@ export function storeResponse(
       db.prepare(
         `INSERT OR REPLACE INTO responses_store (response_id, response_json, chat_messages_json, stored_at)
          VALUES (?, ?, ?, ?)`,
-      ).run(
-        responseId,
-        JSON.stringify(response),
-        JSON.stringify(chatMessages),
-        entry.storedAt,
-      );
+      ).run(responseId, responseJson, chatMessagesJson, entry.storedAt);
     } catch {
       // Non-fatal: memory cache still works
     }
   }
+
+  publishRedisEvent("response", "upsert", responseId, {
+    responseJson,
+    chatMessagesJson,
+    storedAt: entry.storedAt,
+  });
 }
 
 /**
@@ -214,17 +219,77 @@ export function deleteStoredResponse(responseId: string): boolean {
   const fromCache = cache.delete(responseId);
 
   ensureTable();
+  let removed = fromCache;
   if (tableReady) {
     try {
       const db = getDatabase();
       const result = db
         .prepare(`DELETE FROM responses_store WHERE response_id = ?`)
         .run(responseId);
-      return fromCache || result.changes > 0;
+      removed = fromCache || result.changes > 0;
     } catch {
-      return fromCache;
+      removed = fromCache;
     }
   }
 
-  return fromCache;
+  publishRedisEvent("response", "delete", responseId);
+  return removed;
+}
+
+/** Apply a stored response received from another instance. */
+export function applyRemoteStoredResponse(
+  responseId: string,
+  payload: {
+    responseJson?: string;
+    chatMessagesJson?: string;
+    storedAt?: number;
+  },
+): void {
+  if (!responseId || !payload?.responseJson || !payload?.chatMessagesJson) {
+    return;
+  }
+  try {
+    const entry: StoredResponse = {
+      response: JSON.parse(payload.responseJson),
+      chatMessages: JSON.parse(payload.chatMessagesJson),
+      storedAt: Number(payload.storedAt) || Date.now(),
+    };
+    if (cache.size >= MAX_CACHE_SIZE) {
+      const oldest = [...cache.entries()]
+        .sort((a, b) => a[1].storedAt - b[1].storedAt)
+        .slice(0, Math.floor(MAX_CACHE_SIZE * 0.1));
+      for (const [key] of oldest) cache.delete(key);
+    }
+    cache.set(responseId, entry);
+
+    ensureTable();
+    if (tableReady) {
+      getDatabase()
+        .prepare(
+          `INSERT OR REPLACE INTO responses_store (response_id, response_json, chat_messages_json, stored_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(
+          responseId,
+          payload.responseJson,
+          payload.chatMessagesJson,
+          entry.storedAt,
+        );
+    }
+  } catch {
+    // Ignore malformed remote payloads; the local snapshot stays authoritative.
+  }
+}
+
+/** Apply a stored response deletion received from another instance. */
+export function applyRemoteStoredResponseDelete(responseId: string): void {
+  if (!responseId) return;
+  cache.delete(responseId);
+  ensureTable();
+  if (!tableReady) return;
+  try {
+    getDatabase()
+      .prepare(`DELETE FROM responses_store WHERE response_id = ?`)
+      .run(responseId);
+  } catch {}
 }

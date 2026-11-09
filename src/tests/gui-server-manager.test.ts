@@ -45,7 +45,7 @@ const baseCommand: ServerCommand = {
 test("ServerManager: wildcard hosts resolve to loopback for the GUI", () => {
   const wildcard = resolveServerTarget("0.0.0.0", 7936);
   assert.equal(wildcard.host, "127.0.0.1");
-  assert.equal(wildcard.dashboardUrl, "http://127.0.0.1:7936/admin/");
+  assert.equal(wildcard.dashboardUrl, "http://127.0.0.1:7936/admin");
   assert.equal(wildcard.healthUrl, "http://127.0.0.1:7936/health");
 
   const ipv6Wildcard = resolveServerTarget("::", 7936);
@@ -55,7 +55,7 @@ test("ServerManager: wildcard hosts resolve to loopback for the GUI", () => {
   assert.equal(ipv6Loopback.origin, "http://[::1]:7936");
 
   const localhost = resolveServerTarget("localhost", 3000);
-  assert.equal(localhost.dashboardUrl, "http://localhost:3000/admin/");
+  assert.equal(localhost.dashboardUrl, "http://localhost:3000/admin");
 });
 
 test("ServerManager: resolveServerCommand prefers a built dist entrypoint", () => {

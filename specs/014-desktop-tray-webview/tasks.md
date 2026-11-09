@@ -77,7 +77,7 @@
 
       Automated smoke on Windows passed: the tray/window were created with
       WebView2, the GUI reused a healthy external server, and the webview
-      loaded `/admin/` (`GET /health`, `GET /admin/`, `GET /favicon.ico`).
+      loaded `/admin` (`GET /health`, `GET /admin`, `GET /favicon.ico`).
       Interactive tray actions (left/right click, close-to-tray, Restart,
       Quit) still need a human at the desktop.
 

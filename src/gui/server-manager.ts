@@ -106,7 +106,9 @@ export function resolveServerTarget(host: string, port: number): ServerTarget {
     port,
     origin,
     healthUrl: `${origin}/health`,
-    dashboardUrl: `${origin}/admin/`,
+    // The Hono admin app is mounted at `/admin` and does not serve the
+    // trailing-slash variant, so the GUI must load the exact path.
+    dashboardUrl: `${origin}/admin`,
   };
 }
 

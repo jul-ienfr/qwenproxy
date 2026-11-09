@@ -5,7 +5,7 @@ window. A tray icon stays in the Windows notification area, next to the clock,
 so the dashboard can be reopened without a browser tab or a terminal.
 
 The GUI is a thin desktop shell: it spawns the normal server entrypoint as a
-child process and renders `http://127.0.0.1:<port>/admin/`. It does not change
+child process and renders `http://127.0.0.1:<port>/admin`. It does not change
 the HTTP API, authentication, request routing, search defaults or browser
 profiles.
 

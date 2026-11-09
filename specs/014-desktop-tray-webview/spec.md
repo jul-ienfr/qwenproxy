@@ -33,7 +33,7 @@ dashboard; right-clicking opens a menu.
 dashboard outside a browser.
 
 **Independent Test**: Run `qpx gui` on Windows, confirm the tray icon exists,
-click it, and verify the window renders `http://127.0.0.1:<port>/admin/`.
+click it, and verify the window renders `http://127.0.0.1:<port>/admin`.
 
 **Acceptance Scenarios**:
 

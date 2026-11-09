@@ -26,7 +26,7 @@ qpx gui
             └─ @webviewjs/webview
                  ├─ TrayIcon  (Open / Restart / Quit)
                  ├─ BrowserWindow (close -> hide)
-                 └─ Webview -> http://127.0.0.1:<port>/admin/
+                 └─ Webview -> http://127.0.0.1:<port>/admin
 ```
 
 The server child stays a normal QwenProxy process: same `.env`, same data
@@ -52,7 +52,7 @@ directory, same browser profiles, same `HOST`/`PORT` semantics.
 
 - **Resolve target**: wildcard `HOST` (`0.0.0.0`, `::`, `[::]`) maps to
   `127.0.0.1`; `localhost` stays as-is. The dashboard URL is
-  `http://<host>:<port>/admin/`.
+  `http://<host>:<port>/admin`.
 - **Reuse**: perform one `/health` probe before spawning. Any 2xx/3xx response
   means an existing server is serving; record `ownsServer = false`.
 - **Spawn**: prefer `dist/index.js` when present; otherwise use the same `tsx`
@@ -129,7 +129,7 @@ directory, same browser profiles, same `HOST`/`PORT` semantics.
 - `npm run build` emits `dist/gui/main.js` and keeps
   `@webviewjs/webview` external.
 - Windows smoke with a local stub server: the GUI created the tray/window,
-  reused the healthy server, and the WebView2 view loaded `/admin/`.
+  reused the healthy server, and the WebView2 view loaded `/admin`.
   Interactive tray actions (click, close-to-tray, Restart, Quit) remain a
   manual check.
 

@@ -366,6 +366,23 @@ Todas as requisições fluem com máxima velocidade, failover automático entre 
 
 ---
 
+## 🖥️ Área de trabalho: ícone na bandeja e webview (opcional)
+
+No Windows, `qpx gui` (ou `qpx --gui`) inicia o proxy quando necessário e abre o
+dashboard em uma janela nativa WebView2. Um ícone na bandeja do sistema, ao lado
+do relógio, reabre a janela depois de fechada; **Quit** no menu da bandeja para o
+servidor filho.
+
+O GUI exige Node.js 24+ e o pacote opcional `@webviewjs/webview`. Ele reutiliza
+um servidor já em execução, guarda o cookie de sessão em `<data>/gui-webview`,
+mapeia `HOST=0.0.0.0` para `127.0.0.1` na própria janela e não altera a
+autenticação nem o acesso LAN. Binários standalone e Docker continuam apenas
+servidor.
+
+Veja [`docs/GUI.md`](docs/GUI.md) para instalação e diagnóstico.
+
+---
+
 ## 💡 Dicas de uso e produção
 
 1. **Use `thread-temp` para Programar no Dia a Dia:**  
@@ -1011,6 +1028,7 @@ QwenProxy/
 | ------------------- | ----------------------------------------------------------------------- |
 | `qpx` *(ou `npm run tui`)*       | Abrir o dashboard interativo da TUI com servidor proxy integrado        |
 | `qpx start` *(ou `npm start`)*   | Iniciar apenas o servidor HTTP/SSE em modo headless (sem interface)     |
+| `qpx gui` *(ou `qpx --gui`)*     | Abrir o ícone na bandeja e o dashboard em webview (opcional, Node 24+)   |
 | `qpx sync` *(ou `npm run sync`)* | Sincronizar clientes (Claude Code, Codex, OpenCode, Cline, OMP)          |
 | `qpx clean`                      | Purgar caches temporários dos perfis Chromium (~4.5MB por conta)        |
 | `qpx clean:all`                  | Purgar caches e remover navegadores órfãos antigos em disco (~4GB)       |

@@ -23,6 +23,7 @@ const entryPoints = [
   "src/reset-cooldowns.ts",
   "src/delete-chats.ts",
   "src/login.ts",
+  "src/gui/main.ts",
 ];
 
 const meta = collectBuildMetadata({ root });

@@ -26,6 +26,7 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 | 011 | [Qwen CLI endpoint](011-qwen-cli-endpoint/spec.md) | P3 / conditional | Qwen Code quota | Draft |
 | 012 | [OpenAPI contract and docs](012-openapi-contract-and-docs/spec.md) | P2 | — | Implemented (contract tests + offline docs) |
 | 013 | [Externalized-context cache](013-externalized-context-cache/spec.md) | P2 | 001 for account isolation | Implemented (prefix reuse + TTL/LRU) |
+| 014 | [Desktop tray and webview](014-desktop-tray-webview/spec.md) | P3 | 003 for dashboard | Implemented (automated smoke; interactive tray check pending) |
 
 ## Recommended implementation order
 

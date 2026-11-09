@@ -12,6 +12,7 @@
  *   qwenproxy reset     -> Resets rate-limit and auth cooldowns
  *   qwenproxy purge     -> Deletes remote chats across configured accounts
  *   qwenproxy login     -> Authenticates accounts via visible browser
+ *   qwenproxy gui       -> Desktop tray icon with the dashboard in a webview
  */
 process.env.DOTENV_CONFIG_QUIET = "true";
 
@@ -71,10 +72,12 @@ Commands:
   clean:all     Prune profile caches and clean unused Playwright browsers
   reset         Reset rate-limit and auth cooldowns in database
   purge         Delete remote chats across configured accounts
+  gui           Open the desktop tray icon and dashboard webview
 
 Options:
   --tui         Open interactive TUI dashboard (default)
   --server      Run in headless server mode
+  --gui         Open the desktop tray icon and dashboard webview
   --port <num>  Override server listening port (default: 7936)
   -v, --version Show version number
   -h, --help    Show this help message
@@ -91,7 +94,37 @@ if (firstArg === "update") {
 let scriptFile = "src/index.ts";
 let scriptArgs = [];
 
-if (firstArg === "start" || rawArgs.includes("--server")) {
+const isGuiCommand = firstArg === "gui" || rawArgs.includes("--gui");
+
+/** `--port <n>` / `--port=<n>` must reach both the GUI and its server child. */
+function readPortOption(args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--port") {
+      return args[index + 1];
+    }
+    if (arg.startsWith("--port=")) {
+      return arg.slice("--port=".length);
+    }
+  }
+  return undefined;
+}
+
+if (isGuiCommand) {
+  const port = readPortOption(rawArgs);
+  if (port !== undefined) {
+    process.env.PORT = String(port);
+  }
+  if (rawArgs.includes("--dry-run")) {
+    console.log("GUI_ENTRY=src/gui/main.ts");
+    process.exit(0);
+  }
+  // The GUI entrypoint verifies it is the main module, but junctions and tsx
+  // path translation can make that check ambiguous; use an explicit marker.
+  process.env.QWENPROXY_GUI_AUTOSTART = "1";
+  scriptFile = "src/gui/main.ts";
+  scriptArgs = rawArgs.filter((arg) => arg !== "gui" && arg !== "--gui");
+} else if (firstArg === "start" || rawArgs.includes("--server")) {
   scriptFile = "src/index.ts";
   scriptArgs = rawArgs.filter((a) => a !== "start" && a !== "--server");
 } else if (firstArg === "tui" || rawArgs.includes("--tui") || rawArgs.length === 0) {
@@ -141,12 +174,13 @@ if (runWithTsx) {
 }
 
 // Ensure Playwright Chromium is installed only for commands that need the browser
-const browserCommands = ["start", "tui", "login"];
+const browserCommands = ["start", "tui", "login", "gui"];
 const isBrowserCommand =
   !firstArg ||
   browserCommands.includes(firstArg) ||
   rawArgs.includes("--tui") ||
-  rawArgs.includes("--server");
+  rawArgs.includes("--server") ||
+  rawArgs.includes("--gui");
 
 if (isBrowserCommand) {
   try {

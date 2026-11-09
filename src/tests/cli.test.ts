@@ -25,4 +25,15 @@ test("CLI: --help outputs usage options and exits with code 0", () => {
   assert.ok(result.stdout.toLowerCase().includes("qwenproxy"));
   assert.ok(result.stdout.includes("qpx"));
   assert.ok(result.stdout.includes("Commands:"));
+  assert.ok(result.stdout.includes("gui"));
+  assert.ok(result.stdout.includes("--gui"));
+});
+
+test("CLI: gui --dry-run selects the GUI entrypoint without launching", () => {
+  const result = spawnSync(process.execPath, [binPath, "gui", "--dry-run"], {
+    encoding: "utf-8",
+    timeout: 30_000,
+  });
+  assert.equal(result.status, 0);
+  assert.ok(result.stdout.includes("GUI_ENTRY=src/gui/main.ts"));
 });

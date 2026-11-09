@@ -204,6 +204,23 @@ opencode
 
 ---
 
+## 🖥️ Escritorio: icono de bandeja y webview (opcional)
+
+En Windows, `qpx gui` (o `qpx --gui`) inicia el proxy si hace falta y abre el
+dashboard en una ventana nativa WebView2. Un icono en la bandeja del sistema,
+junto al reloj, vuelve a mostrar la ventana cuando se cierra; **Quit** en el menú
+de la bandeja detiene el servidor hijo.
+
+El GUI requiere Node.js 24+ y el paquete opcional `@webviewjs/webview`. Reutiliza
+un servidor ya en ejecución, guarda la cookie de sesión en `<data>/gui-webview`,
+traduce `HOST=0.0.0.0` a `127.0.0.1` para su propia ventana y no modifica la
+autenticación ni el acceso LAN. Los binarios standalone y Docker siguen siendo
+solo servidor.
+
+Consulta [`docs/GUI.md`](docs/GUI.md) para instalación y diagnóstico.
+
+---
+
 ## 💡 Consejos de Producción y Buenas Prácticas
 
 1. **Usa `thread-temp` para Programar a Diario:**  
@@ -263,6 +280,7 @@ Admin API: `GET|PUT|DELETE /admin/api/model-mappings`.
 | :--- | :--- |
 | `qpx` *(o `npm run tui`)* | Abre el dashboard TUI con servidor integrado |
 | `qpx start` *(o `npm start`)* | Inicia solo el servidor HTTP/SSE en modo headless (sin interfaz) |
+| `qpx gui` *(o `qpx --gui`)* | Abre el icono de bandeja y el dashboard en webview (opcional, Node 24+) |
 | `qpx sync` *(o `npm run sync`)* | Sincroniza agentes (Claude Code, Codex, OpenCode, Cline, OMP) |
 | `qpx clean` | Purga cachés temporales de Chromium (~4.5MB por cuenta) |
 | `qpx clean:all` | Purga cachés y elimina navegadores obsoletos en disco (~4GB) |

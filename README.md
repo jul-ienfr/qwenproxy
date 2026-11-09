@@ -374,6 +374,20 @@ address.
 See [`specs/003-web-admin-dashboard/quickstart.md`](specs/003-web-admin-dashboard/quickstart.md)
 for API examples and troubleshooting.
 
+### Desktop tray and webview (optional)
+
+On Windows, `qpx gui` (or `qpx --gui`) starts the proxy when needed and opens the
+dashboard in a native WebView2 window. A tray icon next to the clock reopens the
+window after it is closed; **Quit** in the tray menu stops the server child.
+
+The GUI requires Node.js 24+ and the optional `@webviewjs/webview` package. It
+reuses an already-running server, keeps the dashboard session cookie in
+`<data>/gui-webview`, maps `HOST=0.0.0.0` to `127.0.0.1` for its own window, and
+does not change dashboard authentication or LAN access. Standalone server
+binaries and Docker remain server-only.
+
+See [`docs/GUI.md`](docs/GUI.md) for setup and troubleshooting.
+
 
 ---
 
@@ -530,6 +544,7 @@ The canonical, reviewable contract is [`docs/openapi.yaml`](docs/openapi.yaml); 
 | :--- | :--- |
 | `qpx` *(or `npm run tui`)* | Open interactive TUI dashboard with integrated server |
 | `qpx start` *(or `npm start`)* | Start headless proxy server (no UI) |
+| `qpx gui` *(or `qpx --gui`)* | Open the desktop tray icon and dashboard webview (optional, Node 24+) |
 | `qpx sync` *(or `npm run sync`)* | Auto-configure coding agents (Claude Code, Codex, OpenCode, Cline, OMP) |
 | `qpx clean` | Prune transient Chromium profile caches (~4.5MB per account) |
 | `qpx clean:all` | Reclaim disk space from obsolete browser downloads (~4GB) |

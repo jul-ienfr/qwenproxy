@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { config } from "../../core/config.ts";
 import { logger } from "../../core/logger.ts";
+import { extractSseError, statusForSseError } from "../../utils/sse-error.ts";
 import { validateResponsesRequest } from "./validation.ts";
 import {
   responsesToChatCompletions,
@@ -186,9 +187,29 @@ app.post("/v1/responses", async (c) => {
                   const data = line.slice(6);
                   if (data === "[DONE]") continue;
 
+                  let chunk: any;
                   try {
-                    const chunk = JSON.parse(data);
+                    chunk = JSON.parse(data);
+                  } catch {
+                    // Ignore parse errors
+                    continue;
+                  }
 
+                  // The inner chat stream reports post-commit failures as a
+                  // terminal error frame. Throw so the finally block emits
+                  // response.failed instead of response.completed.
+                  const streamError = extractSseError(chunk);
+                  if (streamError) {
+                    const failure = new Error(streamError.message) as Error & {
+                      code?: string;
+                      statusCode?: number;
+                    };
+                    failure.code = streamError.code;
+                    failure.statusCode = statusForSseError(streamError);
+                    throw failure;
+                  }
+
+                  try {
                     if (chunk.usage?.completion_tokens !== undefined) {
                       completionTokens = chunk.usage.completion_tokens;
                     }
@@ -201,7 +222,7 @@ app.post("/v1/responses", async (c) => {
                       enqueue(event.type, event);
                     }
                   } catch {
-                    // Ignore parse errors
+                    // Ignore processing errors
                   }
                 }
               }
@@ -249,7 +270,8 @@ app.post("/v1/responses", async (c) => {
                       ...finalResponse,
                       status: "failed",
                       error: {
-                        code: "api_error",
+                        code:
+                          (streamError as { code?: string }).code || "api_error",
                         message: streamError.message,
                       },
                     },

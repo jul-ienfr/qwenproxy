@@ -3,6 +3,7 @@ import { stream as honoStream } from "hono/streaming";
 import { config } from "../../core/config.ts";
 import { getUserIdentity } from "../../core/request-user.ts";
 import { logger } from "../../core/logger.js";
+import { extractSseError, statusForSseError } from "../../utils/sse-error.ts";
 import { loadModelsWithVariants } from "../../api/models.ts";
 import {
   getModelCapabilities,
@@ -290,6 +291,19 @@ app.post("/v1beta/models/*", async (c) => {
             return;
           }
 
+          // A terminal upstream error frame must not be mistaken for a clean
+          // end of stream: surface it instead of finalizing as STOP.
+          const streamError = extractSseError(chunk);
+          if (streamError) {
+            const failure = new Error(streamError.message) as Error & {
+              statusCode?: number;
+              code?: string;
+            };
+            failure.statusCode = statusForSseError(streamError);
+            failure.code = streamError.code;
+            throw failure;
+          }
+
           for (const out of translateStreamChunk(chunk as any, state)) {
             await writeChunk(out);
           }
@@ -323,17 +337,22 @@ app.post("/v1beta/models/*", async (c) => {
         }
       } catch (error) {
         if (!isClientAbort(c, error)) {
+          const statusCode =
+            typeof (error as { statusCode?: unknown })?.statusCode === "number"
+              ? ((error as { statusCode: number }).statusCode)
+              : 500;
           logger.error("[Gemini] Stream error", {
             error: error instanceof Error ? error.message : String(error),
+            statusCode,
           });
           try {
             await write(
               `data: ${JSON.stringify({
                 error: {
-                  code: 500,
+                  code: statusCode,
                   message:
                     error instanceof Error ? error.message : "Stream error",
-                  status: "INTERNAL",
+                  status: geminiStatusForCode(statusCode),
                 },
               })}\n\n`,
             );

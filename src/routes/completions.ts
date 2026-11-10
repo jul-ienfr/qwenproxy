@@ -12,6 +12,7 @@
 
 import { Hono, type Context } from "hono";
 import { config } from "../core/config.ts";
+import { extractSseError, statusForSseError } from "../utils/sse-error.ts";
 
 const app = new Hono();
 
@@ -203,7 +204,7 @@ export async function completionsLegacy(c: Context) {
           };
 
           try {
-            while (true) {
+            readLoop: while (true) {
               const { done, value } = await reader.read();
               if (done) break;
               buffer += decoder.decode(value, { stream: true });
@@ -221,6 +222,22 @@ export async function completionsLegacy(c: Context) {
                   chunk = JSON.parse(dataStr);
                 } catch {
                   continue;
+                }
+
+                // Surface a post-commit upstream failure instead of ending the
+                // legacy stream as if generation had completed normally.
+                const streamError = extractSseError(chunk);
+                if (streamError) {
+                  enqueue({
+                    error: {
+                      message: streamError.message,
+                      type: streamError.type ?? "upstream_error",
+                      code: streamError.code,
+                      param: null,
+                      status: statusForSseError(streamError),
+                    },
+                  });
+                  break readLoop;
                 }
 
                 const choice = chunk.choices?.[0];

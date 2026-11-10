@@ -13,6 +13,7 @@ import {
 } from "./translate.ts";
 import type { AnthropicRequest, OpenAIResponse } from "./types.ts";
 import { estimateTokenCount } from "../../utils/context-truncation.ts";
+import { extractSseError, statusForSseError } from "../../utils/sse-error.ts";
 
 const app = new Hono();
 
@@ -209,15 +210,36 @@ app.post("/v1/messages", async (c) => {
                 const dataStr = trimmed.slice(6);
                 if (dataStr === "[DONE]") continue;
 
+                let chunk: any;
                 try {
-                  const chunk = JSON.parse(dataStr);
+                  chunk = JSON.parse(dataStr);
+                } catch {
+                  // Skip invalid JSON lines
+                  continue;
+                }
+
+                // The inner chat stream reports post-commit failures as a
+                // terminal error frame. Surface it instead of emitting a
+                // successful message_stop for a failed generation.
+                const streamError = extractSseError(chunk);
+                if (streamError) {
+                  const failure = new Error(streamError.message) as Error & {
+                    statusCode?: number;
+                    code?: string;
+                  };
+                  failure.statusCode = statusForSseError(streamError);
+                  failure.code = streamError.code;
+                  throw failure;
+                }
+
+                try {
                   const events = translateStreamChunk(chunk, state);
                   for (const event of events) {
                     const parsed = JSON.parse(event);
                     await write(`event: ${parsed.type}\ndata: ${event}\n\n`);
                   }
                 } catch {
-                  // Skip invalid JSON lines
+                  // Skip malformed translation output for this chunk
                 }
               }
             }
@@ -254,11 +276,21 @@ app.post("/v1/messages", async (c) => {
           if (!isClientAbort) {
             console.error("❌ [Anthropic] Stream error:", error?.message || error);
           }
+          const statusCode =
+            typeof error?.statusCode === "number" ? error.statusCode : 500;
+          const errorType =
+            statusCode === 429
+              ? "rate_limit_error"
+              : statusCode === 404
+                ? "not_found_error"
+                : statusCode === 400
+                  ? "invalid_request_error"
+                  : "api_error";
           try {
             await write(
               `event: error\ndata: ${JSON.stringify({
                 type: "error",
-                error: { type: "api_error", message: error?.message || "Stream error" },
+                error: { type: errorType, message: error?.message || "Stream error" },
               })}\n\n`,
             );
           } catch {

@@ -33,3 +33,5 @@
   generic 500.
 - [x] T018 Forward `x-api-key` and `x-goog-api-key` credentials to the inner
   task call, not only `Authorization`.
+- [x] T019 Require a non-empty `messages` array on `POST /v1/tasks` so invalid
+  bodies fail synchronously with 400 instead of asynchronously.

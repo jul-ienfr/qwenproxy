@@ -60,6 +60,9 @@ unknown phases to reasoning, so only the known answer/thinking sets need updatin
       `SPECIALIZED_TASK_MAX_ACTIVE`, default 32; `0` disables a cap) so
       unbounded background jobs cannot exhaust the process. Exceeding a cap
       returns 429 `task_limit_exceeded`.
+    - A configurable deadline (`SPECIALIZED_TASK_TIMEOUT_MS`, default 30
+      minutes) fails an over-running task with `code:"task_timeout"`, distinct
+      from an explicit client cancellation.
 6. **Capability errors.** A specialized model request with no configured
    account fails with `capability_unavailable` (400), and upstream
    model/authorization failures for specialized modes are mapped to

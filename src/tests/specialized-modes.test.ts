@@ -28,6 +28,7 @@ import {
   pruneSpecializedTasks,
   recoverInterruptedSpecializedTasks,
   setSpecializedTaskRunnerForTests,
+  setSpecializedTaskTimeoutForTests,
 } from "../core/specialized-tasks.ts";
 import { isAnswerPhase, isThinkingPhase } from "../routes/chat/helpers.ts";
 
@@ -703,6 +704,46 @@ test("POST /v1/tasks returns 429 once the per-user active cap is reached", async
     await Promise.all(created.map((id) => awaitSpecializedTask(id)));
   } finally {
     release();
+    setSpecializedTaskRunnerForTests(undefined);
+  }
+});
+
+test("a timed-out task fails with task_timeout instead of cancelled", async () => {
+  const owner = unique("owner");
+  const task = createSpecializedTask({
+    ownerId: owner,
+    model: "qwen-deep-research",
+    mode: "research",
+  });
+
+  setSpecializedTaskTimeoutForTests(25);
+  setSpecializedTaskRunnerForTests(async ({ signal }) => {
+    await new Promise<void>((_resolve, reject) => {
+      const onAbort = () =>
+        reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    return { content: "", artifacts: [] };
+  });
+
+  try {
+    launchSpecializedTask({
+      task,
+      body: { model: "qwen-deep-research", messages: [] },
+      origin: "http://127.0.0.1:9",
+    });
+    await awaitSpecializedTask(task.id);
+
+    const stored = getSpecializedTask(task.id, owner);
+    assert.equal(stored?.status, "failed");
+    assert.equal(stored?.error?.code, "task_timeout");
+    assert.match(stored?.error?.message ?? "", /deadline/);
+  } finally {
+    setSpecializedTaskTimeoutForTests(undefined);
     setSpecializedTaskRunnerForTests(undefined);
   }
 });

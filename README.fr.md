@@ -473,6 +473,10 @@ Notes opérationnelles :
   par défaut (`SPECIALIZED_TASK_MAX_ACTIVE_PER_USER`,
   `SPECIALIZED_TASK_MAX_ACTIVE` ; `0` désactive un plafond). Dépasser un
   plafond renvoie **429** avec `code: "task_limit_exceeded"`.
+- Une tâche qui dépasse son délai (par défaut **30 minutes**,
+  `SPECIALIZED_TASK_TIMEOUT_MS`) échoue avec `code: "task_timeout"` ; elle
+  n'est pas signalée comme annulée. Deep Research `advance` peut nécessiter
+  une valeur plus élevée.
 - Les artefacts ne sont jamais récupérés, ré-hébergés ni exécutés. Les URL
   signées en amont conservent l'expiration de Qwen ; téléchargez-les avant ce
   TTL.

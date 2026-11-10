@@ -2376,6 +2376,9 @@ components:
               properties:
                 code:
                   type: string
+                  description: >-
+                    Stable code such as task_timeout, task_cancelled or
+                    interrupted.
                 message:
                   type: string
             - type: "null"

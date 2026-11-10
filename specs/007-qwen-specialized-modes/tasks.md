@@ -25,3 +25,5 @@
 - [x] T013 Run typecheck, focused tests, full mock suite and build.
 - [x] T014 Cap active async tasks per API key and per instance (429
   `task_limit_exceeded`), with tests and env documentation.
+- [x] T015 Make the task deadline configurable and report expiry as `failed`
+  with `code:"task_timeout"`, distinct from cancellation.

@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { config } from "./config.ts";
 import { getDatabase } from "./database.ts";
 import {
   extractArtifacts,
@@ -389,7 +390,14 @@ function withCitations(result: SpecializedTaskResult): SpecializedTaskResult {
   };
 }
 
-const TASK_TIMEOUT_MS = 30 * 60 * 1000;
+let timeoutOverrideMs: number | undefined;
+
+/** Test hook: shorten the per-task deadline without waiting 30 minutes. */
+export function setSpecializedTaskTimeoutForTests(
+  ms: number | undefined,
+): void {
+  timeoutOverrideMs = ms;
+}
 
 async function runTask(
   task: SpecializedTask,
@@ -398,7 +406,12 @@ async function runTask(
   origin: string,
 ): Promise<void> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TASK_TIMEOUT_MS);
+  const timeoutMs = timeoutOverrideMs ?? config.specializedTasks.timeoutMs;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   timer.unref?.();
 
   const run = async () => {
@@ -423,6 +436,17 @@ async function runTask(
     } catch (error: any) {
       const current = getSpecializedTask(task.id);
       if (current?.status === "cancelled") return;
+      if (timedOut) {
+        updateTask(task.id, {
+          status: "failed",
+          progress: 100,
+          error: {
+            code: "task_timeout",
+            message: `Task exceeded the ${Math.round(timeoutMs / 1000)}s deadline`,
+          },
+        });
+        return;
+      }
       const aborted = controller.signal.aborted || error?.name === "AbortError";
       updateTask(task.id, {
         status: aborted ? "cancelled" : "failed",

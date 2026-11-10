@@ -134,6 +134,8 @@ const envSchema = z
     // so without these caps one client could exhaust the process.
     SPECIALIZED_TASK_MAX_ACTIVE_PER_USER: z.string().default("4"),
     SPECIALIZED_TASK_MAX_ACTIVE: z.string().default("32"),
+    // Hard deadline for one async specialized task (default 30 minutes).
+    SPECIALIZED_TASK_TIMEOUT_MS: z.string().default("1800000"),
     ACCOUNT_BUSY_WAIT_MS: z.string().default("30000"),
     // Cap for the "wait forever" account-lease queue (thread owner / last
     // usable account): the queue previously had NO deadline, so a stuck lease
@@ -352,6 +354,11 @@ export const config = {
     ),
     /** 0 disables the global per-instance cap. */
     maxActive: Math.max(0, parseInt(env.SPECIALIZED_TASK_MAX_ACTIVE) || 0),
+    /** Hard deadline for one task; deep research can legitimately run long. */
+    timeoutMs: Math.max(
+      1000,
+      parseInt(env.SPECIALIZED_TASK_TIMEOUT_MS) || 1_800_000,
+    ),
   },
   retry: {
     baseDelayMs: parseInt(env.RETRY_BASE_DELAY_MS),

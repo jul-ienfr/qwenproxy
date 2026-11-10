@@ -539,6 +539,9 @@ Operational notes:
   default (`SPECIALIZED_TASK_MAX_ACTIVE_PER_USER`,
   `SPECIALIZED_TASK_MAX_ACTIVE`; `0` disables a cap). Exceeding a cap returns
   **429** with `code: "task_limit_exceeded"`.
+- A task that exceeds its deadline (default **30 minutes**,
+  `SPECIALIZED_TASK_TIMEOUT_MS`) fails with `code: "task_timeout"`; it is not
+  reported as cancelled. Deep Research `advance` may need a higher value.
 - Artifacts are never fetched, re-hosted or executed. Upstream-signed URLs keep
   Qwen's own expiry; download them before that TTL elapses.
 - An unavailable mode returns **400** with `code: "capability_unavailable"`

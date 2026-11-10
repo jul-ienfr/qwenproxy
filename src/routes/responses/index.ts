@@ -152,6 +152,7 @@ app.post("/v1/responses", async (c) => {
                   stream: true,
                   stream_options: { include_usage: true },
                 }),
+                signal: c.req.raw.signal,
               },
             );
 
@@ -319,6 +320,7 @@ app.post("/v1/responses", async (c) => {
             ...chatRequest,
             ...(responsesSessionId ? { session_id: responsesSessionId } : {}),
           }),
+          signal: c.req.raw.signal,
         },
       );
 

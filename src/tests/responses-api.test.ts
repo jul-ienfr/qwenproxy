@@ -328,8 +328,10 @@ test("Responses Streaming: processes delta text, tool calls, and finalizes outpu
 test("POST /v1/responses propagates the inner chat error status", async () => {
   const originalFetch = globalThis.fetch;
   let seenUrl = "";
-  globalThis.fetch = (async (input: any) => {
+  let seenSignal: AbortSignal | undefined;
+  globalThis.fetch = (async (input: any, init?: RequestInit) => {
     seenUrl = String(input);
+    seenSignal = init?.signal ?? undefined;
     return new Response(
       JSON.stringify({
         error: { message: "Quota exceeded", type: "rate_limit_error" },
@@ -351,6 +353,7 @@ test("POST /v1/responses propagates the inner chat error status", async () => {
     );
 
     assert.ok(seenUrl.includes("/v1/chat/completions"));
+    assert.ok(seenSignal instanceof AbortSignal);
     assert.equal(res.status, 429);
     const data = (await res.json()) as any;
     assert.equal(data.error.type, "rate_limit_error");

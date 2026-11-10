@@ -572,6 +572,71 @@ test("Gemini: streaming output obeys maxOutputTokens", () => {
   );
 });
 
+test("Gemini: tolerates malformed upstream tool call entries", () => {
+  const response = {
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant" as const,
+          content: "done",
+          tool_calls: [
+            null,
+            42,
+            { id: "call_missing_function" },
+            {
+              id: "call_valid",
+              type: "function" as const,
+              function: { name: "Bash", arguments: '{"command":"ls"}' },
+            },
+          ],
+        },
+        finish_reason: "tool_calls" as const,
+      },
+    ],
+    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+  };
+
+  const result = translateOpenAIToGemini(response as any, "gemini-2.5-pro");
+  const calls = result.candidates[0].content.parts.filter(
+    (part) => part.functionCall,
+  );
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].functionCall, {
+    name: "Bash",
+    args: { command: "ls" },
+  });
+});
+
+test("Gemini: stream skips malformed tool call entries and keeps text", () => {
+  const state = createGeminiStreamState("gemini-2.5-pro");
+
+  const output = translateStreamChunk(
+    {
+      choices: [
+        {
+          index: 0,
+          delta: {
+            content: "still here",
+            tool_calls: [null, 42],
+          },
+        },
+      ],
+    },
+    state,
+  );
+
+  assert.ok(
+    output.some((chunk) =>
+      chunk.candidates[0].content.parts.some(
+        (part) => part.text === "still here",
+      ),
+    ),
+  );
+  const final = finalizeGeminiStream(state);
+  assert.deepEqual(final.candidates[0].content.parts, []);
+});
+
 test("Gemini: translates an empty candidate as an explicit OTHER finish", () => {
   const result = translateOpenAIToGemini({}, "gemini-2.5-pro");
   assert.equal(result.candidates[0].finishReason, "OTHER");

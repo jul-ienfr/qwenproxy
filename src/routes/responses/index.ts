@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { config } from "../../core/config.ts";
 import { logger } from "../../core/logger.ts";
+import { getUserIdentity } from "../../core/request-user.ts";
 import { extractSseError, statusForSseError } from "../../utils/sse-error.ts";
 import { validateResponsesRequest } from "./validation.ts";
 import {
@@ -25,6 +26,22 @@ import {
 } from "./state.ts";
 
 const app = new Hono();
+
+/**
+ * Responses are owned by the identity that created them: a response id is not
+ * a capability, so a different API key must not be able to read, delete or
+ * continue another tenant's conversation. Operators (admin role) keep
+ * unscoped access for debugging and single-operator installs.
+ */
+function readOwnerScope(c: Context): string | undefined {
+  const identity = getUserIdentity(c);
+  if (identity?.role === "admin") return undefined;
+  return identity?.id ?? "legacy";
+}
+
+function storeOwnerId(c: Context): string {
+  return getUserIdentity(c)?.id ?? "legacy";
+}
 
 /**
  * POST /v1/responses - Create a response (OpenAI Responses API format)
@@ -54,7 +71,10 @@ app.post("/v1/responses", async (c) => {
     // Retrieve history if previous_response_id is provided
     let historyMessages: any[] = [];
     if (req.previous_response_id) {
-      const history = getResponseHistory(req.previous_response_id);
+      const history = getResponseHistory(
+        req.previous_response_id,
+        readOwnerScope(c),
+      );
       if (!history) {
         return responsesError(
           c,
@@ -289,10 +309,15 @@ app.post("/v1/responses", async (c) => {
                     const persistedInput = req.instructions
                       ? chatRequest.messages.slice(1)
                       : chatRequest.messages;
-                    storeResponse(responseId, finalResponse, [
-                      ...persistedInput,
-                      ...responsesOutputToChatMessages(finalOutput),
-                    ]);
+                    storeResponse(
+                      responseId,
+                      finalResponse,
+                      [
+                        ...persistedInput,
+                        ...responsesOutputToChatMessages(finalOutput),
+                      ],
+                      storeOwnerId(c),
+                    );
                   }
 
                 }
@@ -387,10 +412,15 @@ app.post("/v1/responses", async (c) => {
         const persistedInput = req.instructions
           ? chatRequest.messages.slice(1)
           : chatRequest.messages;
-        storeResponse(responsesResponse.id, responsesResponse, [
-          ...persistedInput,
-          ...responsesOutputToChatMessages(responsesResponse.output),
-        ]);
+        storeResponse(
+          responsesResponse.id,
+          responsesResponse,
+          [
+            ...persistedInput,
+            ...responsesOutputToChatMessages(responsesResponse.output),
+          ],
+          storeOwnerId(c),
+        );
       }
 
       const duration = Date.now() - requestStartedAt;
@@ -409,7 +439,7 @@ app.post("/v1/responses", async (c) => {
 app.get("/v1/responses/:response_id", async (c) => {
   const responseId = c.req.param("response_id");
 
-  const stored = getStoredResponse(responseId);
+  const stored = getStoredResponse(responseId, readOwnerScope(c));
   if (!stored) {
     return responsesError(
       c,
@@ -427,8 +457,9 @@ app.get("/v1/responses/:response_id", async (c) => {
  */
 app.delete("/v1/responses/:response_id", async (c) => {
   const responseId = c.req.param("response_id");
+  const scope = readOwnerScope(c);
 
-  if (!getStoredResponse(responseId)) {
+  if (!getStoredResponse(responseId, scope)) {
     return responsesError(
       c,
       "invalid_request_error",
@@ -436,7 +467,7 @@ app.delete("/v1/responses/:response_id", async (c) => {
       404,
     );
   }
-  deleteStoredResponse(responseId);
+  deleteStoredResponse(responseId, scope);
   return c.json({
     id: responseId,
     object: "response.deleted",

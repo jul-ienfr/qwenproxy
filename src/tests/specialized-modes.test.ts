@@ -380,6 +380,24 @@ test("ownership isolation hides another user's task", () => {
   assert.equal(rows.some((row) => row.id === task.id), false);
 });
 
+test("listing tasks tolerates non-integer and out-of-range limits", () => {
+  const owner = unique("owner");
+  for (let i = 0; i < 2; i++) {
+    createSpecializedTask({
+      ownerId: owner,
+      model: "qwen-deep-research",
+      mode: "research",
+    });
+  }
+
+  // A fractional limit used to bind a REAL to SQLite's LIMIT and raise a
+  // datatype mismatch (surfacing as a 500).
+  assert.equal(listSpecializedTasks(owner, 1.5).length, 1);
+  assert.equal(listSpecializedTasks(owner, Number.NaN).length, 2);
+  assert.equal(listSpecializedTasks(owner, 10_000).length, 2);
+  assert.equal(listSpecializedTasks(owner, 0).length, 2);
+});
+
 test("restart recovery marks interrupted tasks failed and pruning drops old rows", () => {
   const owner = unique("owner");
   const queued = createSpecializedTask({

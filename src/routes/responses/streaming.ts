@@ -133,7 +133,7 @@ export function processChatChunk(
   const delta = choice.delta ?? {};
 
   // Reasoning content (thinking/reasoning from Qwen models)
-  if (delta.reasoning_content) {
+  if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
     // Close non-reasoning block if active
     if (
       state.currentBlockType === "text" ||
@@ -178,7 +178,7 @@ export function processChatChunk(
   }
 
   // Text content
-  if (delta.content) {
+  if (typeof delta.content === "string" && delta.content) {
     // Start text block if needed
     if (state.currentBlockType !== "text") {
       // Close previous block if exists
@@ -230,10 +230,11 @@ export function processChatChunk(
     });
   }
 
-  // Tool calls
-  if (delta.tool_calls) {
+  // Tool calls. Malformed entries are skipped instead of failing the chunk.
+  if (Array.isArray(delta.tool_calls)) {
     for (const tc of delta.tool_calls) {
-      const index = tc.index;
+      if (!tc || typeof tc !== "object") continue;
+      const index = tc.index ?? 0;
 
       // New tool call
       if (tc.function?.name) {

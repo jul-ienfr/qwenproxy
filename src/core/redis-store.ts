@@ -906,6 +906,7 @@ export class RedisPersistence {
           data: {
             responseJson: (response as any).response_json,
             chatMessagesJson: (response as any).chat_messages_json,
+            ownerId: (response as any).owner_id ?? null,
             storedAt: (response as any).stored_at,
           },
           origin: this.instanceId,

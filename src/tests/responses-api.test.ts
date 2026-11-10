@@ -22,7 +22,26 @@ import {
   chatCompletionsToResponses,
 } from "../routes/responses/adapter.ts";
 import { validateResponsesRequest } from "../routes/responses/validation.ts";
+import { createUser } from "../core/users.ts";
 import type { ResponsesResponse, ResponsesRequest } from "../routes/responses/types.ts";
+
+function minimalResponse(id: string): ResponsesResponse {
+  return {
+    id,
+    object: "response",
+    created_at: 1700000000,
+    model: "qwen3.7-plus",
+    status: "completed",
+    output: [],
+    usage: {
+      input_tokens: 1,
+      output_tokens: 1,
+      total_tokens: 2,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens_details: { reasoning_tokens: 0 },
+    },
+  };
+}
 
 test("Responses State: storeResponse, getResponseHistory, getStoredResponse, and deleteStoredResponse", () => {
   const responseId = "resp_test_state_1";
@@ -163,6 +182,87 @@ test("Responses Adapter: responsesToChatCompletions converts input, reasoning, a
   assert.ok(chatReq.messages.some((m) => m.role === "system" && Boolean(m.content && m.content.includes("Be brief"))));
 });
 
+test("Responses State: owner-scoped lookups hide another tenant's response", () => {
+  const id = `resp_owner_scope_${Math.random().toString(36).slice(2)}`;
+  storeResponse(
+    id,
+    minimalResponse(id),
+    [{ role: "user", content: "secret" }],
+    "owner-a",
+  );
+
+  assert.ok(getStoredResponse(id, "owner-a"));
+  assert.equal(getStoredResponse(id, "owner-b"), null);
+  assert.deepEqual(getResponseHistory(id, "owner-a"), [
+    { role: "user", content: "secret" },
+  ]);
+  assert.equal(getResponseHistory(id, "owner-b"), null);
+
+  // A foreign delete must neither remove nor broadcast the row.
+  assert.equal(deleteStoredResponse(id, "owner-b"), false);
+  assert.ok(getStoredResponse(id, "owner-a"));
+
+  assert.equal(deleteStoredResponse(id, "owner-a"), true);
+  assert.equal(getStoredResponse(id, "owner-a"), null);
+});
+
+test("Responses HTTP: another API key cannot read, continue or delete a response", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const owner = createUser(`resp-owner-${suffix}`, { role: "user" });
+  const other = createUser(`resp-other-${suffix}`, { role: "user" });
+  const id = `resp_tenant_${suffix}`;
+  storeResponse(
+    id,
+    minimalResponse(id),
+    [{ role: "user", content: "tenant secret" }],
+    owner.user.id,
+  );
+
+  try {
+    const otherHeaders = { "x-api-key": other.apiKey };
+
+    let res = await app.fetch(
+      new Request(`http://localhost/v1/responses/${id}`, {
+        headers: otherHeaders,
+      }),
+    );
+    assert.equal(res.status, 404);
+
+    res = await app.fetch(
+      new Request("http://localhost/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...otherHeaders,
+        },
+        body: JSON.stringify({
+          model: "qwen3.7-plus",
+          input: "follow up",
+          previous_response_id: id,
+        }),
+      }),
+    );
+    assert.equal(res.status, 404);
+
+    res = await app.fetch(
+      new Request(`http://localhost/v1/responses/${id}`, {
+        method: "DELETE",
+        headers: otherHeaders,
+      }),
+    );
+    assert.equal(res.status, 404);
+
+    res = await app.fetch(
+      new Request(`http://localhost/v1/responses/${id}`, {
+        headers: { "x-api-key": owner.apiKey },
+      }),
+    );
+    assert.equal(res.status, 200);
+  } finally {
+    deleteStoredResponse(id, owner.user.id);
+  }
+});
+
 test("Responses Adapter: chatCompletionsToResponses maps assistant response and tool calls", () => {
   const chatResponse = {
     id: "chatcmpl-test-123",
@@ -251,6 +351,85 @@ test("Responses Adapter: chatCompletionsToResponses extracts reasoning_tokens fr
     converted.usage.output_tokens_details.reasoning_tokens,
     22,
     "must extract reasoning_tokens from output_tokens_details when completion_tokens_details is absent",
+  );
+});
+
+test("Responses Adapter: tolerates empty choices, missing usage and malformed tool calls", () => {
+  const empty = chatCompletionsToResponses(
+    {
+      id: "chatcmpl-empty",
+      object: "chat.completion",
+      created: 1700000000,
+      model: "qwen3.7-plus",
+      choices: [],
+    } as any,
+    "qwen3.7-plus",
+    { input: "Hello", model: "qwen3.7-plus" },
+  );
+  assert.deepEqual(empty.output, []);
+  assert.ok(empty.usage);
+  assert.equal(empty.usage.input_tokens, 0);
+  assert.equal(empty.usage.total_tokens, 0);
+
+  const malformed = chatCompletionsToResponses(
+    {
+      id: "chatcmpl-malformed",
+      object: "chat.completion",
+      created: 1700000000,
+      model: "qwen3.7-plus",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: "ok",
+            tool_calls: [
+              null,
+              42,
+              { id: "call_missing_function" },
+              {
+                id: "call_valid",
+                type: "function",
+                function: { name: "search", arguments: '{"q":"x"}' },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    } as any,
+    "qwen3.7-plus",
+    { input: "Hello", model: "qwen3.7-plus" },
+  );
+
+  const functionCalls = malformed.output.filter(
+    (item) => item.type === "function_call",
+  );
+  assert.equal(functionCalls.length, 1);
+  assert.equal(functionCalls[0].name, "search");
+});
+
+test("Responses Streaming: skips malformed tool call entries without dropping text", () => {
+  const state = createStreamState("resp_stream_malformed", "qwen3.7-plus");
+  const events = processChatChunk(
+    {
+      id: "chatcmpl-test",
+      choices: [
+        {
+          index: 0,
+          delta: {
+            content: "still here",
+            tool_calls: [null, 42],
+          },
+        },
+      ],
+    },
+    state,
+  );
+
+  assert.ok(
+    events.some((event) => event.type === "response.output_text.delta"),
   );
 });
 

@@ -21,6 +21,8 @@ export interface StoredResponse {
     }>;
     tool_call_id?: string;
   }>;
+  /** Identity that created the response; null for pre-ownership rows. */
+  ownerId?: string | null;
   /** Timestamp of storage */
   storedAt: number;
 }
@@ -43,9 +45,17 @@ function ensureTable(): void {
         response_id TEXT PRIMARY KEY,
         response_json TEXT NOT NULL,
         chat_messages_json TEXT NOT NULL,
+        owner_id TEXT,
         stored_at INTEGER NOT NULL
       )
     `);
+    // Upgrade databases created before responses were owner-scoped. Existing
+    // rows keep a NULL owner so single-operator deployments can still read them.
+    try {
+      db.exec(`ALTER TABLE responses_store ADD COLUMN owner_id TEXT`);
+    } catch {
+      // Column already exists.
+    }
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_responses_store_stored_at
       ON responses_store(stored_at)
@@ -65,10 +75,12 @@ export function storeResponse(
   responseId: string,
   response: ResponsesResponse,
   chatMessages: StoredResponse["chatMessages"],
+  ownerId?: string,
 ): void {
   const entry: StoredResponse = {
     response,
     chatMessages,
+    ownerId: ownerId ?? null,
     storedAt: Date.now(),
   };
 
@@ -92,9 +104,15 @@ export function storeResponse(
     try {
       const db = getDatabase();
       db.prepare(
-        `INSERT OR REPLACE INTO responses_store (response_id, response_json, chat_messages_json, stored_at)
-         VALUES (?, ?, ?, ?)`,
-      ).run(responseId, responseJson, chatMessagesJson, entry.storedAt);
+        `INSERT OR REPLACE INTO responses_store (response_id, response_json, chat_messages_json, owner_id, stored_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(
+        responseId,
+        responseJson,
+        chatMessagesJson,
+        entry.ownerId ?? null,
+        entry.storedAt,
+      );
     } catch {
       // Non-fatal: memory cache still works
     }
@@ -103,6 +121,7 @@ export function storeResponse(
   publishRedisEvent("response", "upsert", responseId, {
     responseJson,
     chatMessagesJson,
+    ownerId: entry.ownerId ?? null,
     storedAt: entry.storedAt,
   });
 }
@@ -113,13 +132,15 @@ export function storeResponse(
  */
 export function getResponseHistory(
   previousResponseId: string,
+  ownerId?: string,
 ): StoredResponse["chatMessages"] | null {
-  // Check memory cache first
+  // Check memory cache first. A cached entry owned by another identity must not
+  // be returned even when the id is known.
   const cached = cache.get(previousResponseId);
   if (cached) {
     if (Date.now() - cached.storedAt > CACHE_MAX_AGE_MS) {
       cache.delete(previousResponseId);
-    } else {
+    } else if (ownerId === undefined || cached.ownerId === ownerId) {
       return cached.chatMessages;
     }
   }
@@ -130,13 +151,30 @@ export function getResponseHistory(
 
   try {
     const db = getDatabase();
-    const row = db
-      .prepare(
-        `SELECT chat_messages_json, stored_at FROM responses_store WHERE response_id = ?`,
-      )
-      .get(previousResponseId) as
-      | { chat_messages_json: string; stored_at: number }
-      | undefined;
+    const row =
+      ownerId === undefined
+        ? (db
+            .prepare(
+              `SELECT chat_messages_json, owner_id, stored_at FROM responses_store WHERE response_id = ?`,
+            )
+            .get(previousResponseId) as
+            | {
+                chat_messages_json: string;
+                owner_id: string | null;
+                stored_at: number;
+              }
+            | undefined)
+        : (db
+            .prepare(
+              `SELECT chat_messages_json, owner_id, stored_at FROM responses_store WHERE response_id = ? AND owner_id = ?`,
+            )
+            .get(previousResponseId, ownerId) as
+            | {
+                chat_messages_json: string;
+                owner_id: string | null;
+                stored_at: number;
+              }
+            | undefined);
 
     if (!row) return null;
 
@@ -156,6 +194,7 @@ export function getResponseHistory(
       cache.set(previousResponseId, {
         response: JSON.parse(responseRow.response_json),
         chatMessages,
+        ownerId: row.owner_id,
         storedAt: row.stored_at,
       });
     }
@@ -172,13 +211,14 @@ export function getResponseHistory(
  */
 export function getStoredResponse(
   responseId: string,
+  ownerId?: string,
 ): ResponsesResponse | null {
   // Check memory cache first
   const cached = cache.get(responseId);
   if (cached) {
     if (Date.now() - cached.storedAt > CACHE_MAX_AGE_MS) {
       cache.delete(responseId);
-    } else {
+    } else if (ownerId === undefined || cached.ownerId === ownerId) {
       return cached.response;
     }
   }
@@ -189,13 +229,30 @@ export function getStoredResponse(
 
   try {
     const db = getDatabase();
-    const row = db
-      .prepare(
-        `SELECT response_json, chat_messages_json, stored_at FROM responses_store WHERE response_id = ?`,
-      )
-      .get(responseId) as
-      | { response_json: string; chat_messages_json: string; stored_at: number }
-      | undefined;
+    const row =
+      ownerId === undefined
+        ? (db
+            .prepare(
+              `SELECT response_json, chat_messages_json, stored_at FROM responses_store WHERE response_id = ?`,
+            )
+            .get(responseId) as
+            | {
+                response_json: string;
+                chat_messages_json: string;
+                stored_at: number;
+              }
+            | undefined)
+        : (db
+            .prepare(
+              `SELECT response_json, chat_messages_json, stored_at FROM responses_store WHERE response_id = ? AND owner_id = ?`,
+            )
+            .get(responseId, ownerId) as
+            | {
+                response_json: string;
+                chat_messages_json: string;
+                stored_at: number;
+              }
+            | undefined);
 
     if (!row) return null;
 
@@ -215,24 +272,41 @@ export function getStoredResponse(
 /**
  * Delete a stored response.
  */
-export function deleteStoredResponse(responseId: string): boolean {
-  const fromCache = cache.delete(responseId);
+export function deleteStoredResponse(
+  responseId: string,
+  ownerId?: string,
+): boolean {
+  const cached = cache.get(responseId);
+  const cacheMatchesOwner =
+    cached !== undefined && (ownerId === undefined || cached.ownerId === ownerId);
+  const fromCache = cacheMatchesOwner ? cache.delete(responseId) : false;
 
   ensureTable();
   let removed = fromCache;
   if (tableReady) {
     try {
       const db = getDatabase();
-      const result = db
-        .prepare(`DELETE FROM responses_store WHERE response_id = ?`)
-        .run(responseId);
+      const result =
+        ownerId === undefined
+          ? db
+              .prepare(`DELETE FROM responses_store WHERE response_id = ?`)
+              .run(responseId)
+          : db
+              .prepare(
+                `DELETE FROM responses_store WHERE response_id = ? AND owner_id = ?`,
+              )
+              .run(responseId, ownerId);
       removed = fromCache || result.changes > 0;
     } catch {
       removed = fromCache;
     }
   }
 
-  publishRedisEvent("response", "delete", responseId);
+  // Only broadcast a deletion that actually happened: the id may belong to a
+  // different identity, and remote instances would otherwise drop that row.
+  if (removed) {
+    publishRedisEvent("response", "delete", responseId);
+  }
   return removed;
 }
 
@@ -242,6 +316,7 @@ export function applyRemoteStoredResponse(
   payload: {
     responseJson?: string;
     chatMessagesJson?: string;
+    ownerId?: string | null;
     storedAt?: number;
   },
 ): void {
@@ -252,6 +327,7 @@ export function applyRemoteStoredResponse(
     const entry: StoredResponse = {
       response: JSON.parse(payload.responseJson),
       chatMessages: JSON.parse(payload.chatMessagesJson),
+      ownerId: payload.ownerId ?? null,
       storedAt: Number(payload.storedAt) || Date.now(),
     };
     if (cache.size >= MAX_CACHE_SIZE) {
@@ -266,13 +342,14 @@ export function applyRemoteStoredResponse(
     if (tableReady) {
       getDatabase()
         .prepare(
-          `INSERT OR REPLACE INTO responses_store (response_id, response_json, chat_messages_json, stored_at)
-           VALUES (?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO responses_store (response_id, response_json, chat_messages_json, owner_id, stored_at)
+           VALUES (?, ?, ?, ?, ?)`,
         )
         .run(
           responseId,
           payload.responseJson,
           payload.chatMessagesJson,
+          entry.ownerId ?? null,
           entry.storedAt,
         );
     }

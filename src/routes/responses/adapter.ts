@@ -310,7 +310,8 @@ export function chatCompletionsToResponses(
   requestModel: string,
   originalRequest: ResponsesRequestInput,
 ): ResponsesResponse {
-  const choice = chatRes.choices[0];
+  const choice = chatRes.choices?.[0];
+  const message = choice?.message;
   const output: (
     | ResponsesOutputMessage
     | ResponsesOutputFunctionCall
@@ -318,21 +319,21 @@ export function chatCompletionsToResponses(
   )[] = [];
 
   // Reasoning content → reasoning output item
-  if ((choice.message as any).reasoning_content) {
+  if ((message as any)?.reasoning_content) {
     output.push({
       type: "reasoning",
       id: `rs_${crypto.randomBytes(16).toString("hex")}`,
       summary: [
         {
           type: "summary_text",
-          text: (choice.message as any).reasoning_content,
+          text: (message as any).reasoning_content,
         },
       ],
     });
   }
 
   // Text content → message output item
-  if (choice.message.content) {
+  if (message?.content) {
     const msgId = generateMessageId();
     output.push({
       type: "message",
@@ -342,16 +343,18 @@ export function chatCompletionsToResponses(
       content: [
         {
           type: "output_text",
-          text: choice.message.content,
+          text: message.content,
           annotations: [],
         },
       ],
     });
   }
 
-  // Tool calls → function_call output items
-  if (choice.message.tool_calls) {
-    for (const tc of choice.message.tool_calls) {
+  // Tool calls → function_call output items. Malformed entries are skipped so a
+  // single bad upstream tool call cannot fail the whole response.
+  if (Array.isArray(message?.tool_calls)) {
+    for (const tc of message.tool_calls) {
+      if (!tc || typeof tc !== "object" || !tc.function) continue;
       output.push({
         type: "function_call",
         id: `fc_${crypto.randomBytes(12).toString("hex")}`,
@@ -363,29 +366,35 @@ export function chatCompletionsToResponses(
     }
   }
 
-  // Build usage — always include details (Grok/serde requires them)
+  // Build usage — always include details (Grok/serde requires them). A missing
+  // usage object must not crash conversion of an otherwise valid response.
+  const upstreamUsage = chatRes.usage ?? {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+  };
   const usage: ResponsesUsage = {
-    input_tokens: chatRes.usage.prompt_tokens,
-    output_tokens: chatRes.usage.completion_tokens,
-    total_tokens: chatRes.usage.total_tokens,
+    input_tokens: upstreamUsage.prompt_tokens,
+    output_tokens: upstreamUsage.completion_tokens,
+    total_tokens: upstreamUsage.total_tokens,
     input_tokens_details: {
-      cached_tokens: (chatRes.usage as any).prompt_tokens_details?.cached_tokens ?? 0,
+      cached_tokens: (upstreamUsage as any).prompt_tokens_details?.cached_tokens ?? 0,
     },
     output_tokens_details: {
       reasoning_tokens:
-        (chatRes.usage as any).completion_tokens_details?.reasoning_tokens ??
-        (chatRes.usage as any).output_tokens_details?.reasoning_tokens ??
+        (upstreamUsage as any).completion_tokens_details?.reasoning_tokens ??
+        (upstreamUsage as any).output_tokens_details?.reasoning_tokens ??
         0,
     },
-    ...(chatRes.usage.context_meter
-      ? { context_meter: chatRes.usage.context_meter }
+    ...(upstreamUsage.context_meter
+      ? { context_meter: upstreamUsage.context_meter }
       : {}),
   };
 
   return {
     id: generateResponseId(),
     object: "response",
-    created_at: chatRes.created,
+    created_at: chatRes.created ?? Math.floor(Date.now() / 1000),
     model: requestModel,
     status: "completed",
     output,

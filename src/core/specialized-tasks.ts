@@ -206,11 +206,17 @@ export function listSpecializedTasks(
   limit = 50,
 ): SpecializedTask[] {
   ensureTable();
+  // SQLite rejects a non-integer LIMIT binding ("datatype mismatch"), so a
+  // client-supplied `?limit=2.5` must be normalized here rather than escaping
+  // as a 500.
+  const requested =
+    Number.isFinite(limit) && limit >= 1 ? Math.trunc(limit) : 50;
+  const bounded = Math.max(1, Math.min(200, requested));
   const rows = getDatabase()
     .prepare(
       "SELECT * FROM specialized_tasks WHERE owner_id = ? ORDER BY created_at DESC LIMIT ?",
     )
-    .all(ownerId, Math.max(1, Math.min(200, limit))) as TaskRow[];
+    .all(ownerId, bounded) as TaskRow[];
   return rows.map(toTask);
 }
 

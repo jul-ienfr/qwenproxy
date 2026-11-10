@@ -843,6 +843,9 @@ export function translateOpenAIToGemini(
     ? message.tool_calls
     : [];
   for (const call of toolCalls) {
+    // Tolerate malformed upstream tool-call entries instead of failing the
+    // whole non-streaming response.
+    if (!call || typeof call !== "object" || !call.function) continue;
     const { args, malformed } = parseToolArguments(call.function?.arguments);
     if (malformed) {
       logger.warn("[Gemini] Malformed tool call arguments from upstream", {
@@ -1008,6 +1011,8 @@ export function translateStreamChunk(
 
   if (Array.isArray(delta.tool_calls)) {
     for (const call of delta.tool_calls) {
+      // Skip malformed entries rather than throwing away text in this chunk.
+      if (!call || typeof call !== "object") continue;
       const index = typeof call.index === "number" ? call.index : 0;
       const entry = state.toolCalls.get(index) ?? {
         name: "",

@@ -638,7 +638,9 @@ function buildResponseFormatInstruction(body: OpenAIRequest): string {
 
 function injectToolInstructions(body: OpenAIRequest): string {
   const bodyAny = body as any;
-  const declaredTools = Array.isArray(bodyAny.tools) ? bodyAny.tools : [];
+  const declaredTools = Array.isArray(bodyAny.tools)
+    ? bodyAny.tools.filter((t: unknown) => t && typeof t === "object")
+    : [];
   const shouldParseToolCalls = declaredTools.length > 0;
 
   if (!shouldParseToolCalls) return "";
@@ -652,18 +654,18 @@ function injectToolInstructions(body: OpenAIRequest): string {
     logger.debug("[chat] tools provided in request", {
       toolsCount: declaredTools.length,
       toolNames: declaredTools.map((t: any) =>
-        t.type === "function" ? t.function?.name : t.name,
+        t?.type === "function" ? t.function?.name : t?.name,
       ),
       toolChoice: bodyAny.tool_choice || "none",
     });
   }
 
   const formattedTools = declaredTools.map((t: any) => {
-    if (t.type === "function") {
+    if (t?.type === "function") {
       return {
-        name: t.function.name,
-        description: t.function.description || "",
-        parameters: t.function.parameters,
+        name: t.function?.name,
+        description: t.function?.description || "",
+        parameters: t.function?.parameters,
       };
     }
     return t;

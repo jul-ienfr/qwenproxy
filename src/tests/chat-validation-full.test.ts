@@ -188,6 +188,22 @@ test("parseRequestBody tolerates null and non-object content parts", async () =>
   assert.strictEqual(parsed.messageCount, 2);
 });
 
+test("parseRequestBody tolerates malformed tools entries", async () => {
+  const parsed = await parseRequestBody(
+    mockContext({
+      model: "qwen3.7-plus",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [
+        null,
+        { type: "function", function: null },
+        { type: "function", function: { name: "demo" } },
+      ],
+    }),
+  );
+  assert.strictEqual(typeof parsed.toolInstructions, "string");
+  assert.ok(parsed.toolInstructions.includes("demo"));
+});
+
 test("parseRequestBody tolerates malformed tool_calls entries", async () => {
   const parsed = await parseRequestBody(
     mockContext({

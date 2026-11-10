@@ -52,9 +52,33 @@ function errorForStatus(
 }
 
 /**
+ * `QwenUpstreamError` extends UpstreamError (502) for legacy retry handling,
+ * but the concrete upstream status/category is the useful client-facing
+ * contract. Rebuild the response error when the hint adds information, while
+ * keeping the original message and `param`.
+ */
+function applyUpstreamHint(err: QwenProxyError): QwenProxyError {
+  const hint = (err as { upstreamStatus?: unknown }).upstreamStatus;
+  if (typeof hint !== "number" || !isValidStatus(hint)) return err;
+
+  const rawCode = (err as { upstreamCode?: unknown }).upstreamCode;
+  const upstreamCode =
+    typeof rawCode === "string" && rawCode.length > 0 ? rawCode : undefined;
+  if (hint === err.statusCode && !upstreamCode) return err;
+
+  const remapped = errorForStatus(hint, err.message);
+  if (err.param) remapped.param = err.param;
+  if (upstreamCode) {
+    (remapped as { code: string }).code = upstreamCode;
+  }
+  return remapped;
+}
+
+/**
  * Sends a standardized OpenAI-compatible error response.
- * Handles QwenProxyError directly, checks upstreamStatus hints on plain errors,
- * and falls back to the error classifier.
+ * Handles QwenProxyError directly (preserving concrete upstream status/code),
+ * checks upstreamStatus hints on plain errors, and falls back to the error
+ * classifier.
  */
 export function sendOpenAIError(
   c: Context,
@@ -64,7 +88,7 @@ export function sendOpenAIError(
   let qwenProxyErr: QwenProxyError;
 
   if (err instanceof QwenProxyError) {
-    qwenProxyErr = err;
+    qwenProxyErr = applyUpstreamHint(err);
   } else {
     const hint = (err as Record<string, unknown>)?.upstreamStatus;
     if (typeof hint === "number" && isValidStatus(hint)) {

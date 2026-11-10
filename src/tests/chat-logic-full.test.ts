@@ -520,3 +520,21 @@ test("sendOpenAIError honors upstreamStatus hints and fallbacks", () => {
   sendOpenAIError(c, { upstreamStatus: 429 });
   assert.strictEqual(calls[3].status, 429);
 });
+
+test("sendOpenAIError preserves QwenUpstreamError status and upstream code", () => {
+  const { c, calls } = fakeContext();
+
+  sendOpenAIError(c, new QwenUpstreamError("missing chat", "Not_Found", 404));
+  assert.strictEqual(calls[0].status, 404);
+  const notFound = calls[0].body as any;
+  assert.strictEqual(notFound.error.type, "not_found_error");
+  assert.strictEqual(notFound.error.code, "Not_Found");
+  assert.strictEqual(notFound.error.message, "missing chat");
+
+  // A 502 hint keeps the upstream category instead of the generic code.
+  sendOpenAIError(c, new QwenUpstreamError("gateway", "BadGateway", 502));
+  assert.strictEqual(calls[1].status, 502);
+  const gateway = calls[1].body as any;
+  assert.strictEqual(gateway.error.type, "upstream_error");
+  assert.strictEqual(gateway.error.code, "BadGateway");
+});

@@ -152,7 +152,9 @@ async function handleChatCompletions(c: Context) {
 
     const messages = body.messages || [];
     const declaredTools = Array.isArray((body as any).tools)
-      ? (body as any).tools
+      ? (body as any).tools.filter(
+          (t: unknown) => t && typeof t === "object",
+        )
       : [];
 
     // Correlate arrival and dispatch: logged again on the 📤 line once the

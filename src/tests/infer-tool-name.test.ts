@@ -45,6 +45,24 @@ const DECLARED_TOOLS = [
   },
 ];
 
+test("StreamingToolParser: tolerates malformed tool definitions", () => {
+  const parser = new StreamingToolParser([
+    null,
+    "not-a-tool",
+    42,
+    { type: "function", function: null },
+    ...DECLARED_TOOLS,
+  ] as any);
+
+  const result = parser.feed(
+    '<tool_call>{"name":"Bash","arguments":{"command":"echo hi"}}</tool_call>',
+  );
+  parser.flush();
+
+  assert.strictEqual(result.toolCalls.length, 1);
+  assert.strictEqual(result.toolCalls[0].name, "Bash");
+});
+
 test("StreamingToolParser: recovers tool call where Qwen omitted the name property but provided command argument", () => {
   const parser = new StreamingToolParser(DECLARED_TOOLS);
 

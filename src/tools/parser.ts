@@ -1251,6 +1251,7 @@ type FlatToolDefinition = {
 type ToolDefinitionLike = FunctionToolDefinition | FlatToolDefinition;
 
 function getToolDefinitionName(tool: ToolDefinitionLike): string | undefined {
+  if (!tool || typeof tool !== "object") return undefined;
   if (tool.function?.name) return tool.function.name;
   if ("name" in tool && typeof tool.name === "string") return tool.name;
   return undefined;
@@ -1259,7 +1260,7 @@ function getToolDefinitionName(tool: ToolDefinitionLike): string | undefined {
 function getToolDefinitionProperties(
   tool: ToolDefinitionLike | undefined,
 ): Record<string, unknown> {
-  if (!tool) return {};
+  if (!tool || typeof tool !== "object") return {};
   if (tool.function?.parameters?.properties) {
     return tool.function.parameters.properties;
   }

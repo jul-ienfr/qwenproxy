@@ -290,7 +290,7 @@ async function buildPromptFromMessages(
       contentStr = msg.content || "";
     }
 
-    if (msg.role === "system") {
+    if (msg.role === "system" || msg.role === "developer") {
       systemPromptParts.push((contentStr || "") + "\n\n");
     } else if (msg.role === "user") {
       const segment = `User: ${contentStr || ""}\n\n`;
@@ -549,7 +549,12 @@ function getCurrentPromptStartIndex(messages: Message[]): number {
   if (messages.length === 0) return 0;
 
   let last = messages.length - 1;
-  while (last >= 0 && messages[last].role === "system") last--;
+  while (
+    last >= 0 &&
+    (messages[last].role === "system" || messages[last].role === "developer")
+  ) {
+    last--;
+  }
   if (last < 0) return messages.length;
 
   const lastRole = messages[last].role;

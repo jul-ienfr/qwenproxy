@@ -171,6 +171,20 @@ test("parseRequestBody handles array, object and empty content", async () => {
   assert.strictEqual(parsed.messageCount, 3);
 });
 
+test("parseRequestBody treats developer messages as system instructions", async () => {
+  const parsed = await parseRequestBody(
+    mockContext({
+      model: "qwen3.7-plus",
+      messages: [
+        { role: "developer", content: "Be terse." },
+        { role: "user", content: "hi" },
+      ],
+    }),
+  );
+  assert.ok(parsed.systemPrompt.includes("Be terse."));
+  assert.ok(parsed.prompt.includes("User: hi"));
+});
+
 test("parseRequestBody tolerates null and non-object content parts", async () => {
   const parsed = await parseRequestBody(
     mockContext({

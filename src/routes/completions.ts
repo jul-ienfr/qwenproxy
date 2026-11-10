@@ -100,10 +100,35 @@ export async function completionsLegacy(c: Context) {
       400,
     );
   }
+  if (
+    typeof body.prompt !== "string" &&
+    (!Array.isArray(body.prompt) ||
+      !body.prompt.every(
+        (part) =>
+          typeof part === "string" ||
+          (typeof part === "number" && Number.isFinite(part)),
+      ))
+  ) {
+    return completionsError(
+      c,
+      "invalid_request_error",
+      "The 'prompt' parameter must be a string or an array of strings",
+      400,
+    );
+  }
 
-  const promptText = Array.isArray(body.prompt)
-    ? body.prompt.map((part) => String(part)).join("\n")
-    : String(body.prompt);
+  const prompt = body.prompt as string | Array<string | number>;
+  const promptText = Array.isArray(prompt)
+    ? prompt.map((part) => String(part)).join("\n")
+    : prompt;
+  if (promptText.trim().length === 0) {
+    return completionsError(
+      c,
+      "invalid_request_error",
+      "The 'prompt' parameter must not be empty",
+      400,
+    );
+  }
   const isStream = body.stream === true;
 
   const chatBody: Record<string, unknown> = {

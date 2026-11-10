@@ -296,6 +296,25 @@ test("POST /v1/completions validates model and prompt", async () => {
     );
     assert.strictEqual(noPrompt.status, 400);
 
+    for (const prompt of [{}, [], "", ["  "], [true], [null]]) {
+      const badPrompt = await app.fetch(
+        new Request("http://localhost/v1/completions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ model: "qwen3.6-plus", prompt }),
+        }),
+      );
+      assert.strictEqual(
+        badPrompt.status,
+        400,
+        `prompt ${JSON.stringify(prompt)} should be 400`,
+      );
+      assert.strictEqual(
+        (await badPrompt.json()).error.type,
+        "invalid_request_error",
+      );
+    }
+
     // A literal null / non-object body must be a client error, not a 500.
     for (const raw of ["null", "[]", '"text"', "42", "{"]) {
       const badBody = await app.fetch(

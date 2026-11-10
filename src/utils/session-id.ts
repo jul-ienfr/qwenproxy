@@ -4,14 +4,20 @@ import type { Message } from "./types.js";
 /**
  * Derive a deterministic session ID from a caller-provided conversation key
  * plus the conversation's anchoring content.
+ *
+ * `scope` namespaces the hash per tenant so two users cannot reach each
+ * other's logical thread by sending the same session id (or by starting with
+ * the same first message). Operators pass no scope to preserve historical IDs.
  */
 export function deriveSessionId(
   messages: Message[],
   systemPrompt: string = "",
   conversationKey?: string,
+  scope?: string,
 ): string {
   const firstUser = messages.find((m) => m.role === "user");
   const anchor = [
+    scope?.trim(),
     conversationKey?.trim(),
     systemPrompt.trim(),
     extractTextContent(firstUser),

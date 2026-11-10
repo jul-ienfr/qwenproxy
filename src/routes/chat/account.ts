@@ -316,6 +316,8 @@ export interface AcquireParams {
 	allFiles: QwenFileEntry[];
 	isNewSession: boolean;
 	sessionId: string | null;
+	/** Tenant that owns the logical thread / stream (undefined for operators). */
+	ownerId?: string;
 	useThreadNative: boolean;
 	updateLogicalThread: boolean;
 	allowThreadReuse: boolean;
@@ -919,6 +921,7 @@ export async function acquireUpstreamStream(
 					uiSessionId: result.uiSessionId,
 					targetResponseId: "",
 					headers: result.headers,
+					ownerId: params.ownerId,
 				});
 
 				return {

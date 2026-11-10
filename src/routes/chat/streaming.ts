@@ -222,6 +222,8 @@ export interface StreamProcessingParams {
     allFiles: any[];
     isNewSession: boolean;
     sessionId: string | null;
+    /** Tenant that owns the stream (undefined for operators). */
+    ownerId?: string;
     useThreadNative: boolean;
     updateLogicalThread: boolean;
     /** Parallel request (own chat): recovery must not kill or rebind. */
@@ -708,6 +710,7 @@ export async function processNonStreamingResponse(
         allFiles: midStreamRetry.allFiles,
         isNewSession: midStreamRetry.isNewSession,
         sessionId: midStreamRetry.sessionId,
+        ownerId: midStreamRetry.ownerId,
         useThreadNative: midStreamRetry.useThreadNative,
         updateLogicalThread: midStreamRetry.updateLogicalThread,
         parallelEscape: midStreamRetry.parallelEscape,
@@ -1626,6 +1629,7 @@ export async function processStreamingResponse(
           allFiles: policy.dropFiles ? [] : midStreamRetry.allFiles,
           isNewSession: midStreamRetry.isNewSession,
           sessionId: midStreamRetry.sessionId,
+          ownerId: midStreamRetry.ownerId,
           useThreadNative: midStreamRetry.useThreadNative,
           updateLogicalThread: midStreamRetry.updateLogicalThread,
           parallelEscape: midStreamRetry.parallelEscape,
@@ -2325,6 +2329,7 @@ export async function processStreamingResponse(
             allFiles: midStreamRetry.allFiles,
             isNewSession: midStreamRetry.isNewSession,
             sessionId: midStreamRetry.sessionId,
+            ownerId: midStreamRetry.ownerId,
             useThreadNative: midStreamRetry.useThreadNative,
             updateLogicalThread: midStreamRetry.updateLogicalThread,
             parallelEscape: midStreamRetry.parallelEscape,

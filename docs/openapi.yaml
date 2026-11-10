@@ -88,6 +88,10 @@ paths:
     post:
       operationId: stopChatCompletion
       summary: Abort an in-flight streaming chat completion
+      description: |
+        Regular users can only stop streams they created; a stream owned by
+        another tenant is reported as `404` so stream existence does not leak.
+        Operator (admin) credentials may stop any active stream.
       tags:
         - Chat
       requestBody:
@@ -501,6 +505,10 @@ paths:
     get:
       operationId: healthCheck
       summary: Returns service health status
+      description: |
+        Unauthenticated and regular-user callers receive the public liveness
+        snapshot. Operator (admin) credentials also receive build, runtime,
+        account, usage and persistence details.
       tags:
         - Operations
       security: []
@@ -516,7 +524,9 @@ paths:
     get:
       operationId: getMetrics
       summary: Returns Prometheus-format metrics
-      description: Requires API key auth when `API_KEY` is configured.
+      description: |
+        Requires an operator credential: the legacy global `API_KEY` or an
+        admin-role user key. Regular user keys receive `403`.
       tags:
         - Operations
       responses:
@@ -530,6 +540,10 @@ paths:
                 # HELP requests_total Total number of requests
                 # TYPE requests_total counter
                 requests_total 1234
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /v1/completions:
     post:
@@ -887,6 +901,9 @@ paths:
     post:
       operationId: setChatMode
       summary: Change the runtime conversation mode
+      description: |
+        Operator-only. The legacy global `API_KEY` and admin-role users may
+        change the process-wide mode; regular user keys receive `403`.
       tags:
         - Operations
       requestBody:
@@ -906,11 +923,14 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /logs:
     get:
       operationId: getServerLogs
       summary: Read buffered server log entries
+      description: Requires an operator (admin) credential.
       tags:
         - Operations
       responses:
@@ -924,11 +944,14 @@ paths:
                   $ref: "#/components/schemas/LogEntry"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /logs/live:
     get:
       operationId: streamServerLogs
       summary: Stream live server logs over SSE
+      description: Requires an operator (admin) credential.
       tags:
         - Operations
       responses:
@@ -940,11 +963,14 @@ paths:
                 type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /diagnostics/tokens:
     get:
       operationId: getTokenDiagnostics
       summary: Inspect upstream cookie and header lifetimes
+      description: Requires an operator (admin) credential.
       tags:
         - Operations
       parameters:
@@ -962,6 +988,8 @@ paths:
                 $ref: "#/components/schemas/TokenDiagnosticsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/UpstreamError"
 
@@ -2512,6 +2540,18 @@ components:
               message: "Invalid API key"
               type: authentication_error
               code: invalid_api_key
+              param: null
+    Forbidden:
+      description: The credential is valid but lacks the operator (admin) role
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              message: "Admin role required"
+              type: permission_error
+              code: permission_denied
               param: null
     NotFound:
       description: Requested resource not found

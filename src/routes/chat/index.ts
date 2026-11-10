@@ -36,6 +36,7 @@ import {
 import { classifyMediaModel } from "../../services/media-generation.ts";
 import { handleMediaChatCompletion } from "./media.ts";
 import { getUserIdentity } from "../../core/request-user.ts";
+import { resolveSessionScopeId } from "../../core/request-owner.ts";
 import { loadAccounts } from "../../core/accounts.ts";
 import {
   isSpecializedCapabilityFailure,
@@ -121,6 +122,7 @@ async function handleChatCompletions(c: Context) {
   let releaseChatLock: (() => void) | null = null;
   let specializedMode: ParsedRequest["specialized"];
   const startedAt = Date.now();
+  const sessionScopeId = resolveSessionScopeId(c);
   const timings: Record<string, number> = {};
   const mark = (name: string, since: number) => {
     timings[name] = Date.now() - since;
@@ -204,6 +206,7 @@ async function handleChatCompletions(c: Context) {
       conversationKey,
       hasExplicitConversationKey: parsed.hasExplicitConversationKey,
       chatMode,
+      sessionScopeId,
     });
     mark("context", stepStartedAt);
 
@@ -305,6 +308,7 @@ async function handleChatCompletions(c: Context) {
       allFiles: files,
       isNewSession: ctx.isNewSession,
       sessionId: ctx.sessionId,
+      ownerId: sessionScopeId,
       useThreadNative: ctx.useThreadNative,
       updateLogicalThread: parallelEscape ? false : ctx.updateLogicalThread,
       allowThreadReuse: ctx.allowThreadReuse,
@@ -391,6 +395,7 @@ async function handleChatCompletions(c: Context) {
         allFiles: files,
         isNewSession: ctx.isNewSession,
         sessionId: ctx.sessionId,
+        ownerId: sessionScopeId,
         useThreadNative: ctx.useThreadNative,
         // A parallel request (own chat) must not rebind the session thread on
         // mid-stream recovery — the main conversation owns it.
@@ -589,6 +594,7 @@ async function handleChatCompletions(c: Context) {
               allFiles: retryFiles,
               isNewSession: ctx.isNewSession,
               sessionId: ctx.sessionId,
+              ownerId: sessionScopeId,
               useThreadNative: ctx.useThreadNative,
               updateLogicalThread: retryParallelEscape
                 ? false
@@ -659,6 +665,7 @@ async function handleChatCompletions(c: Context) {
                 allFiles: retryFiles,
                 isNewSession: ctx.isNewSession,
                 sessionId: ctx.sessionId,
+                ownerId: sessionScopeId,
                 useThreadNative: ctx.useThreadNative,
                 updateLogicalThread: retryParallelEscape
                   ? false

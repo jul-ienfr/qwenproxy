@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import { config } from "../../core/config.ts";
 import { logger } from "../../core/logger.ts";
 import { getUserIdentity } from "../../core/request-user.ts";
+import { buildInternalSessionScopeHeaders } from "../../core/request-owner.ts";
 import { extractSseError, statusForSseError } from "../../utils/sse-error.ts";
 import { validateResponsesRequest } from "./validation.ts";
 import {
@@ -162,6 +163,7 @@ app.post("/v1/responses", async (c) => {
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${process.env.API_KEY || config.apiKey || ""}`,
                   "x-qwenproxy-route": "Responses",
+                  ...buildInternalSessionScopeHeaders(c),
                   ...(c.req.header("x-qwenproxy-chat-mode")
                     ? { "x-qwenproxy-chat-mode": c.req.header("x-qwenproxy-chat-mode")! }
                     : {}),
@@ -358,6 +360,7 @@ app.post("/v1/responses", async (c) => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${process.env.API_KEY || config.apiKey || ""}`,
             "x-qwenproxy-route": "Responses",
+            ...buildInternalSessionScopeHeaders(c),
             ...(c.req.header("x-qwenproxy-chat-mode")
               ? { "x-qwenproxy-chat-mode": c.req.header("x-qwenproxy-chat-mode")! }
               : {}),

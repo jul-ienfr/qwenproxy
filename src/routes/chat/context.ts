@@ -42,6 +42,8 @@ export interface BuildContextParams {
   conversationKey: string | null;
   hasExplicitConversationKey: boolean;
   chatMode?: ChatMode;
+  /** Tenant namespace for logical thread state (undefined for operators). */
+  sessionScopeId?: string;
 }
 
 export async function buildFinalContext(
@@ -58,6 +60,7 @@ export async function buildFinalContext(
     conversationKey,
     hasExplicitConversationKey,
     chatMode = "thread",
+    sessionScopeId,
   } = params;
 
   const modelContextWindow = getModelContextWindow(modelId);
@@ -100,6 +103,7 @@ export async function buildFinalContext(
           messages,
           completeInstructions,
           conversationKey ?? "implicit-thread",
+          sessionScopeId,
         )
       : null;
 

@@ -15,9 +15,22 @@ import {
 } from "../../core/stream-registry.ts";
 import { requestQwenTextInBrowser } from "../../services/qwen.ts";
 import { sendOpenAIError, createError } from "../../api/error-helpers.js";
+import { getUserIdentity } from "../../core/request-user.ts";
 
 export async function chatCompletionsStop(c: Context) {
   try {
+    const identity = getUserIdentity(c);
+    if (!identity) {
+      return sendOpenAIError(
+        c,
+        createError(401, "Missing or invalid credentials"),
+      );
+    }
+    // Operators may stop any stream for debugging; regular users are confined
+    // to streams they created. An unknown/foreign stream is reported as 404 so
+    // stream existence does not leak across tenants.
+    const ownerScope = identity.role === "admin" ? undefined : identity.id;
+
     let body: unknown;
     try {
       body = await c.req.json();
@@ -54,10 +67,14 @@ export async function chatCompletionsStop(c: Context) {
     const exactStreamKey = getStreamKeyBySessionAndResponse(
       chat_id,
       response_id,
+      ownerScope,
     );
     let streamKey = exactStreamKey ?? chat_id;
     if (!exactStreamKey) {
-      const matchingSessionStreamKeys = getStreamKeysBySessionId(chat_id);
+      const matchingSessionStreamKeys = getStreamKeysBySessionId(
+        chat_id,
+        ownerScope,
+      );
       if (matchingSessionStreamKeys.length > 1) {
         return sendOpenAIError(
           c,
@@ -72,6 +89,9 @@ export async function chatCompletionsStop(c: Context) {
     }
     const stream = getStream(streamKey);
     if (!stream) {
+      return sendOpenAIError(c, createError(404, "Stream not found"));
+    }
+    if (ownerScope !== undefined && stream.ownerId !== ownerScope) {
       return sendOpenAIError(c, createError(404, "Stream not found"));
     }
 

@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import { stream as honoStream } from "hono/streaming";
 import { config } from "../../core/config.ts";
 import { getUserIdentity } from "../../core/request-user.ts";
+import { buildInternalSessionScopeHeaders } from "../../core/request-owner.ts";
 import { logger } from "../../core/logger.js";
 import { extractSseError, statusForSseError } from "../../utils/sse-error.ts";
 import { loadModelsWithVariants } from "../../api/models.ts";
@@ -125,6 +126,7 @@ async function dispatchToChat(
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.API_KEY || config.apiKey || ""}`,
       "x-qwenproxy-route": "Gemini",
+      ...buildInternalSessionScopeHeaders(c),
       ...(c.req.header("x-qwenproxy-chat-mode")
         ? { "x-qwenproxy-chat-mode": c.req.header("x-qwenproxy-chat-mode")! }
         : {}),

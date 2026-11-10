@@ -12,6 +12,7 @@
 
 import { Hono, type Context } from "hono";
 import { config } from "../core/config.ts";
+import { buildInternalSessionScopeHeaders } from "../core/request-owner.ts";
 import { extractSseError, statusForSseError } from "../utils/sse-error.ts";
 
 const app = new Hono();
@@ -155,6 +156,7 @@ export async function completionsLegacy(c: Context) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.API_KEY || config.apiKey || ""}`,
         "x-qwenproxy-route": "Completions",
+        ...buildInternalSessionScopeHeaders(c),
       },
       body: JSON.stringify(chatBody),
       signal: c.req.raw.signal,

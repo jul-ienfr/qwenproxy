@@ -20,7 +20,7 @@ import { completionsLegacy } from "../routes/completions.js";
 import { anthropicApp } from "../routes/anthropic/index.ts";
 import { geminiApp } from "../routes/gemini/index.ts";
 import { docsApp } from "./docs.ts";
-import { sendOpenAIError } from "./error-helpers.js";
+import { sendOpenAIError, createError } from "./error-helpers.js";
 import { AuthError, NotFoundError } from "../core/errors.js";
 import type { QwenAccount } from "../core/accounts.js";
 import { isAuthMockEnabled } from "../services/auth-playwright.js";
@@ -293,6 +293,21 @@ function authenticateRequest(c: Context): AuthResult {
 }
 
 /**
+ * Operational endpoints expose process-wide state (logs, metrics, upstream
+ * account diagnostics) and must not be readable with a regular tenant key.
+ * The legacy global API_KEY and the local no-auth operator are admins, so
+ * existing single-operator deployments keep working unchanged.
+ */
+function requireAdminAccess(c: Context): Response | null {
+  const auth = authenticateRequest(c);
+  if (auth.error) return auth.error;
+  if (auth.identity.role !== "admin") {
+    return sendOpenAIError(c, createError(403, "Admin role required"));
+  }
+  return null;
+}
+
+/**
  * Protocol adapters re-enter `/v1/chat/completions` over loopback with the
  * operator credential, so the inner request cannot enforce the caller's
  * concurrent-stream cap. Apply it to the adapter surface itself; the chat route
@@ -424,6 +439,13 @@ app.get("/v1/chat/mode", (c) => {
   return c.json({ mode: getRuntimeChatMode() });
 });
 app.post("/v1/chat/mode", async (c) => {
+  const identity = getUserIdentity(c);
+  if (!identity) {
+    return sendOpenAIError(c, createError(401, "Missing or invalid credentials"));
+  }
+  if (identity.role !== "admin") {
+    return sendOpenAIError(c, createError(403, "Admin role required"));
+  }
   const parsed = await c.req.json().catch(() => ({}));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return c.json(
@@ -475,11 +497,10 @@ app.get("/health", async (c) => {
     },
   };
   const apiKeyConfigured = Boolean(getRuntimeApiKey() || config.apiKey);
-  const authError = authenticateRequest(c).error;
-  if (apiKeyConfigured && authError) {
-    return c.json(publicBody);
-  }
-  if (!apiKeyConfigured) {
+  const auth = authenticateRequest(c);
+  // Detailed build/runtime/usage data is operator-only; unauthenticated or
+  // regular-user callers still get the public liveness snapshot above.
+  if (!apiKeyConfigured || auth.error || auth.identity.role !== "admin") {
     return c.json(publicBody);
   }
 
@@ -529,8 +550,8 @@ app.get("/health", async (c) => {
 
 // Token TTL diagnostics: inspect real cookie/header lifetimes
 app.get("/diagnostics/tokens", async (c) => {
-  const auth = authenticateRequest(c);
-  if (auth.error) return auth.error;
+  const denied = requireAdminAccess(c);
+  if (denied) return denied;
 
   const { getTokenDiagnostics } = await import("../services/playwright.ts");
   const accountId = c.req.query("accountId");
@@ -549,22 +570,22 @@ app.get("/diagnostics/tokens", async (c) => {
 });
 
 app.get("/metrics", (c) => {
-  const auth = authenticateRequest(c);
-  if (auth.error) return auth.error;
+  const denied = requireAdminAccess(c);
+  if (denied) return denied;
   return c.text(metrics.formatPrometheus(), {
     headers: { "Content-Type": "text/plain; version=0.0.4" },
   });
 });
 
 app.get("/logs", (c) => {
-  const auth = authenticateRequest(c);
-  if (auth.error) return auth.error;
+  const denied = requireAdminAccess(c);
+  if (denied) return denied;
   return c.json(getServerLogHistory());
 });
 
 app.get("/logs/live", (c) => {
-  const auth = authenticateRequest(c);
-  if (auth.error) return auth.error;
+  const denied = requireAdminAccess(c);
+  if (denied) return denied;
   const encoder = new TextEncoder();
   return c.body(
     new ReadableStream({

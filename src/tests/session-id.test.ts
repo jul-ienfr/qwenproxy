@@ -78,3 +78,16 @@ test("deriveSessionId: implicit-thread with same system prompt is stable", () =>
   const id2 = deriveSessionId(messages, "system instructions", "implicit-thread");
   assert.equal(id1, id2);
 });
+
+test("deriveSessionId: tenant scope isolates identical conversations", () => {
+  const messages: Message[] = [msg("user", "Hello")];
+  const tenantA = deriveSessionId(messages, "prompt", "shared-key", "user-a");
+  const tenantB = deriveSessionId(messages, "prompt", "shared-key", "user-b");
+  assert.notEqual(tenantA, tenantB);
+
+  // Operators stay on the historical unscoped namespace so existing threads
+  // survive the upgrade.
+  const unscoped = deriveSessionId(messages, "prompt", "shared-key");
+  assert.notEqual(unscoped, tenantA);
+  assert.equal(unscoped, deriveSessionId(messages, "prompt", "shared-key"));
+});

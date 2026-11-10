@@ -8,6 +8,11 @@ const activeStreams = new Map<
     uiSessionId: string;
     targetResponseId: string;
     headers: Record<string, string>;
+    /**
+     * Tenant that created the stream. Undefined for operator-owned streams
+     * (legacy local admin / global API key), which are intentionally unscoped.
+     */
+    ownerId?: string;
     /** True once at least one model chunk reached the client. */
     emittedChunk: boolean;
   }
@@ -21,6 +26,7 @@ export function registerStream(
     uiSessionId: string;
     targetResponseId: string;
     headers: Record<string, string>;
+    ownerId?: string;
   },
 ): void {
   const existing = activeStreams.get(key);
@@ -36,10 +42,16 @@ export function getStream(key: string): ReturnType<typeof activeStreams.get> {
   return activeStreams.get(key);
 }
 
-export function getStreamKeysBySessionId(sessionId: string): string[] {
+export function getStreamKeysBySessionId(
+  sessionId: string,
+  ownerId?: string,
+): string[] {
   const keys: string[] = [];
   for (const [key, entry] of activeStreams.entries()) {
-    if (entry.uiSessionId === sessionId) {
+    if (
+      entry.uiSessionId === sessionId &&
+      (ownerId === undefined || entry.ownerId === ownerId)
+    ) {
       keys.push(key);
     }
   }
@@ -49,11 +61,13 @@ export function getStreamKeysBySessionId(sessionId: string): string[] {
 export function getStreamKeyBySessionAndResponse(
   sessionId: string,
   responseId: string,
+  ownerId?: string,
 ): string | undefined {
   for (const [key, entry] of activeStreams.entries()) {
     if (
       entry.uiSessionId === sessionId &&
-      entry.targetResponseId === responseId
+      entry.targetResponseId === responseId &&
+      (ownerId === undefined || entry.ownerId === ownerId)
     ) {
       return key;
     }

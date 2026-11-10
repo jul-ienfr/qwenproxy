@@ -18,13 +18,34 @@ import { sendOpenAIError, createError } from "../../api/error-helpers.js";
 
 export async function chatCompletionsStop(c: Context) {
   try {
-    const body = await c.req.json();
-    const { chat_id, response_id } = body;
-
-    if (!chat_id || !response_id) {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return sendOpenAIError(c, createError(400, "Invalid JSON body"));
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
       return sendOpenAIError(
         c,
-        createError(400, "chat_id and response_id are required", "chat_id"),
+        createError(400, "Request body must be a JSON object"),
+      );
+    }
+
+    const { chat_id, response_id } = body as Record<string, unknown>;
+
+    if (
+      typeof chat_id !== "string" ||
+      chat_id === "" ||
+      typeof response_id !== "string" ||
+      response_id === ""
+    ) {
+      return sendOpenAIError(
+        c,
+        createError(
+          400,
+          "chat_id and response_id are required strings",
+          "chat_id",
+        ),
       );
     }
 

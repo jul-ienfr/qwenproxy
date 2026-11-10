@@ -322,7 +322,7 @@ app.post("/v1/messages/count_tokens", async (c) => {
 
   try {
     const body = await c.req.json();
-    if (!body || typeof body !== "object") {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
       return anthropicError(c, "invalid_request_error", "Request body must be a JSON object", 400);
     }
 

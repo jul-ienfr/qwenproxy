@@ -628,7 +628,16 @@ export async function uploadBufferAsQwenFile(
  */
 export async function uploadFile(c: Context) {
   try {
-    const formData = await c.req.formData();
+    let formData: FormData;
+    try {
+      formData = await c.req.formData();
+    } catch {
+      // A malformed multipart body is a client error, not an internal failure.
+      return sendOpenAIError(
+        c,
+        new ValidationError("Request body must be valid multipart/form-data"),
+      );
+    }
     const file = formData.get("file") as File | null;
 
     if (!file) {

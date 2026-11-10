@@ -284,3 +284,16 @@ test("Videos Generations Route: validates video generation and task status reque
   json = (await res.json()) as any;
   assert.ok(json.error.message.includes("not found"));
 });
+
+test("POST /v1/upload rejects a malformed multipart body with 400", async () => {
+  const res = await app.fetch(
+    new Request("http://localhost/v1/upload", {
+      method: "POST",
+      headers: { "Content-Type": "multipart/form-data; boundary=bogus" },
+      body: "this is not a multipart body",
+    }),
+  );
+  assert.equal(res.status, 400);
+  const json = (await res.json()) as any;
+  assert.equal(json.error.type, "invalid_request_error");
+});

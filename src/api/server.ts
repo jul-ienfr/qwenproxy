@@ -358,8 +358,15 @@ app.get("/v1/chat/mode", (c) => {
   return c.json({ mode: getRuntimeChatMode() });
 });
 app.post("/v1/chat/mode", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { mode?: string };
-  if (!body.mode) {
+  const parsed = await c.req.json().catch(() => ({}));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return c.json(
+      { error: { message: "Request body must be a JSON object" } },
+      400,
+    );
+  }
+  const body = parsed as { mode?: unknown };
+  if (typeof body.mode !== "string" || body.mode.trim() === "") {
     return c.json({ error: { message: "Field 'mode' is required" } }, 400);
   }
   const updated = setRuntimeChatMode(body.mode);

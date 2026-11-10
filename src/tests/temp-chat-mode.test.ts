@@ -416,3 +416,18 @@ test("dynamic runtime chat mode: changing global mode changes API completions wi
     mock.restore();
   }
 });
+
+test("POST /v1/chat/mode rejects invalid bodies with 400", async () => {
+  for (const body of ["null", "[]", '"text"', "42", "{}", '{"mode":123}', '{"mode":"  "}']) {
+    const res = await app.fetch(
+      new Request("http://localhost/v1/chat/mode", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      }),
+    );
+    assert.equal(res.status, 400, `body ${body} should be 400`);
+    const json = (await res.json()) as any;
+    assert.ok(json.error?.message);
+  }
+});

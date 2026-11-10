@@ -52,15 +52,38 @@ export interface ParsedRequest {
 }
 
 export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
-  let body: OpenAIRequest;
+  let parsed: unknown;
   try {
-    body = await c.req.json();
+    parsed = await c.req.json();
   } catch {
     // A malformed body is a client error. Without this guard the raw
     // SyntaxError reaches the generic classifier and becomes a 500, unlike the
     // other protocol routes which already return 400.
     throw new ValidationError("Invalid JSON body");
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new ValidationError("Request body must be a JSON object");
+  }
+  const body = parsed as OpenAIRequest;
+
+  // The OpenAPI contract requires `model` (string) and `messages` (non-empty
+  // array). Accessing them unvalidated previously produced a 500 (e.g.
+  // `undefined.trim`, `messages.some is not a function`) for bad client input.
+  if (typeof body.model !== "string" || body.model.trim() === "") {
+    const error = new ValidationError(
+      "Field 'model' must be a non-empty string",
+    );
+    error.param = "model";
+    throw error;
+  }
+  if (!Array.isArray(body.messages) || body.messages.length === 0) {
+    const error = new ValidationError(
+      "Field 'messages' must be a non-empty array",
+    );
+    error.param = "messages";
+    throw error;
+  }
+
   logIncomingChatRequest(c, body);
   const isStream = body.stream ?? false;
   const conversationKey = extractExplicitConversationKey(c, body);

@@ -72,6 +72,46 @@ test("parseRequestBody maps malformed JSON to a 400 ValidationError", async () =
   );
 });
 
+test("parseRequestBody rejects a missing or non-string model with 400", async () => {
+  for (const body of [
+    { messages: [{ role: "user", content: "hi" }] },
+    { model: 123, messages: [{ role: "user", content: "hi" }] },
+    { model: "   ", messages: [{ role: "user", content: "hi" }] },
+  ]) {
+    await assert.rejects(
+      () => parseRequestBody(mockContext(body)),
+      (error: any) =>
+        error instanceof ValidationError &&
+        error.statusCode === 400 &&
+        error.param === "model",
+    );
+  }
+});
+
+test("parseRequestBody rejects invalid messages with 400", async () => {
+  for (const messages of [undefined, "hi", {}, []]) {
+    await assert.rejects(
+      () => parseRequestBody(mockContext({ model: "qwen3.8-max", messages })),
+      (error: any) =>
+        error instanceof ValidationError &&
+        error.statusCode === 400 &&
+        error.param === "messages",
+    );
+  }
+});
+
+test("parseRequestBody rejects a non-object body with 400", async () => {
+  for (const body of [null, [], "text", 42]) {
+    await assert.rejects(
+      () => parseRequestBody(mockContext(body)),
+      (error: any) =>
+        error instanceof ValidationError &&
+        error.statusCode === 400 &&
+        /JSON object/.test(error.message),
+    );
+  }
+});
+
 test("parseRequestBody falls back to conversation_id and then null", async () => {
   const withConv = await parseRequestBody(
     mockContext({

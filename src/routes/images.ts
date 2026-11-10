@@ -138,9 +138,14 @@ export async function imagesGenerations(c: Context): Promise<Response> {
     );
   }
 
+  // Cap `n` like the edits route: each unit fans out to one upstream image
+  // request, so an unbounded value is a resource amplifier for any caller.
   const n = body.n === undefined ? 1 : body.n;
-  if (typeof n !== "number" || !Number.isInteger(n) || n < 1) {
-    return sendOpenAIError(c, validationError("`n` must be a positive integer", "n"));
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 10) {
+    return sendOpenAIError(
+      c,
+      validationError("`n` must be an integer between 1 and 10", "n"),
+    );
   }
 
   const size = body.size === undefined ? DEFAULT_SIZE : body.size;

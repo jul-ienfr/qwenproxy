@@ -122,21 +122,23 @@ test("Images Generations Route: validates input parameters according to OpenAI s
   let json = (await res.json()) as any;
   assert.ok(json.error.message.includes("prompt"));
 
-  // 3. Invalid n
-  res = await app.fetch(
-    new Request("http://localhost/v1/images/generations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "qwen-image-3.0-pro",
-        prompt: "cyberpunk cat",
-        n: 0,
+  // 3. Invalid n (zero, fractional, or above the fan-out cap)
+  for (const n of [0, 1.5, 11, 1000]) {
+    res = await app.fetch(
+      new Request("http://localhost/v1/images/generations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "qwen-image-3.0-pro",
+          prompt: "cyberpunk cat",
+          n,
+        }),
       }),
-    }),
-  );
-  assert.equal(res.status, 400);
-  json = (await res.json()) as any;
-  assert.ok(json.error.message.includes("n"));
+    );
+    assert.equal(res.status, 400, `n=${n} should be rejected`);
+    json = (await res.json()) as any;
+    assert.ok(json.error.message.includes("n"));
+  }
 
   // 4. Invalid size
   res = await app.fetch(

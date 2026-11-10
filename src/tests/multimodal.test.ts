@@ -158,6 +158,21 @@ test("media logs are standardized and redact signed URLs", () => {
   assert.doesNotMatch(message, /\n/);
 });
 
+test("processImagesForQwen skips null and non-object content parts", async () => {
+  const result = await processImagesForQwen(
+    [
+      null,
+      42,
+      ["nested"],
+      { type: "text", text: "safe text" },
+    ] as any,
+    {},
+  );
+
+  assert.strictEqual(result.text, "safe text");
+  assert.deepStrictEqual(result.files, []);
+});
+
 test("processImagesForQwen re-uploads remote HTTP files to Qwen OSS", async () => {
   const originalFetch = globalThis.fetch;
   const remoteUrl = "https://example.com/docs/report.pdf?download=1";

@@ -171,6 +171,23 @@ test("parseRequestBody handles array, object and empty content", async () => {
   assert.strictEqual(parsed.messageCount, 3);
 });
 
+test("parseRequestBody tolerates null and non-object content parts", async () => {
+  const parsed = await parseRequestBody(
+    mockContext({
+      model: "qwen3.7-plus",
+      messages: [
+        {
+          role: "user",
+          content: [null, { type: "text", text: "survives" }, 42, ["x"]],
+        },
+        { role: "assistant", content: [null] },
+      ],
+    }),
+  );
+  assert.ok(parsed.prompt.includes("User: survives"));
+  assert.strictEqual(parsed.messageCount, 2);
+});
+
 test("parseRequestBody serializes tool calls and tool responses", async () => {
   const parsed = await parseRequestBody(
     mockContext({

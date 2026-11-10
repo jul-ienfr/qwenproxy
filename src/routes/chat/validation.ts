@@ -244,10 +244,10 @@ async function buildPromptFromMessages(
       const isCurrentMessage = i >= currentStartIndex;
       const imageParts = (msg.content as any[]).filter(
         (p: any) =>
-          (p.type === "image_url" && p.image_url?.url) ||
-          (p.type === "video_url" && p.video_url?.url) ||
-          (p.type === "audio_url" && p.audio_url?.url) ||
-          (p.type === "file_url" && p.file_url?.url),
+          (p?.type === "image_url" && p.image_url?.url) ||
+          (p?.type === "video_url" && p.video_url?.url) ||
+          (p?.type === "audio_url" && p.audio_url?.url) ||
+          (p?.type === "file_url" && p.file_url?.url),
       );
 
       if (imageParts.length > 0 && isCurrentMessage) {
@@ -274,14 +274,14 @@ async function buildPromptFromMessages(
           const errMsg = err instanceof Error ? err.message : "Unknown error";
           console.error("[Chat] Failed to process images:", errMsg);
           contentStr = (msg.content as any[])
-            .filter((p: any) => p.type === "text")
-            .map((p: any) => p.text)
+            .filter((p: any) => p?.type === "text")
+            .map((p: any) => p?.text)
             .join("\n");
         }
       } else {
         contentStr = (msg.content as any[])
-          .filter((p: any) => p.type === "text")
-          .map((p: any) => p.text)
+          .filter((p: any) => p?.type === "text")
+          .map((p: any) => p?.text)
           .join("\n");
       }
     } else if (typeof msg.content === "object" && msg.content !== null) {

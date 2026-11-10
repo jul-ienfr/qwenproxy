@@ -778,6 +778,7 @@ export async function processImagesForQwen(
   const files: QwenFileEntry[] = [];
 
   for (const part of content) {
+    if (!part || typeof part !== "object") continue;
     if (part.type === "text" && part.text) {
       textParts.push(part.text);
     } else if (

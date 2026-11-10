@@ -475,6 +475,72 @@ the outcome is known), `ran`, or `no_results`. `/v1/models` exposes
 `supports_search` per model; synthetic `-search` variants are not listed
 separately.
 
+### Specialized Modes (Deep Research, Web Dev, Full-Stack, Slides)
+
+Four virtual model IDs route a normal chat-completions request to Qwen's
+specialized web pipelines. They are always advertised by `/v1/models` with
+`specialized_mode`, `supports_async`, `supports_citations` and
+`supports_artifacts`:
+
+| Model | Qwen pipeline | Async tasks | Citations | Artifacts |
+| :--- | :--- | :---: | :---: | :---: |
+| `qwen-deep-research` | Deep Research (`normal` or `advance`) | ✅ | ✅ | ✅ |
+| `qwen-web-dev` | Web Dev | ✅ | ❌ | ✅ |
+| `qwen-full-stack` | Web Dev with a full-stack prompt contract | ✅ | ❌ | ✅ |
+| `qwen-slides` | Slides | ✅ | ❌ | ✅ |
+
+Aliases such as `deep-research`, `web-dev`, `full-stack` and `slides` are
+accepted but only the canonical IDs are listed. Synchronous use is identical to
+any other model:
+
+```bash
+curl http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer $QWENPROXY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen-deep-research","messages":[{"role":"user","content":"Summarize the 2026 AI safety landscape"}]}'
+```
+
+For Deep Research, `research_mode: "advance"` (or a `-thinking` / high
+`reasoning_effort` request) selects the expensive pipeline; `normal` is the
+default. The `X-QwenProxy-Research-Mode` header is also accepted.
+
+Long jobs should use the async task surface so a disconnect does not lose the
+work:
+
+```bash
+# Start a task
+curl -X POST http://localhost:3000/v1/tasks \
+  -H "Authorization: Bearer $QWENPROXY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen-deep-research","messages":[{"role":"user","content":"Report on grid storage"}]}'
+# → 202 {"id":"task_…","status":"queued","progress":0,…}
+
+# Poll, list, cancel
+curl http://localhost:3000/v1/tasks/task_…
+curl "http://localhost:3000/v1/tasks?limit=20"
+curl -X DELETE http://localhost:3000/v1/tasks/task_…
+```
+
+A task is a tool-free call to the same completions pipeline with `stream:false`;
+the caller's `Authorization` is forwarded so quotas, cooldowns and account
+selection still apply. Status is `queued`, `running`, `succeeded`, `failed` or
+`cancelled`. `result.citations[]` lists the validated source URLs,
+`result.artifacts[]` contains `{type, url, title?}` entries classified as
+`report`, `pdf`, `image`, `code` or `link`, and `result.content` keeps the full
+answer.
+
+Operational notes:
+
+- Tasks live in local SQLite (`specialized_tasks`) with a **7-day** retention.
+  A restart marks `queued`/`running` tasks `failed` with `code: "interrupted"`.
+- Task state is **not** shared through Redis: `DATA_SAVE_MODE=redis` still keeps
+  each instance's tasks local.
+- Artifacts are never fetched, re-hosted or executed. Upstream-signed URLs keep
+  Qwen's own expiry; download them before that TTL elapses.
+- An unavailable mode returns **400** with `code: "capability_unavailable"`
+  (no account configured) or `capability_unsupported` (upstream rejected the
+  pipeline) instead of a generic 500.
+
 ### `reasoning_effort` Parameter
 
 Standard OpenAI `reasoning_effort` values (`low`, `medium`, `high`) are supported:
@@ -524,6 +590,14 @@ direct Qwen ids pass through unchanged.
 | `/v1/images/edits` | POST | Image editing via multipart `image` + `prompt` (`qwen-image-3.0-pro` by default) |
 | `/v1/videos/generations` | POST | Video generation (`wan3.0-video` up to 1080P, `wan2.7-t2v`) |
 | `/v1/tasks/status/:taskId` | GET | Check asynchronous video task progress |
+
+### Specialized Tasks (Deep Research, Web Dev, Full-Stack, Slides)
+| Endpoint | Method | Description |
+| :--- | :---: | :--- |
+| `/v1/tasks` | POST | Start an asynchronous specialized-mode task |
+| `/v1/tasks` | GET | List the caller's tasks (newest first) |
+| `/v1/tasks/:taskId` | GET | Poll status, progress and the result |
+| `/v1/tasks/:taskId` | DELETE | Cancel a queued or running task |
 
 ### Diagnostics & Monitoring
 | Endpoint | Method | Description |

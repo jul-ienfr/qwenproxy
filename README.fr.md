@@ -408,6 +408,74 @@ Les sources retournées en amont sont normalisées, dédupliquées et validées 
 
 `X-QwenProxy-Web-Search` indique `not_requested`, `requested` (en streaming, avant que le résultat soit connu), `ran` ou `no_results`. `/v1/models` expose `supports_search` par modèle ; les variantes synthétiques `-search` ne sont pas listées séparément.
 
+### Modes spécialisés (Deep Research, Web Dev, Full-Stack, Slides)
+
+Quatre identifiants de modèles virtuels routent une requête de complétion
+normale vers les pipelines spécialisés de Qwen. Ils sont toujours annoncés par
+`/v1/models` avec `specialized_mode`, `supports_async`, `supports_citations` et
+`supports_artifacts` :
+
+| Modèle | Pipeline Qwen | Tâches asynchrones | Citations | Artefacts |
+| :--- | :--- | :---: | :---: | :---: |
+| `qwen-deep-research` | Deep Research (`normal` ou `advance`) | ✅ | ✅ | ✅ |
+| `qwen-web-dev` | Web Dev | ✅ | ❌ | ✅ |
+| `qwen-full-stack` | Web Dev avec contrat de prompt full-stack | ✅ | ❌ | ✅ |
+| `qwen-slides` | Slides | ✅ | ❌ | ✅ |
+
+Les alias `deep-research`, `web-dev`, `full-stack` et `slides` sont acceptés,
+mais seuls les identifiants canoniques sont listés. L'utilisation synchrone est
+identique à celle de n'importe quel autre modèle :
+
+```bash
+curl http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer $QWENPROXY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen-deep-research","messages":[{"role":"user","content":"Résume le paysage de la sûreté IA en 2026"}]}'
+```
+
+Pour Deep Research, `research_mode: "advance"` (ou une requête `-thinking` / un
+`reasoning_effort` élevé) sélectionne le pipeline coûteux ; `normal` est la
+valeur par défaut. L'en-tête `X-QwenProxy-Research-Mode` est aussi accepté.
+
+Les tâches longues doivent utiliser la surface asynchrone pour survivre à une
+déconnexion :
+
+```bash
+# Démarrer une tâche
+curl -X POST http://localhost:3000/v1/tasks \
+  -H "Authorization: Bearer $QWENPROXY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen-deep-research","messages":[{"role":"user","content":"Rapport sur le stockage sur réseau"}]}'
+# → 202 {"id":"task_…","status":"queued","progress":0,…}
+
+# Suivre, lister, annuler
+curl http://localhost:3000/v1/tasks/task_…
+curl "http://localhost:3000/v1/tasks?limit=20"
+curl -X DELETE http://localhost:3000/v1/tasks/task_…
+```
+
+Une tâche est un appel au même pipeline de complétions avec `stream:false` ;
+l'en-tête `Authorization` de l'appelant est transmis afin que les quotas, les
+cooldowns et la sélection de compte s'appliquent toujours. Le statut vaut
+`queued`, `running`, `succeeded`, `failed` ou `cancelled`.
+`result.citations[]` liste les URL sources validées, `result.artifacts[]`
+contient des entrées `{type, url, title?}` classées `report`, `pdf`, `image`,
+`code` ou `link`, et `result.content` conserve la réponse complète.
+
+Notes opérationnelles :
+
+- Les tâches vivent dans SQLite local (`specialized_tasks`) avec une rétention
+  de **7 jours**. Un redémarrage marque les tâches `queued`/`running` comme
+  `failed` avec `code: "interrupted"`.
+- L'état des tâches n'est **pas** partagé via Redis : `DATA_SAVE_MODE=redis`
+  conserve les tâches locales à chaque instance.
+- Les artefacts ne sont jamais récupérés, ré-hébergés ni exécutés. Les URL
+  signées en amont conservent l'expiration de Qwen ; téléchargez-les avant ce
+  TTL.
+- Un mode indisponible renvoie **400** avec `code: "capability_unavailable"`
+  (aucun compte configuré) ou `capability_unsupported` (pipeline refusé en
+  amont), jamais une erreur 500 générique.
+
 ### Paramètre `reasoning_effort`
 
 Les valeurs standard `reasoning_effort` d'OpenAI (`low`, `medium`, `high`) sont prises en charge :
@@ -453,6 +521,14 @@ Les routes Gemini acceptent `Authorization: Bearer`, `x-api-key`, `x-goog-api-ke
 | `/v1/images/edits` | POST | Édition d'image via multipart `image` + `prompt` (`qwen-image-3.0-pro` par défaut) |
 | `/v1/videos/generations` | POST | Génération de vidéos (`wan3.0-video` jusqu'à 1080P, `wan2.7-t2v`) |
 | `/v1/tasks/status/:taskId` | GET | Suivre la progression d'une tâche vidéo asynchrone |
+
+### Tâches spécialisées (Deep Research, Web Dev, Full-Stack, Slides)
+| Endpoint | Méthode | Description |
+| :--- | :---: | :--- |
+| `/v1/tasks` | POST | Démarrer une tâche en mode spécialisé asynchrone |
+| `/v1/tasks` | GET | Lister les tâches de l'appelant (plus récentes d'abord) |
+| `/v1/tasks/:taskId` | GET | Suivre le statut, la progression et le résultat |
+| `/v1/tasks/:taskId` | DELETE | Annuler une tâche en attente ou en cours |
 
 ### Diagnostics et surveillance
 | Endpoint | Méthode | Description |

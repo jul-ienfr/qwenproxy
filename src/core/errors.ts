@@ -69,6 +69,20 @@ export class ContentPolicyError extends QwenProxyError {
   readonly code = "content_policy_violation";
 }
 
+/**
+ * A requested Qwen specialized mode is unavailable for the configured
+ * accounts or was rejected by the upstream as unsupported. This is a stable
+ * client-facing capability error, never a generic 500.
+ */
+export class SpecializedCapabilityError extends ValidationError {
+  readonly code: string;
+
+  constructor(message: string, code: "capability_unavailable" | "capability_unsupported" = "capability_unsupported") {
+    super(message);
+    this.code = code;
+  }
+}
+
 export class ForbiddenError extends QwenProxyError {
   readonly statusCode = 403;
   readonly type = "permission_error";

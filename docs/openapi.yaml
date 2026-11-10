@@ -762,6 +762,103 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /v1/tasks:
+    post:
+      operationId: createSpecializedTask
+      summary: Start an asynchronous specialized Qwen task
+      description: >
+        Runs Deep Research, Web Dev, Full-Stack or Slides in the background so
+        long generations survive client disconnects. Poll
+        `/v1/tasks/{taskId}` for status, progress and the final result.
+      tags:
+        - Tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpecializedTaskRequest"
+      responses:
+        "202":
+          description: Task accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpecializedTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    get:
+      operationId: listSpecializedTasks
+      summary: List the caller's specialized tasks
+      tags:
+        - Tasks
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Task list, newest first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpecializedTaskList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/tasks/{taskId}:
+    get:
+      operationId: getSpecializedTask
+      summary: Poll a specialized task
+      tags:
+        - Tasks
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current task state and result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpecializedTask"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: cancelSpecializedTask
+      summary: Cancel a queued or running specialized task
+      tags:
+        - Tasks
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task after cancellation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpecializedTask"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /v1/chat/mode:
     get:
       operationId: getChatMode
@@ -2172,6 +2269,129 @@ components:
         created:
           type: integer
       additionalProperties: true
+
+    SpecializedTaskRequest:
+      type: object
+      required:
+        - model
+      properties:
+        model:
+          type: string
+          enum:
+            - qwen-deep-research
+            - qwen-web-dev
+            - qwen-full-stack
+            - qwen-slides
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        stream:
+          type: boolean
+          description: Ignored. Tasks always run in the background.
+        research_mode:
+          type: string
+          enum: [normal, advance]
+          description: Deep Research pipeline selection.
+      additionalProperties: true
+
+    SpecializedTaskArtifact:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [report, pdf, image, code, link]
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+      additionalProperties: true
+
+    SpecializedTaskResult:
+      type: object
+      properties:
+        content:
+          type: string
+        citations:
+          type: array
+          description: Validated source URLs found in the final content.
+          items:
+            type: object
+            required:
+              - url
+            properties:
+              url:
+                type: string
+                format: uri
+              title:
+                type: string
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpecializedTaskArtifact"
+        usage:
+          $ref: "#/components/schemas/Usage"
+      additionalProperties: true
+
+    SpecializedTask:
+      type: object
+      required:
+        - id
+        - object
+        - model
+        - status
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum: [specialized.task]
+        model:
+          type: string
+        mode:
+          type: string
+          enum: [research, artifact, slides]
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, cancelled]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        created_at:
+          type: integer
+        updated_at:
+          type: integer
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/SpecializedTaskResult"
+            - type: "null"
+        error:
+          oneOf:
+            - type: object
+              required: [code, message]
+              properties:
+                code:
+                  type: string
+                message:
+                  type: string
+            - type: "null"
+      additionalProperties: true
+
+    SpecializedTaskList:
+      type: object
+      required:
+        - object
+        - data
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpecializedTask"
 
     ChatModeResponse:
       type: object

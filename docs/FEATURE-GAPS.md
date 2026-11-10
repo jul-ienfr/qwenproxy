@@ -1,7 +1,7 @@
 # Feature Gap Analysis — QwenProxy (johngbl fork)
 
 **Date**: 2026-11-07
-**Updated**: 2026-11-09 (reconciled statuses for specs 004, 010 and 014)
+**Updated**: 2026-11-10 (spec 007 implemented: specialized modes and async tasks)
 **Baseline**: `jul-ienfr/qwenproxy`, fork of `johngbl/qwenproxy` 1.6.11
 **Scope**: capabilities present in competing Qwen web-to-API projects but absent
 or materially weaker in this project.
@@ -44,7 +44,7 @@ for this architecture).
 | 004 | Gemini-compatible API (`/v1beta/models/{model}:generateContent`, stream) | **implemented** (Gemini request/response translation, SSE, function calling, model discovery; warnings header for unsupported fields) | YuJunZhiXue and 123hi123 expose OpenAI + Anthropic + Gemini | **P2** | [004](../specs/004-gemini-compatible-api/spec.md) |
 | 005 | Web search toggle with citations/annotations | **implemented** (per-request opt-in; OpenAI annotations + `search_results`; URL-validated sources) | Rfym21 smart search; encryptarun search + clickable citations/annotations | **P2** | [005](../specs/005-web-search-and-citations/spec.md) |
 | 006 | Image editing endpoint (`POST /v1/images/edits`) | **implemented** (multipart image+prompt, OSS upload, `image_edit` upstream; masks explicitly unsupported) | Rfym21 `/v1/images/edits`; encryptarun image edit | **P2** | [006](../specs/006-image-editing/spec.md) |
-| 007 | Qwen specialized modes: Deep Research, Web Dev, Full-Stack, Slides | **missing** | encryptarun exposes `qwen-deep-research`, `qwen-web-dev`, `qwen-full-stack`, `qwen-slides` | **P3** | [007](../specs/007-qwen-specialized-modes/spec.md) |
+| 007 | Qwen specialized modes: Deep Research, Web Dev, Full-Stack, Slides | **implemented** (virtual model IDs, normal/advance research, async `/v1/tasks`, citations/artifact extraction, stable capability errors) | encryptarun exposes `qwen-deep-research`, `qwen-web-dev`, `qwen-full-stack`, `qwen-slides` | **P3** | [007](../specs/007-qwen-specialized-modes/spec.md) |
 | 008 | Redis persistence and multi-instance coordination | **implemented** (optional `DATA_SAVE_MODE=redis`, shared accounts/users/sessions/cooldowns/usage/responses, migration CLI, degraded `/health`, two-instance compose) | Rfym21 `DATA_SAVE_MODE=redis` + `REDIS_URL`; multi-worker Docker | **P2** | [008](../specs/008-redis-persistence-and-scaling/spec.md) |
 | 009 | Runtime model mapping/aliases (env + admin surface) | **implemented** (`MODEL_MAP` seed, exact aliases + wildcard fallback, hot reload, admin API/dashboard, `/v1/models` aliases) | Rfym21 `MODEL_MAP` env + dashboard model mapping; Chat2API model mapping | **P3** | [009](../specs/009-runtime-model-mapping/spec.md) |
 | 010 | Native binaries and multi-arch Docker distribution | **implemented** (standalone Windows x64 and Linux x64/arm64 binaries with `SHA256SUMS`, multi-arch Docker for `linux/amd64` + `linux/arm64`, npm package) | Rfym21 Windows/Linux native binaries + multi-arch Docker; EasyCLIProxyAPI desktop | **P3** | [010](../specs/010-native-packaging-and-multiarch/spec.md) |
@@ -69,6 +69,9 @@ project:
   2026-11-07: history attached as a Qwen text file above 90 KB).
 - Opt-in web search with OpenAI-style URL citations and a `search_results`
   extension (added 2026-11-08), including `supports_search` in `/v1/models`.
+- Qwen specialized modes (added 2026-11-10): Deep Research, Web Dev,
+  Full-Stack and Slides as virtual models, with normal/advance research, async
+  `/v1/tasks`, citations/artifact extraction and stable capability errors.
 - `/health`, Prometheus `/metrics`, structured logs, TUI.
 - Docker and `docker compose` deployment.
 

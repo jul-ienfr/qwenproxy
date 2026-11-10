@@ -14,6 +14,7 @@ import {
   syncModelMetadata,
 } from "../core/model-registry.ts";
 import { listMediaGenerationModels } from "../services/media-generation.ts";
+import { listSpecializedModels } from "../core/specialized-modes.ts";
 import { isPlaywrightInitialized } from "../services/playwright.ts";
 
 const app = new Hono();
@@ -208,11 +209,33 @@ export async function loadModelsWithVariants(): Promise<{
       ),
     }));
 
+  // Specialized web modes are virtual model IDs: they are not returned by
+  // Qwen's model catalog but are valid completion targets. Advertise them with
+  // their async/artifact capabilities so clients can discover the contract.
+  const existingIds = new Set(
+    [...expandedWithMedia, ...mediaModels].map((model) => model.id.toLowerCase()),
+  );
+  const specializedModels: PublicModel[] = listSpecializedModels()
+    .filter((definition) => !existingIds.has(definition.id.toLowerCase()))
+    .map((definition) => ({
+      id: definition.id,
+      object: "model",
+      created: MEDIA_MODELS_CREATED_AT,
+      owned_by: "qwen",
+      description: definition.description,
+      specialized_mode: definition.kind,
+      supports_async: definition.supportsAsync,
+      supports_citations: definition.supportsCitations,
+      supports_artifacts: definition.supportsArtifacts,
+      context_window: getModelContextWindow(definition.id, accountId),
+      is_active: true,
+    }));
+
   // Runtime aliases are first-class catalog entries: clients can discover
   // them and read the target's context window/capabilities. The `/v1/models`
   // ETag is derived from this list, so a mapping change invalidates it.
   const advertised = new Set(
-    [...expandedWithMedia, ...mediaModels].map((model) =>
+    [...expandedWithMedia, ...mediaModels, ...specializedModels].map((model) =>
       model.id.toLowerCase(),
     ),
   );
@@ -233,7 +256,12 @@ export async function loadModelsWithVariants(): Promise<{
     });
 
   return {
-    models: [...expandedWithMedia, ...mediaModels, ...aliasModels],
+    models: [
+      ...expandedWithMedia,
+      ...mediaModels,
+      ...specializedModels,
+      ...aliasModels,
+    ],
     accountId,
   };
 }

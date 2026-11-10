@@ -13,6 +13,7 @@ import { loadAccounts, getAccountCredentials, type QwenAccount } from "../../cor
 import { config, type ChatMode } from "../../core/config.ts";
 import { metrics } from "../../core/metrics.js";
 import { ClientAbortedError, UpstreamRateLimit, ValidationError } from "../../core/errors.ts";
+import { buildSpecializedFeatureConfig } from "../../core/specialized-modes.ts";
 import {
   assertPromptWithinLimits,
   truncatePromptToIntelligentLimit,
@@ -350,6 +351,10 @@ export interface AcquireParams {
 	  parallelEscape?: boolean;
 	  /** Opt-in Qwen web search for this attempt. */
 	  webSearch?: boolean;
+	  /** Specialized Qwen mode override for this attempt. */
+	  specialized?: import("../../core/specialized-modes.ts").SpecializedModelDefinition;
+	  /** Deep Research normal/advance selection. */
+	  researchMode?: "normal" | "advance";
 	}
 
 /** Exported for unit tests — selects the first account for a request. */
@@ -900,6 +905,8 @@ export async function acquireUpstreamStream(
 					parallelEscape: params.parallelEscape,
 					chatMode,
 					webSearch: params.webSearch,
+					specialized: params.specialized,
+					researchMode: params.researchMode,
 				},
 				accountId,
 				accountEmail,
@@ -1221,6 +1228,10 @@ async function tryCreateStreamWithRetry(
 		chatMode: ChatMode;
 		/** Opt-in Qwen web search for this attempt. */
 		webSearch?: boolean;
+		/** Specialized Qwen mode override for this attempt. */
+		specialized?: import("../../core/specialized-modes.ts").SpecializedModelDefinition;
+		/** Deep Research normal/advance selection. */
+		researchMode?: "normal" | "advance";
 	},
 	accountId: string,
 	accountEmail: string,
@@ -1627,6 +1638,16 @@ async function tryCreateStreamWithRetry(
 					createOptions.chatMode = params.chatMode;
 				} else if (params.reasoningMode) {
 					createOptions.reasoningMode = params.reasoningMode;
+				}
+				if (params.specialized) {
+					createOptions.chatTypeOverride = params.specialized.chatType;
+					createOptions.subChatTypeOverride = params.specialized.subChatType;
+					createOptions.featureConfigOverride =
+						buildSpecializedFeatureConfig(
+							params.specialized,
+							params.reasoningMode,
+							params.researchMode ?? "normal",
+						);
 				}
 				if (params.webSearch) {
 					createOptions.search = true;

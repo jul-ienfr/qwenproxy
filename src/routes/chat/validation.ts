@@ -11,6 +11,11 @@ import {
   parseModelSuffix,
   type ReasoningMode,
 } from "../../core/model-alias.ts";
+import {
+  resolveResearchMode,
+  resolveSpecializedModel,
+  type SpecializedModelDefinition,
+} from "../../core/specialized-modes.ts";
 
 import {
   normalizeReasoningEffort,
@@ -37,6 +42,10 @@ export interface ParsedRequest {
   reasoningMode: ReasoningMode;
   /** Effective per-request web-search flag (selects Qwen's search chat type). */
   webSearch: boolean;
+  /** Specialized Qwen mode, when the requested model is a virtual mode ID. */
+  specialized?: SpecializedModelDefinition;
+  /** Deep Research pipeline: normal or advance. */
+  researchMode: "normal" | "advance";
   messageCount: number;
   currentMessageCount: number;
 }
@@ -73,7 +82,10 @@ export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
     search: searchSuffix,
   } = parseModelSuffix(body.model);
   const webSearch = resolveWebSearch(c, body, searchSuffix);
-  const modelId = mapClientModelToQwen(baseModel, config.qwen.mapOpenAiModels);
+  const specialized = resolveSpecializedModel(baseModel);
+  const modelId = specialized
+    ? specialized.id
+    : mapClientModelToQwen(baseModel, config.qwen.mapOpenAiModels);
 
   // OpenAI `reasoning_effort` (none|minimal|low|medium|high|xhigh|max).
   // Precedence: an explicit model suffix wins — effort only acts on unsuffixed
@@ -90,6 +102,13 @@ export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
       : undefined;
   const finalReasoningMode = effortMode ?? reasoningMode;
   const finalEnableThinking = effortMode === "fast" ? false : enableThinking;
+  const bodyAny = body as unknown as Record<string, unknown>;
+  const researchMode = resolveResearchMode(
+    bodyAny.research_mode ??
+      bodyAny.researchMode ??
+      c.req.header("x-qwenproxy-research-mode"),
+    finalReasoningMode,
+  );
 
   return {
     body,
@@ -107,6 +126,8 @@ export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
     enableThinking: finalEnableThinking,
     reasoningMode: finalReasoningMode,
     webSearch,
+    specialized,
+    researchMode,
     messageCount: promptParts.length,
     currentMessageCount: currentPromptParts.length,
   };

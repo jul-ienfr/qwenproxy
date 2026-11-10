@@ -14,6 +14,7 @@ import { chatCompletions, chatCompletionsStop } from "../routes/chat.js";
 import { uploadFile } from "../routes/upload.js";
 import { imagesEdits, imagesGenerations } from "../routes/images.js";
 import { videosGenerations, videoTaskStatus } from "../routes/videos.js";
+import { app as specializedTasksApp } from "../routes/specialized-tasks.ts";
 import { responsesApp } from "../routes/responses/index.js";
 import { completionsLegacy } from "../routes/completions.js";
 import { anthropicApp } from "../routes/anthropic/index.ts";
@@ -352,6 +353,7 @@ app.post("/v1/images/generations", imagesGenerations);
 app.post("/v1/images/edits", imagesEdits);
 app.post("/v1/videos/generations", videosGenerations);
 app.get("/v1/tasks/status/:taskId", videoTaskStatus);
+app.route("", specializedTasksApp);
 app.get("/v1/chat/mode", (c) => {
   return c.json({ mode: getRuntimeChatMode() });
 });
@@ -889,6 +891,13 @@ export async function startServer(options?: {
 
     // Materialize USER_API_KEYS bootstrap entries before accepting traffic.
     seedEnvUsers();
+
+    // Recover specialized async tasks left running by a previous process and
+    // prune expired rows before the HTTP surface accepts requests.
+    const { initializeSpecializedTasks } = await import(
+      "../core/specialized-tasks.ts"
+    );
+    initializeSpecializedTasks();
 
     if (accounts.length === 0 && !isAuthMockEnabled()) {
       throw new Error(

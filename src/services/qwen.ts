@@ -429,15 +429,7 @@ export interface QwenMessage {
   models: string[];
   model: string;
   chat_type: string;
-  feature_config: {
-    thinking_enabled: boolean;
-    output_schema: string;
-    research_mode: string;
-    auto_thinking: boolean;
-    thinking_mode: string;
-    thinking_format?: string;
-    auto_search: boolean;
-  };
+  feature_config: Record<string, unknown>;
   extra: {
     meta: {
       subChatType: string;
@@ -2892,6 +2884,12 @@ export async function createQwenStream(
     chatMode?: ChatMode;
     /** Opt-in Qwen web search for this request. */
     search?: boolean;
+    /** Override the upstream chat_type (specialized Qwen modes). */
+    chatTypeOverride?: string;
+    /** Override sub_chat_type (specialized Qwen modes). */
+    subChatTypeOverride?: string;
+    /** Complete feature_config override (specialized Qwen modes). */
+    featureConfigOverride?: Record<string, unknown>;
   },
   signal?: AbortSignal,
 ): Promise<{
@@ -2969,6 +2967,12 @@ async function createQwenStreamInternal(
     chatMode?: ChatMode;
     /** Opt-in Qwen web search for this request. */
     search?: boolean;
+    /** Override the upstream chat_type (specialized Qwen modes). */
+    chatTypeOverride?: string;
+    /** Override sub_chat_type (specialized Qwen modes). */
+    subChatTypeOverride?: string;
+    /** Complete feature_config override (specialized Qwen modes). */
+    featureConfigOverride?: Record<string, unknown>;
   } | undefined,
   signal: AbortSignal | undefined,
   releaseStreamLock: () => void,
@@ -3023,11 +3027,18 @@ async function createQwenStreamInternal(
   let activeHeaders = headers;
   // The upstream always receives the real base model ID. Reasoning mode is
   // selected exclusively by feature_config, not by a synthetic model suffix.
-  const model = mapClientModelToQwen(modelId);
+  // Specialized modes keep their virtual ID (Qwen resolves the pipeline from
+  // the chat type), so runtime alias/fallback mapping must not rewrite it.
+  const model = options?.chatTypeOverride
+    ? modelId
+    : mapClientModelToQwen(modelId);
   const searchEnabled = options?.search === true;
   // Qwen only performs search with its `search` chat type; `auto_search: true`
-  // with `t2t` was live-verified to answer without searching.
-  const chatType = searchEnabled ? "search" : "t2t";
+  // with `t2t` was live-verified to answer without searching. Specialized
+  // modes (deep research, web dev, slides) select their own chat type.
+  const chatType =
+    options?.chatTypeOverride ?? (searchEnabled ? "search" : "t2t");
+  const subChatType = options?.subChatTypeOverride ?? chatType;
   if (searchEnabled && logger.isLevelEnabled("info")) {
     // Never log the prompt or query contents here.
     console.log(
@@ -3214,7 +3225,9 @@ async function createQwenStreamInternal(
         models: [model],
         model: "",
         chat_type: chatType,
-        feature_config: (() => {
+        feature_config:
+          options?.featureConfigOverride ??
+          (() => {
           // Determine reasoning mode: explicit option takes precedence, otherwise derive from enableThinking
           // - reasoningMode="auto": Qwen decides (auto_thinking=true, thinking_mode="Auto")
           // - reasoningMode="thinking": force thinking ON (thinking_mode="Thinking")
@@ -3236,10 +3249,10 @@ async function createQwenStreamInternal(
         })(),
         extra: {
           meta: {
-            subChatType: chatType,
+            subChatType: subChatType,
           },
         },
-        sub_chat_type: chatType,
+        sub_chat_type: subChatType,
         parent_id: actualParentId,
       },
     ],

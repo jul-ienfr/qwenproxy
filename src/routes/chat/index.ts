@@ -7,7 +7,7 @@
  */
 
 import type { Context } from "hono";
-import { parseRequestBody } from "./validation.ts";
+import { parseRequestBody, type ParsedRequest } from "./validation.ts";
 import { buildFinalContext } from "./context.ts";
 import { acquireUpstreamStream, acquireChatLock } from "./account.ts";
 import {
@@ -36,6 +36,11 @@ import {
 import { classifyMediaModel } from "../../services/media-generation.ts";
 import { handleMediaChatCompletion } from "./media.ts";
 import { getUserIdentity } from "../../core/request-user.ts";
+import { loadAccounts } from "../../core/accounts.ts";
+import {
+  isSpecializedCapabilityFailure,
+  specializedCapabilityError,
+} from "../../core/specialized-modes.ts";
 import {
   acquireUserStream,
   quotaErrorResponse,
@@ -114,6 +119,7 @@ export async function chatCompletions(c: Context) {
 
 async function handleChatCompletions(c: Context) {
   let releaseChatLock: (() => void) | null = null;
+  let specializedMode: ParsedRequest["specialized"];
   const startedAt = Date.now();
   const timings: Record<string, number> = {};
   const mark = (name: string, since: number) => {
@@ -139,7 +145,10 @@ async function handleChatCompletions(c: Context) {
       currentFiles,
       shouldParseToolCalls,
       conversationKey,
+      specialized,
+      researchMode,
     } = parsed;
+    specializedMode = specialized;
 
     const messages = body.messages || [];
     const declaredTools = Array.isArray((body as any).tools)
@@ -154,6 +163,13 @@ async function handleChatCompletions(c: Context) {
     console.log(
       `📥 [${routeLabel}] Incoming | req=${reqId} | ${body.model} | ${messages.length} msg(s) | stream=${isStream}${declaredTools.length ? ` | ${declaredTools.length} tool(s)` : ""}${allFiles.length ? ` | ${allFiles.length} file(s)` : ""}`,
     );
+
+    if (specialized && loadAccounts().length === 0) {
+      throw specializedCapabilityError(
+        `Model '${specialized.id}' requires at least one configured Qwen account`,
+        "capability_unavailable",
+      );
+    }
 
     // Intercept image/video generation models: they bypass the text chat flow
     // and are handled by the native media pipeline (qwen-image-*, wan2.*).
@@ -173,7 +189,11 @@ async function handleChatCompletions(c: Context) {
     const chatMode = resolveChatMode(c.req.header("x-qwenproxy-chat-mode"));
     const ctx = await buildFinalContext({
       messages,
-      systemPrompt,
+      systemPrompt: specialized?.promptPrefix
+        ? [specialized.promptPrefix, systemPrompt]
+            .filter((part) => part.trim().length > 0)
+            .join("\n\n")
+        : systemPrompt,
       toolInstructions,
       prompt,
       currentPrompt,
@@ -298,6 +318,8 @@ async function handleChatCompletions(c: Context) {
       parallelEscape,
       chatMode,
       webSearch,
+      specialized,
+      researchMode,
     });
 
 
@@ -385,6 +407,8 @@ async function handleChatCompletions(c: Context) {
         releaseAccountLease: streamResult.releaseAccountLease,
         messages,
         webSearch,
+        specialized,
+        researchMode,
       },
       onAssistantComplete,
       onStreamComplete: () => {
@@ -651,6 +675,8 @@ async function handleChatCompletions(c: Context) {
                 releaseAccountLease: newStreamResult.releaseAccountLease,
                 messages,
                 webSearch,
+                specialized,
+                researchMode,
               },
               onAssistantComplete,
               onStreamComplete: () => {
@@ -679,6 +705,17 @@ async function handleChatCompletions(c: Context) {
         error: err instanceof Error ? err.message : String(err),
       });
       return new Response(null, { status: 499 });
+    }
+
+    if (specializedMode && isSpecializedCapabilityFailure(err)) {
+      return handleChatCompletionsError(
+        c,
+        specializedCapabilityError(
+          `Qwen does not support ${specializedMode.label} for the selected account: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        ),
+      );
     }
 
     return handleChatCompletionsError(c, err);

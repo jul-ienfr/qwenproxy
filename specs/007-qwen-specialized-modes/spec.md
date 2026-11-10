@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: Gap analysis vs `encryptarun/qwen-api`: it exposes Deep Research,
 Web Dev, Full-Stack and Slides as first-class models/endpoints. The current

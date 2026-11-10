@@ -19,7 +19,7 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 | 004 | [Gemini-compatible API](004-gemini-compatible-api/spec.md) | P2 | — | Implemented (generateContent + SSE, function calling, model aliases) |
 | 005 | [Web search and citations](005-web-search-and-citations/spec.md) | P2 | — | Implemented (opt-in search, URL citations) |
 | 006 | [Image editing](006-image-editing/spec.md) | P2 | — | Implemented (multipart edit, content-policy mapping) |
-| 007 | [Qwen specialized modes](007-qwen-specialized-modes/spec.md) | P3 | 008 for async tasks | Draft |
+| 007 | [Qwen specialized modes](007-qwen-specialized-modes/spec.md) | P3 | 008 for async tasks | Implemented (virtual models, `/v1/tasks`, citations/artifacts) |
 | 008 | [Redis persistence and scaling](008-redis-persistence-and-scaling/spec.md) | P2 | — | Implemented (shared state, migration CLI, degraded `/health`, 2-instance compose) |
 | 009 | [Runtime model mapping](009-runtime-model-mapping/spec.md) | P3 | 003 for UI | Implemented (`MODEL_MAP`, hot reload, admin API/dashboard) |
 | 010 | [Native packaging and multi-arch](010-native-packaging-and-multiarch/spec.md) | P3 | — | Implemented (Bun binaries + checksums + multi-arch Docker) |
@@ -41,7 +41,7 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 8. **012** OpenAPI contract — locks the growing protocol surface.
 9. **008** Redis — implemented; enable it only when a second instance is
    actually needed.
-10. **007** and **011** — remaining opportunistic and conditional features; 009,
+10. **011** — remaining conditional feature (Qwen Code quota); **007**, 009,
     010 and 014 are implemented.
 
 ## How to run the Spec Kit flow

@@ -124,6 +124,7 @@ export const ANSWER_PHASES = new Set([
   "deep_research_answer",
   "ReportGeneration",
   "PdfMdGen",
+  "slides",
   "image",
   "image_generation",
   "image_gen",
@@ -144,6 +145,7 @@ export const THINKING_PHASES = new Set([
   "think",
   "thinking_summary",
   "DeepThinking",
+  "ResearchPlanning",
 ]);
 
 export function isThinkingPhase(phase: unknown): boolean {

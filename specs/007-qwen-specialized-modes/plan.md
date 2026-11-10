@@ -47,7 +47,8 @@ unknown phases to reasoning, so only the known answer/thinking sets need updatin
      model and returns a task immediately.
    - The worker calls the local `/v1/chat/completions` endpoint with
      `stream:false`, reusing account selection, quotas, cooldowns, retries and
-     metrics. The caller's `Authorization` header is forwarded.
+     metrics. The caller's `Authorization` and `X-QwenProxy-Research-Mode`
+     headers are forwarded.
    - `GET /v1/tasks/:id` returns status (`queued|running|succeeded|failed|
      cancelled`), progress and the result or stable error code.
    - `DELETE /v1/tasks/:id` aborts the local fetch and marks the task

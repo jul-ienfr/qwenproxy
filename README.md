@@ -502,7 +502,8 @@ curl http://localhost:3000/v1/chat/completions \
 
 For Deep Research, `research_mode: "advance"` (or a `-thinking` / high
 `reasoning_effort` request) selects the expensive pipeline; `normal` is the
-default. The `X-QwenProxy-Research-Mode` header is also accepted.
+default. The `X-QwenProxy-Research-Mode` header is also accepted, and async
+tasks forward it to the inner call.
 
 Long jobs should use the async task surface so a disconnect does not lose the
 work:

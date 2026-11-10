@@ -233,11 +233,19 @@ test("task store tracks queued, running, succeeded and failed states", async () 
   assert.equal(getSpecializedTask(task.id, "someone-else"), undefined);
   assert.ok(listSpecializedTasks(owner).some((row) => row.id === task.id));
 
-  let seen: { body: Record<string, unknown>; authorization?: string; origin: string } | undefined;
+  let seen:
+    | {
+        body: Record<string, unknown>;
+        authorization?: string;
+        researchMode?: string;
+        origin: string;
+      }
+    | undefined;
   setSpecializedTaskRunnerForTests(async (input) => {
     seen = {
       body: input.body,
       authorization: input.authorization,
+      researchMode: input.researchMode,
       origin: input.origin,
     };
     const content =
@@ -254,12 +262,14 @@ test("task store tracks queued, running, succeeded and failed states", async () 
       task,
       body: { model: "qwen-deep-research", messages: [] },
       authorization: "Bearer caller-key",
+      researchMode: "advance",
       origin: "http://127.0.0.1:9",
     });
     await awaitSpecializedTask(task.id);
 
     assert.equal(seen?.body.model, "qwen-deep-research");
     assert.equal(seen?.authorization, "Bearer caller-key");
+    assert.equal(seen?.researchMode, "advance");
     assert.equal(seen?.origin, "http://127.0.0.1:9");
 
     const stored = getSpecializedTask(task.id, owner);
@@ -430,8 +440,10 @@ test("POST /v1/tasks rejects non-specialized models with a capability error", as
 
 test("POST /v1/tasks runs asynchronously and exposes the result", async () => {
   let receivedAuthorization: string | undefined;
-  setSpecializedTaskRunnerForTests(async ({ body, authorization }) => {
+  let receivedResearchMode: string | undefined;
+  setSpecializedTaskRunnerForTests(async ({ body, authorization, researchMode }) => {
     receivedAuthorization = authorization;
+    receivedResearchMode = researchMode;
     const content = [
       "Slide deck ready.",
       "[preview](https://cdn.example.com/slides/deck.pdf)",
@@ -450,6 +462,7 @@ test("POST /v1/tasks runs asynchronously and exposes the result", async () => {
         headers: {
           "content-type": "application/json",
           authorization: "Bearer test-route-key",
+          "x-qwenproxy-research-mode": "advance",
         },
         body: JSON.stringify({
           model: "qwen-slides",
@@ -464,6 +477,7 @@ test("POST /v1/tasks runs asynchronously and exposes the result", async () => {
     assert.equal(created.model, "qwen-slides");
     assert.equal(created.mode, "slides");
     assert.equal(receivedAuthorization, "Bearer test-route-key");
+    assert.equal(receivedResearchMode, "advance");
 
     await awaitSpecializedTask(created.id);
 

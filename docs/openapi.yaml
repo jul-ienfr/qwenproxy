@@ -772,6 +772,16 @@ paths:
         `/v1/tasks/{taskId}` for status, progress and the final result.
       tags:
         - Tasks
+      parameters:
+        - name: X-QwenProxy-Research-Mode
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [normal, advance]
+          description: >-
+            Deep Research pipeline selection; forwarded to the background call.
+            Equivalent to the research_mode body field.
       requestBody:
         required: true
         content:

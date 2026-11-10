@@ -435,7 +435,8 @@ curl http://localhost:3000/v1/chat/completions \
 
 Pour Deep Research, `research_mode: "advance"` (ou une requête `-thinking` / un
 `reasoning_effort` élevé) sélectionne le pipeline coûteux ; `normal` est la
-valeur par défaut. L'en-tête `X-QwenProxy-Research-Mode` est aussi accepté.
+valeur par défaut. L'en-tête `X-QwenProxy-Research-Mode` est aussi accepté, et
+les tâches asynchrones le transmettent à l'appel interne.
 
 Les tâches longues doivent utiliser la surface asynchrone pour survivre à une
 déconnexion :

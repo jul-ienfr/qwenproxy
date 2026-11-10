@@ -27,3 +27,5 @@
   `task_limit_exceeded`), with tests and env documentation.
 - [x] T015 Make the task deadline configurable and report expiry as `failed`
   with `code:"task_timeout"`, distinct from cancellation.
+- [x] T016 Forward `X-QwenProxy-Research-Mode` through async tasks and document
+  it in OpenAPI.

@@ -109,6 +109,7 @@ app.post("/v1/tasks", async (c) => {
       task,
       body: record,
       authorization: c.req.header("authorization"),
+      researchMode: c.req.header("x-qwenproxy-research-mode"),
       origin: taskOrigin(),
     });
     return c.json(publicTask(task), 202);

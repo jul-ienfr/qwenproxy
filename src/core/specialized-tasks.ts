@@ -82,6 +82,8 @@ export type SpecializedTaskRunner = (input: {
   task: SpecializedTask;
   body: Record<string, unknown>;
   authorization?: string;
+  /** Optional Deep Research mode header forwarded to the inner call. */
+  researchMode?: string;
   origin: string;
   signal: AbortSignal;
 }) => Promise<SpecializedTaskResult>;
@@ -340,6 +342,7 @@ function extractContent(raw: any): string {
 async function defaultRunner(input: {
   body: Record<string, unknown>;
   authorization?: string;
+  researchMode?: string;
   origin: string;
   signal: AbortSignal;
 }): Promise<SpecializedTaskResult> {
@@ -347,6 +350,9 @@ async function defaultRunner(input: {
     "content-type": "application/json",
   };
   if (input.authorization) headers.authorization = input.authorization;
+  if (input.researchMode) {
+    headers["x-qwenproxy-research-mode"] = input.researchMode;
+  }
 
   const response = await fetch(`${input.origin}/v1/chat/completions`, {
     method: "POST",
@@ -404,6 +410,7 @@ async function runTask(
   body: Record<string, unknown>,
   authorization: string | undefined,
   origin: string,
+  researchMode?: string,
 ): Promise<void> {
   const controller = new AbortController();
   const timeoutMs = timeoutOverrideMs ?? config.specializedTasks.timeoutMs;
@@ -422,6 +429,7 @@ async function runTask(
         task,
         body,
         authorization,
+        researchMode,
         origin,
         signal: controller.signal,
       });
@@ -473,9 +481,16 @@ export function launchSpecializedTask(params: {
   task: SpecializedTask;
   body: Record<string, unknown>;
   authorization?: string;
+  researchMode?: string;
   origin: string;
 }): void {
-  void runTask(params.task, params.body, params.authorization, params.origin);
+  void runTask(
+    params.task,
+    params.body,
+    params.authorization,
+    params.origin,
+    params.researchMode,
+  );
 }
 
 export function cancelSpecializedTask(

@@ -437,4 +437,12 @@ test("Responses HTTP Endpoints: GET, POST, and DELETE via app.fetch", async () =
   // 7. GET after DELETE returns 404
   res = await app.fetch(new Request(`http://localhost/v1/responses/${testId}`));
   assert.equal(res.status, 404);
+
+  // 8. DELETE of a missing response returns 404 (matches the OpenAPI contract)
+  res = await app.fetch(
+    new Request("http://localhost/v1/responses/resp_missing_delete", {
+      method: "DELETE",
+    }),
+  );
+  assert.equal(res.status, 404);
 });

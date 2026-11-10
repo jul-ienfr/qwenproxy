@@ -404,11 +404,19 @@ app.get("/v1/responses/:response_id", async (c) => {
 app.delete("/v1/responses/:response_id", async (c) => {
   const responseId = c.req.param("response_id");
 
-  const existed = deleteStoredResponse(responseId);
+  if (!getStoredResponse(responseId)) {
+    return responsesError(
+      c,
+      "invalid_request_error",
+      `Response '${responseId}' not found`,
+      404,
+    );
+  }
+  deleteStoredResponse(responseId);
   return c.json({
     id: responseId,
     object: "response.deleted",
-    deleted: existed,
+    deleted: true,
   });
 });
 

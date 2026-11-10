@@ -51,12 +51,19 @@ function validationError(message: string, param: string): ValidationError {
 export async function videosGenerations(c: Context): Promise<Response> {
   cleanupExpiredTasks();
 
-  let body: VideosGenerationsRequest;
+  let parsed: unknown;
   try {
-    body = await c.req.json();
+    parsed = await c.req.json();
   } catch {
     return sendOpenAIError(c, new ValidationError("Request body must be valid JSON"));
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return sendOpenAIError(
+      c,
+      new ValidationError("Request body must be a JSON object"),
+    );
+  }
+  const body = parsed as VideosGenerationsRequest;
 
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) {

@@ -116,12 +116,19 @@ function readFormString(form: FormData, key: string): string | undefined {
 }
 
 export async function imagesGenerations(c: Context): Promise<Response> {
-  let body: ImagesGenerationsRequest;
+  let parsed: unknown;
   try {
-    body = await c.req.json();
+    parsed = await c.req.json();
   } catch {
     return sendOpenAIError(c, new ValidationError("Request body must be valid JSON"));
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return sendOpenAIError(
+      c,
+      new ValidationError("Request body must be a JSON object"),
+    );
+  }
+  const body = parsed as ImagesGenerationsRequest;
 
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) {

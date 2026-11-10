@@ -98,6 +98,18 @@ test("Images Generations Route: validates input parameters according to OpenAI s
   );
   assert.equal(res.status, 400);
 
+  // 1b. Non-object bodies must be a 400, not a crash on `body.prompt`.
+  for (const raw of ["null", "[]", '"text"', "42"]) {
+    res = await app.fetch(
+      new Request("http://localhost/v1/images/generations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: raw,
+      }),
+    );
+    assert.equal(res.status, 400, `body ${raw} should be 400`);
+  }
+
   // 2. Missing prompt
   res = await app.fetch(
     new Request("http://localhost/v1/images/generations", {
@@ -198,6 +210,18 @@ test("Videos Generations Route: validates video generation and task status reque
     }),
   );
   assert.equal(res.status, 400);
+
+  // 1b. Non-object bodies must be a 400, not a crash on `body.prompt`.
+  for (const raw of ["null", "[]", '"text"', "42"]) {
+    res = await app.fetch(
+      new Request("http://localhost/v1/videos/generations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: raw,
+      }),
+    );
+    assert.equal(res.status, 400, `body ${raw} should be 400`);
+  }
 
   // 2. Missing prompt
   res = await app.fetch(

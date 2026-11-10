@@ -31,6 +31,23 @@ interface CompletionsBody {
   frequency_penalty?: unknown;
 }
 
+async function completionsUpstreamError(c: Context, response: Response) {
+  // Propagate the inner chat error instead of flattening every failure to 502:
+  // clients need 429 to back off and 400 to fix their request.
+  const errorJson = await response.json().catch(() => null);
+  const message =
+    errorJson?.error?.message || `Upstream service error: ${response.status}`;
+  const type =
+    response.status === 429
+      ? "rate_limit_error"
+      : response.status === 404
+        ? "not_found_error"
+        : response.status === 400
+          ? "invalid_request_error"
+          : "api_error";
+  return completionsError(c, type, message, response.status);
+}
+
 function completionsError(
   c: Context,
   type: string,
@@ -51,12 +68,21 @@ function completionsError(
 }
 
 export async function completionsLegacy(c: Context) {
-  let body: CompletionsBody;
+  let parsed: unknown;
   try {
-    body = await c.req.json();
+    parsed = await c.req.json();
   } catch {
     return completionsError(c, "invalid_request_error", "Invalid JSON body", 400);
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return completionsError(
+      c,
+      "invalid_request_error",
+      "Request body must be a JSON object",
+      400,
+    );
+  }
+  const body = parsed as CompletionsBody;
 
   if (typeof body.model !== "string" || body.model.trim().length === 0) {
     return completionsError(
@@ -127,12 +153,7 @@ export async function completionsLegacy(c: Context) {
 
       const response = await dispatchToChat();
       if (!response.ok) {
-        return completionsError(
-          c,
-          "api_error",
-          `Upstream service error: ${response.status}`,
-          502,
-        );
+        return completionsUpstreamError(c, response);
       }
       const reader = response.body?.getReader();
       if (!reader) {
@@ -252,12 +273,7 @@ export async function completionsLegacy(c: Context) {
     // ============ NON-STREAMING MODE ============
     const response = await dispatchToChat();
     if (!response.ok) {
-      return completionsError(
-        c,
-        "api_error",
-        `Upstream service error: ${response.status}`,
-        502,
-      );
+      return completionsUpstreamError(c, response);
     }
     const chatRes: any = await response.json();
     const choice = chatRes.choices?.[0];

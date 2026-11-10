@@ -240,6 +240,34 @@ test("POST /v1/completions (stream) translates SSE chunks to text_completion", a
   }
 });
 
+test("POST /v1/completions propagates the inner chat error status", async () => {
+  const mock = installMockFetch(
+    () =>
+      new Response(
+        JSON.stringify({
+          error: { message: "Quota exceeded", type: "rate_limit_error" },
+        }),
+        { status: 429, headers: { "content-type": "application/json" } },
+      ),
+  );
+
+  try {
+    const res = await app.fetch(
+      new Request("http://localhost/v1/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "qwen3.6-plus", prompt: "hi" }),
+      }),
+    );
+    assert.strictEqual(res.status, 429);
+    const body = await res.json();
+    assert.strictEqual(body.error.type, "rate_limit_error");
+    assert.strictEqual(body.error.message, "Quota exceeded");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("POST /v1/completions validates model and prompt", async () => {
   const mock = installMockFetch(() => {
     return new Response(JSON.stringify(NON_STREAM_CHAT_RESPONSE), {
@@ -267,6 +295,22 @@ test("POST /v1/completions validates model and prompt", async () => {
       }),
     );
     assert.strictEqual(noPrompt.status, 400);
+
+    // A literal null / non-object body must be a client error, not a 500.
+    for (const raw of ["null", "[]", '"text"', "42", "{"]) {
+      const badBody = await app.fetch(
+        new Request("http://localhost/v1/completions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: raw,
+        }),
+      );
+      assert.strictEqual(badBody.status, 400, `body ${raw} should be 400`);
+      assert.strictEqual(
+        (await badBody.json()).error.type,
+        "invalid_request_error",
+      );
+    }
 
     // No internal dispatch should have happened for validation failures.
     assert.strictEqual(mock.captured.length, 0);

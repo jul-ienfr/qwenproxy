@@ -173,6 +173,18 @@ export function translateAnthropicToOpenAI(
           messages.push({ role: "user", content: joinedText });
         }
       }
+    } else if (msg.role === "system") {
+      // Anthropic does not normally place system turns in `messages`, but some
+      // clients do. Keep the instruction instead of silently dropping it.
+      if (typeof msg.content === "string") {
+        if (msg.content) messages.push({ role: "system", content: msg.content });
+      } else if (Array.isArray(msg.content)) {
+        const text = msg.content
+          .filter((b) => b && typeof b === "object" && b.type === "text")
+          .map((b) => b.text || "")
+          .join("\n");
+        if (text) messages.push({ role: "system", content: text });
+      }
     } else if (msg.role === "assistant") {
       if (typeof msg.content === "string") {
         messages.push({ role: "assistant", content: msg.content });
@@ -275,25 +287,26 @@ export function translateOpenAIToAnthropic(
   openaiResponse: OpenAIResponse,
   requestModel: string,
 ): AnthropicResponse {
-  const choice = openaiResponse.choices[0];
+  const choice = openaiResponse.choices?.[0];
+  const message = choice?.message;
   const content: AnthropicResponseContentBlock[] = [];
 
   // 1. Thinking block
-  if (choice.message.reasoning_content) {
+  if (message?.reasoning_content) {
     content.push({
       type: "thinking",
-      thinking: choice.message.reasoning_content,
+      thinking: message.reasoning_content,
     });
   }
 
   // 2. Text block
-  if (choice.message.content) {
+  if (message?.content) {
     let text =
-      typeof choice.message.content === "string"
-        ? choice.message.content
-        : JSON.stringify(choice.message.content);
+      typeof message.content === "string"
+        ? message.content
+        : JSON.stringify(message.content);
     // Strip raw tool call tags if tool calls exist so they don't leak into assistant text
-    if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
+    if (message.tool_calls && message.tool_calls.length > 0) {
       text = text
         .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, "")
         .replace(/<tool_call>[\s\S]*$/gi, "")
@@ -310,8 +323,9 @@ export function translateOpenAIToAnthropic(
   }
 
   // 3. Tool use blocks
-  if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
-    for (const tc of choice.message.tool_calls) {
+  if (message?.tool_calls && message.tool_calls.length > 0) {
+    for (const tc of message.tool_calls) {
+      if (!tc || typeof tc !== "object" || !tc.function) continue;
       let input: Record<string, unknown> = {};
       try {
         input =
@@ -339,14 +353,15 @@ export function translateOpenAIToAnthropic(
   };
 
   const hasToolUse = content.some((b) => b.type === "tool_use");
+  const finishReason = choice?.finish_reason;
   const stopReason =
-    choice.finish_reason === "length"
+    finishReason === "length"
       ? "max_tokens"
-      : choice.finish_reason === "content_filter"
+      : finishReason === "content_filter"
         ? "end_turn"
         : hasToolUse
           ? "tool_use"
-          : stopReasonMap[choice.finish_reason || "stop"] || "end_turn";
+          : stopReasonMap[finishReason || "stop"] || "end_turn";
 
   return {
     id: generateMessageId(),
@@ -459,6 +474,9 @@ export function translateStreamChunk(
   // 3. Tool calls delta
   if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
     for (const tc of delta.tool_calls) {
+      // Tolerate malformed entries instead of throwing and discarding the
+      // whole chunk (which would also drop any text delta in it).
+      if (!tc || typeof tc !== "object") continue;
       const tcIndex = tc.index ?? 0;
 
       // Start new tool_use block when name appears or index changes

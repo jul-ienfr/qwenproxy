@@ -335,6 +335,7 @@ app.post("/v1/messages/count_tokens", async (c) => {
 
     if (Array.isArray(body.messages)) {
       for (const m of body.messages) {
+        if (!m || typeof m !== "object") continue;
         if (typeof m.content === "string") {
           textToCount += m.content + " ";
         } else if (Array.isArray(m.content)) {

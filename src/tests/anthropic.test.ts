@@ -559,3 +559,69 @@ test("Anthropic: translateStreamChunk handles thinking, text, and tool calls in 
   assert.equal(events4[1].delta.stop_reason, "tool_use");
   assert.equal(events4[1].usage.output_tokens, 30);
 });
+
+test("Anthropic: translateAnthropicToOpenAI keeps system turns carried in messages", () => {
+  const req: AnthropicRequest = {
+    model: "claude-3-7-sonnet",
+    max_tokens: 256,
+    messages: [
+      { role: "system", content: "Stay terse." },
+      { role: "user", content: "Hi" },
+    ],
+  };
+
+  const converted = translateAnthropicToOpenAI(req);
+  assert.deepEqual(converted.messages[0], {
+    role: "system",
+    content: "Stay terse.",
+  });
+  assert.deepEqual(converted.messages[1], { role: "user", content: "Hi" });
+});
+
+test("Anthropic: translateOpenAIToAnthropic tolerates an empty choices array", () => {
+  const res = translateOpenAIToAnthropic(
+    {
+      id: "chatcmpl-empty",
+      object: "chat.completion",
+      created: Date.now(),
+      model: "qwen3.8-max",
+      choices: [],
+      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    },
+    "claude-3-7-sonnet",
+  );
+
+  assert.deepEqual(res.content, []);
+  assert.equal(res.stop_reason, "end_turn");
+  assert.equal(res.usage.input_tokens, 0);
+});
+
+test("Anthropic: translateStreamChunk skips malformed tool_call entries without losing text", () => {
+  const state: AnthropicStreamState = {
+    contentBlockIndex: 0,
+    currentBlockType: null,
+    currentToolId: null,
+    currentToolIndex: null,
+    requestModel: "claude-3-7-sonnet",
+    inputTokens: 0,
+    outputTokens: 0,
+    hasEmittedToolUse: false,
+  };
+
+  const chunk = {
+    choices: [
+      {
+        delta: {
+          content: "hello",
+          tool_calls: [null, "nope"],
+        },
+      },
+    ],
+  };
+
+  const events = translateStreamChunk(chunk, state).map((e) => JSON.parse(e));
+  assert.equal(events.length, 2);
+  assert.equal(events[0].type, "content_block_start");
+  assert.equal(events[1].type, "content_block_delta");
+  assert.equal(events[1].delta.text, "hello");
+});

@@ -29,3 +29,5 @@
   with `code:"task_timeout"`, distinct from cancellation.
 - [x] T016 Forward `X-QwenProxy-Research-Mode` through async tasks and document
   it in OpenAPI.
+- [x] T017 Reject malformed `POST /v1/tasks` bodies with a 400 instead of a
+  generic 500.

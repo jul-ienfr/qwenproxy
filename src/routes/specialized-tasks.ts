@@ -70,7 +70,15 @@ function publicTask(task: SpecializedTask): Record<string, unknown> {
 
 app.post("/v1/tasks", async (c) => {
   try {
-    const body: unknown = await c.req.json();
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      // Hono surfaces a SyntaxError for a malformed body, which the generic
+      // classifier would report as an internal 500. A bad request body is a
+      // client error and must stay a 400 like the object-shape check below.
+      throw new ValidationError("Request body must be valid JSON");
+    }
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       throw new ValidationError("Request body must be a JSON object");
     }

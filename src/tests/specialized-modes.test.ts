@@ -438,6 +438,21 @@ test("POST /v1/tasks rejects non-specialized models with a capability error", as
   assert.match(body.error.message, /not a specialized async mode/);
 });
 
+test("POST /v1/tasks rejects a malformed JSON body with 400", async () => {
+  const response = await app.fetch(
+    new Request("http://localhost/v1/tasks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    }),
+  );
+
+  assert.equal(response.status, 400);
+  const body = (await response.json()) as any;
+  assert.equal(body.error.type, "invalid_request_error");
+  assert.match(body.error.message, /valid JSON/);
+});
+
 test("POST /v1/tasks runs asynchronously and exposes the result", async () => {
   let receivedAuthorization: string | undefined;
   let receivedResearchMode: string | undefined;

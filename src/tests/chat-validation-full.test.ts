@@ -188,6 +188,32 @@ test("parseRequestBody tolerates null and non-object content parts", async () =>
   assert.strictEqual(parsed.messageCount, 2);
 });
 
+test("parseRequestBody tolerates malformed tool_calls entries", async () => {
+  const parsed = await parseRequestBody(
+    mockContext({
+      model: "qwen3.7-plus",
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            null,
+            {},
+            {
+              id: "ok",
+              type: "function",
+              function: { name: "demo", arguments: "{}" },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "ok", content: "done" },
+      ],
+    }),
+  );
+  assert.ok(parsed.prompt.includes("demo"));
+  assert.ok(parsed.prompt.includes("Tool Response (demo): done"));
+});
+
 test("parseRequestBody serializes tool calls and tool responses", async () => {
   const parsed = await parseRequestBody(
     mockContext({

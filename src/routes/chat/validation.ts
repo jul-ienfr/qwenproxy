@@ -229,7 +229,7 @@ async function buildPromptFromMessages(
       Array.isArray(msg.tool_calls)
     ) {
       for (const tc of msg.tool_calls) {
-        if (tc.id && tc.function?.name) {
+        if (tc?.id && tc.function?.name) {
           toolCallNamesById.set(tc.id, tc.function.name);
         }
       }
@@ -310,11 +310,11 @@ async function buildPromptFromMessages(
           logger.debug("[chat] processing assistant tool_calls in history", {
             messageIndex: i,
             toolCallsCount: msg.tool_calls.length,
-            toolCallNames: msg.tool_calls.map((tc: any) => tc.function?.name),
+            toolCallNames: msg.tool_calls.map((tc: any) => tc?.function?.name),
           });
         }
         for (const tc of msg.tool_calls) {
-          const args = tc.function?.arguments;
+          const args = tc?.function?.arguments;
           let parsedArgs: any = {};
           if (typeof args === "string") {
             try {
@@ -325,8 +325,8 @@ async function buildPromptFromMessages(
               } catch (parseErr) {
                 // Malformed JSON: preserve raw string for model visibility
                 logger.warn("[chat] Failed to parse tool_call arguments", {
-                  toolCallId: tc.id,
-                  toolName: tc.function?.name,
+                  toolCallId: tc?.id,
+                  toolName: tc?.function?.name,
                   error: parseErr instanceof Error ? parseErr.message : "Unknown",
                   rawArgs: args.substring(0, 200),
                 });
@@ -337,7 +337,7 @@ async function buildPromptFromMessages(
             parsedArgs = args;
           }
           const payload = {
-            name: tc.function?.name,
+            name: tc?.function?.name,
             arguments: parsedArgs,
           };
           const toolCallStr =
@@ -353,8 +353,8 @@ async function buildPromptFromMessages(
 
           if (isToolcallDebugEnabled()) {
             logger.debug("[chat] tool_call serialized to prompt", {
-              toolName: tc.function?.name,
-              toolCallId: tc.id,
+              toolName: tc?.function?.name,
+              toolCallId: tc?.id,
               argsKeys: Object.keys(parsedArgs),
             });
           }

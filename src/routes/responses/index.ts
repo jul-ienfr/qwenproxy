@@ -321,6 +321,31 @@ app.post("/v1/responses", async (c) => {
           }),
         },
       );
+
+      if (!response.ok) {
+        // The inner chat call failed (e.g. 400 validation, 429 quota, 5xx
+        // upstream). Propagate its real status and message instead of feeding
+        // an error body into `chatCompletionsToResponses`, which would throw on
+        // the missing `choices` array and surface a generic 500.
+        const errorJson = await response.json().catch(() => null);
+        const errorText =
+          errorJson?.error?.message || `HTTP ${response.status}`;
+        console.error(
+          `[Responses] Upstream error: ${response.status} ${errorText}`,
+        );
+
+        const errorType =
+          response.status === 429
+            ? "rate_limit_error"
+            : response.status === 404
+              ? "not_found_error"
+              : response.status === 400
+                ? "invalid_request_error"
+                : "api_error";
+
+        return responsesError(c, errorType, errorText, response.status);
+      }
+
       const chatResponse = await response.json();
       const responsesResponse = chatCompletionsToResponses(
         chatResponse,

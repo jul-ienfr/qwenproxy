@@ -325,6 +325,41 @@ test("Responses Streaming: processes delta text, tool calls, and finalizes outpu
   assert.equal(finalUsage.total_tokens, 80);
 });
 
+test("POST /v1/responses propagates the inner chat error status", async () => {
+  const originalFetch = globalThis.fetch;
+  let seenUrl = "";
+  globalThis.fetch = (async (input: any) => {
+    seenUrl = String(input);
+    return new Response(
+      JSON.stringify({
+        error: { message: "Quota exceeded", type: "rate_limit_error" },
+      }),
+      {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const res = await app.fetch(
+      new Request("http://localhost/v1/responses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "qwen3.7-plus", input: "Hello" }),
+      }),
+    );
+
+    assert.ok(seenUrl.includes("/v1/chat/completions"));
+    assert.equal(res.status, 429);
+    const data = (await res.json()) as any;
+    assert.equal(data.error.type, "rate_limit_error");
+    assert.equal(data.error.message, "Quota exceeded");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Responses HTTP Endpoints: GET, POST, and DELETE via app.fetch", async () => {
   // 1. POST with invalid JSON
   let res = await app.fetch(

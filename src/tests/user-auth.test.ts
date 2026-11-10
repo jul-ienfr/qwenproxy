@@ -246,3 +246,58 @@ test("quota: concurrency denial returns 429 before parsing or upstream work", as
 
   release!();
 });
+
+test("quota: adapter routes honor the per-user concurrency limit", async () => {
+  const created = createUser("adapter-concurrency-user", {
+    rpm: 0,
+    concurrency: 1,
+  });
+
+  const release = acquireUserStream({
+    id: created.user.id,
+    label: created.user.label,
+    role: "user",
+    rateLimitRpm: 0,
+    maxConcurrency: 1,
+    legacy: false,
+  });
+  assert.ok(release);
+
+  const requests: Array<[string, Record<string, unknown>]> = [
+    ["/v1/responses", { model: "qwen3.7-plus", input: "hello", stream: true }],
+    [
+      "/v1/messages",
+      {
+        model: "qwen3.7-plus",
+        max_tokens: 16,
+        messages: [{ role: "user", content: "hello" }],
+        stream: true,
+      },
+    ],
+    ["/v1/completions", { model: "qwen3.7-plus", prompt: "hello", stream: true }],
+    [
+      "/v1beta/models/qwen3.7-plus:streamGenerateContent",
+      { contents: [{ role: "user", parts: [{ text: "hello" }] }] },
+    ],
+  ];
+
+  try {
+    for (const [path, body] of requests) {
+      const response = await app.request(
+        path,
+        withKey(created.apiKey, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+      assert.equal(response.status, 429, `${path} must be quota-limited`);
+      const data = (await response.json()) as {
+        error: { type?: string; message: string };
+      };
+      assert.match(data.error.message, /concurrency/i, path);
+    }
+  } finally {
+    release!();
+  }
+});

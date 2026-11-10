@@ -33,10 +33,12 @@ import {
 import { seedEnvUsers } from "../core/users.ts";
 import type { UserIdentity } from "../core/users.ts";
 import {
+  acquireUserStream,
   checkUserRequest,
   quotaErrorResponse,
+  withUserStreamSlot,
 } from "../core/user-quota.ts";
-import { setUserIdentity } from "../core/request-user.ts";
+import { getUserIdentity, setUserIdentity } from "../core/request-user.ts";
 import { adminUsersApp } from "./admin-users.ts";
 import {
   extractProvidedApiKeys,
@@ -290,6 +292,66 @@ function authenticateRequest(c: Context): AuthResult {
   return { identity: resolution.identity };
 }
 
+/**
+ * Protocol adapters re-enter `/v1/chat/completions` over loopback with the
+ * operator credential, so the inner request cannot enforce the caller's
+ * concurrent-stream cap. Apply it to the adapter surface itself; the chat route
+ * already does this for direct `/v1/chat/completions` calls.
+ */
+function needsAdapterStreamSlot(c: Context): boolean {
+  if (c.req.method !== "POST") return false;
+  const path = c.req.path;
+  if (path === "/v1/messages/count_tokens") return false;
+  return (
+    path === "/v1/messages" ||
+    path === "/v1/responses" ||
+    path === "/v1/completions" ||
+    path.startsWith("/v1beta/models/")
+  );
+}
+
+/**
+ * Streaming is selected by the URL for Gemini and by `stream:true` in the body
+ * for the OpenAI-shaped adapters. Only streamed responses hold a slot, matching
+ * the direct chat route's semantics. The body is read from a clone so the route
+ * can still parse the original request.
+ */
+async function adapterWillStream(c: Context): Promise<boolean> {
+  if (c.req.path.startsWith("/v1beta/models/")) {
+    return c.req.path.endsWith(":streamGenerateContent");
+  }
+  try {
+    const body = (await c.req.raw.clone().json()) as { stream?: unknown };
+    return body?.stream === true;
+  } catch {
+    return false;
+  }
+}
+
+async function adapterStreamGuard(c: Context, next: () => Promise<void>) {
+  if (!needsAdapterStreamSlot(c)) return next();
+  if (!(await adapterWillStream(c))) return next();
+
+  const release = acquireUserStream(getUserIdentity(c));
+  if (!release) {
+    return quotaErrorResponse(c, 1, "concurrency");
+  }
+
+  try {
+    await next();
+  } catch (error) {
+    release();
+    throw error;
+  }
+
+  const contentType = c.res.headers.get("content-type") || "";
+  if (c.res.body && contentType.includes("text/event-stream")) {
+    c.res = withUserStreamSlot(c.res, release);
+  } else {
+    release();
+  }
+}
+
 app.use("/v1/*", async (c, next) => {
   const auth = authenticateRequest(c);
   if (auth.error) return auth.error;
@@ -306,6 +368,8 @@ app.use("/v1/*", async (c, next) => {
 
   await next();
 });
+
+app.use("/v1/*", adapterStreamGuard);
 
 // Gemini-compatible surface. It shares identity resolution with /v1 but uses
 // the Gemini error envelope (via authErrorResponse / quotaErrorResponse).
@@ -325,6 +389,8 @@ app.use("/v1beta/*", async (c, next) => {
 
   await next();
 });
+
+app.use("/v1beta/*", adapterStreamGuard);
 
 app.use("/admin/api/*", async (c, next) => {
   if (c.req.path === "/admin/api/session") return next();

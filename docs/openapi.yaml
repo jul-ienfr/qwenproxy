@@ -2286,6 +2286,7 @@ components:
       type: object
       required:
         - model
+        - messages
       properties:
         model:
           type: string
@@ -2296,8 +2297,10 @@ components:
             - qwen-slides
         messages:
           type: array
+          minItems: 1
           items:
             $ref: "#/components/schemas/Message"
+          description: Conversation sent to the specialized pipeline. Must not be empty.
         stream:
           type: boolean
           description: Ignored. Tasks always run in the background.

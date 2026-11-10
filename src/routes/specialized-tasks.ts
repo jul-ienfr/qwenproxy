@@ -95,6 +95,17 @@ app.post("/v1/tasks", async (c) => {
       );
     }
 
+    // The task body is replayed against the chat pipeline, which requires a
+    // non-empty `messages` array. Reject bad shapes synchronously instead of
+    // accepting a 202 that can only fail asynchronously.
+    if (!Array.isArray(record.messages) || record.messages.length === 0) {
+      const error = new ValidationError(
+        "Field 'messages' must be a non-empty array",
+      );
+      error.param = "messages";
+      throw error;
+    }
+
     const ownerId = ownerOf(c);
     const capacity = checkSpecializedTaskCapacity(
       ownerId,

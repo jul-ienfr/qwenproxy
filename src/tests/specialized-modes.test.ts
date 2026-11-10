@@ -453,6 +453,23 @@ test("POST /v1/tasks rejects a malformed JSON body with 400", async () => {
   assert.match(body.error.message, /valid JSON/);
 });
 
+test("POST /v1/tasks rejects invalid messages synchronously with 400", async () => {
+  for (const messages of [undefined, "hello", {}, []]) {
+    const response = await app.fetch(
+      new Request("http://localhost/v1/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "qwen-slides", messages }),
+      }),
+    );
+
+    assert.equal(response.status, 400);
+    const body = (await response.json()) as any;
+    assert.equal(body.error.type, "invalid_request_error");
+    assert.equal(body.error.param, "messages");
+  }
+});
+
 test("POST /v1/tasks forwards x-api-key credentials to the inner call", async () => {
   let seenApiKey: string | undefined;
   let seenAuthorization: string | undefined;

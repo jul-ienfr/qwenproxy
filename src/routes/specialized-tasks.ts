@@ -116,7 +116,12 @@ app.post("/v1/tasks", async (c) => {
     launchSpecializedTask({
       task,
       body: record,
+      // Forward every accepted credential form: the outer request may have
+      // authenticated with any of them, and the inner loopback call must be
+      // able to do the same or it would fail with 401.
       authorization: c.req.header("authorization"),
+      apiKey: c.req.header("x-api-key"),
+      googApiKey: c.req.header("x-goog-api-key"),
       researchMode: c.req.header("x-qwenproxy-research-mode"),
       origin: taskOrigin(),
     });

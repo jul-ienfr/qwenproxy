@@ -523,8 +523,9 @@ curl -X DELETE http://localhost:3000/v1/tasks/task_…
 ```
 
 A task is a tool-free call to the same completions pipeline with `stream:false`;
-the caller's `Authorization` is forwarded so quotas, cooldowns and account
-selection still apply. Status is `queued`, `running`, `succeeded`, `failed` or
+the caller's credential headers (`Authorization`, `x-api-key` or
+`x-goog-api-key`) are forwarded so quotas, cooldowns and account selection still
+apply. Status is `queued`, `running`, `succeeded`, `failed` or
 `cancelled`. `result.citations[]` lists the validated source URLs,
 `result.artifacts[]` contains `{type, url, title?}` entries classified as
 `report`, `pdf`, `image`, `code` or `link`, and `result.content` keeps the full

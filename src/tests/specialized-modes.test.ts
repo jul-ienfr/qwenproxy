@@ -453,6 +453,40 @@ test("POST /v1/tasks rejects a malformed JSON body with 400", async () => {
   assert.match(body.error.message, /valid JSON/);
 });
 
+test("POST /v1/tasks forwards x-api-key credentials to the inner call", async () => {
+  let seenApiKey: string | undefined;
+  let seenAuthorization: string | undefined;
+  setSpecializedTaskRunnerForTests(async ({ apiKey, authorization }) => {
+    seenApiKey = apiKey;
+    seenAuthorization = authorization;
+    return { content: "ok", artifacts: [] };
+  });
+
+  try {
+    const response = await app.fetch(
+      new Request("http://localhost/v1/tasks", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": "sk-live-route-key",
+        },
+        body: JSON.stringify({
+          model: "qwen-slides",
+          messages: [{ role: "user", content: "Build a deck" }],
+        }),
+      }),
+    );
+    assert.equal(response.status, 202);
+    const created = (await response.json()) as any;
+    await awaitSpecializedTask(created.id);
+
+    assert.equal(seenApiKey, "sk-live-route-key");
+    assert.equal(seenAuthorization, undefined);
+  } finally {
+    setSpecializedTaskRunnerForTests(undefined);
+  }
+});
+
 test("POST /v1/tasks runs asynchronously and exposes the result", async () => {
   let receivedAuthorization: string | undefined;
   let receivedResearchMode: string | undefined;

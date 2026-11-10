@@ -81,7 +81,12 @@ const activeRuns = new Map<
 export type SpecializedTaskRunner = (input: {
   task: SpecializedTask;
   body: Record<string, unknown>;
+  /** Credential headers copied verbatim from the caller. The inner call must
+   * authenticate exactly like the outer request did, regardless of whether the
+   * key arrived as `Authorization`, `x-api-key` or `x-goog-api-key`. */
   authorization?: string;
+  apiKey?: string;
+  googApiKey?: string;
   /** Optional Deep Research mode header forwarded to the inner call. */
   researchMode?: string;
   origin: string;
@@ -342,6 +347,8 @@ function extractContent(raw: any): string {
 async function defaultRunner(input: {
   body: Record<string, unknown>;
   authorization?: string;
+  apiKey?: string;
+  googApiKey?: string;
   researchMode?: string;
   origin: string;
   signal: AbortSignal;
@@ -350,6 +357,8 @@ async function defaultRunner(input: {
     "content-type": "application/json",
   };
   if (input.authorization) headers.authorization = input.authorization;
+  if (input.apiKey) headers["x-api-key"] = input.apiKey;
+  if (input.googApiKey) headers["x-goog-api-key"] = input.googApiKey;
   if (input.researchMode) {
     headers["x-qwenproxy-research-mode"] = input.researchMode;
   }
@@ -407,10 +416,7 @@ export function setSpecializedTaskTimeoutForTests(
 
 async function runTask(
   task: SpecializedTask,
-  body: Record<string, unknown>,
-  authorization: string | undefined,
-  origin: string,
-  researchMode?: string,
+  params: Omit<SpecializedTaskLaunchParams, "task">,
 ): Promise<void> {
   const controller = new AbortController();
   const timeoutMs = timeoutOverrideMs ?? config.specializedTasks.timeoutMs;
@@ -427,10 +433,12 @@ async function runTask(
       const runner = customRunner ?? defaultRunner;
       const result = await runner({
         task,
-        body,
-        authorization,
-        researchMode,
-        origin,
+        body: params.body,
+        authorization: params.authorization,
+        apiKey: params.apiKey,
+        googApiKey: params.googApiKey,
+        researchMode: params.researchMode,
+        origin: params.origin,
         signal: controller.signal,
       });
       const current = getSpecializedTask(task.id);
@@ -477,20 +485,20 @@ async function runTask(
   activeRuns.set(task.id, { controller, promise });
 }
 
-export function launchSpecializedTask(params: {
+export interface SpecializedTaskLaunchParams {
   task: SpecializedTask;
   body: Record<string, unknown>;
   authorization?: string;
+  apiKey?: string;
+  googApiKey?: string;
   researchMode?: string;
   origin: string;
-}): void {
-  void runTask(
-    params.task,
-    params.body,
-    params.authorization,
-    params.origin,
-    params.researchMode,
-  );
+}
+
+export function launchSpecializedTask(
+  params: SpecializedTaskLaunchParams,
+): void {
+  void runTask(params.task, params);
 }
 
 export function cancelSpecializedTask(

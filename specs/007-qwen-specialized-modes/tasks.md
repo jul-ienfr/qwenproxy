@@ -31,3 +31,5 @@
   it in OpenAPI.
 - [x] T017 Reject malformed `POST /v1/tasks` bodies with a 400 instead of a
   generic 500.
+- [x] T018 Forward `x-api-key` and `x-goog-api-key` credentials to the inner
+  task call, not only `Authorization`.

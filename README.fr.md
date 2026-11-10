@@ -456,8 +456,9 @@ curl -X DELETE http://localhost:3000/v1/tasks/task_…
 ```
 
 Une tâche est un appel au même pipeline de complétions avec `stream:false` ;
-l'en-tête `Authorization` de l'appelant est transmis afin que les quotas, les
-cooldowns et la sélection de compte s'appliquent toujours. Le statut vaut
+les en-têtes d'authentification de l'appelant (`Authorization`, `x-api-key` ou
+`x-goog-api-key`) sont transmis afin que les quotas, les cooldowns et la
+sélection de compte s'appliquent toujours. Le statut vaut
 `queued`, `running`, `succeeded`, `failed` ou `cancelled`.
 `result.citations[]` liste les URL sources validées, `result.artifacts[]`
 contient des entrées `{type, url, title?}` classées `report`, `pdf`, `image`,

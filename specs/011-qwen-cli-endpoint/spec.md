@@ -4,11 +4,22 @@
 
 **Created**: 2026-11-07
 
-**Status**: Draft — conditional on Qwen Code quota availability
+**Status**: Deferred — free Qwen Code OAuth quota discontinued; Qwen Code is
+subscription-only
 
 **Input**: Gap analysis vs `Rfym21/Qwen2API`: it exposes `/cli` models backed by
 Qwen Code / Qwen CLI with 256k context and native `tools`. The current project
 only uses the Qwen Web chat protocol.
+
+**Deferral note (2026-11-10)**: The original trigger for this feature — a free
+Qwen Code OAuth quota — no longer exists. The official Qwen Code authentication
+guide now lists "Qwen Account with Subscription" as the OAuth option, requiring
+an active Plus or Pro plan on `chat.qwen.ai`; third-party reports place the free
+OAuth shutdown around 2026-04-15. Building a CLI provider would therefore mean
+adding a second OAuth credential pool for paying subscribers, not a free-quota
+fallback. The spec is kept for reference and can be re-opened if Qwen restores a
+free tier, or if an operator explicitly requests subscription-backed native
+tools with a separate pool.
 
 ## User Scenarios & Testing *(mandatory)*
 

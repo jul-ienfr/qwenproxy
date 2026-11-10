@@ -9,6 +9,9 @@ weaker in this fork. The evidence and priority rationale live in
 per feature when the feature is scheduled for implementation, using the Spec Kit
 commands installed in `.opencode/commands/` and `.dsh/skills/`.
 
+**Backlog status (2026-11-10)**: every spec is implemented except **011**, which
+is deferred because its free-Qwen-Code-quota precondition no longer exists.
+
 ## Index
 
 | # | Specification | Priority | Depends on | Status |
@@ -23,7 +26,7 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 | 008 | [Redis persistence and scaling](008-redis-persistence-and-scaling/spec.md) | P2 | — | Implemented (shared state, migration CLI, degraded `/health`, 2-instance compose) |
 | 009 | [Runtime model mapping](009-runtime-model-mapping/spec.md) | P3 | 003 for UI | Implemented (`MODEL_MAP`, hot reload, admin API/dashboard) |
 | 010 | [Native packaging and multi-arch](010-native-packaging-and-multiarch/spec.md) | P3 | — | Implemented (Bun binaries + checksums + multi-arch Docker) |
-| 011 | [Qwen CLI endpoint](011-qwen-cli-endpoint/spec.md) | P3 / conditional | Qwen Code quota | Draft |
+| 011 | [Qwen CLI endpoint](011-qwen-cli-endpoint/spec.md) | P3 / conditional | Qwen Code quota | Deferred (free OAuth quota discontinued; Qwen Code now subscription-only) |
 | 012 | [OpenAPI contract and docs](012-openapi-contract-and-docs/spec.md) | P2 | — | Implemented (contract tests + offline docs) |
 | 013 | [Externalized-context cache](013-externalized-context-cache/spec.md) | P2 | 001 for account isolation | Implemented (prefix reuse + TTL/LRU) |
 | 014 | [Desktop tray and webview](014-desktop-tray-webview/spec.md) | P3 | 003 for dashboard | Implemented (tray + webview + auto-login; interactive smoke verified) |
@@ -41,8 +44,9 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 8. **012** OpenAPI contract — locks the growing protocol surface.
 9. **008** Redis — implemented; enable it only when a second instance is
    actually needed.
-10. **011** — remaining conditional feature (Qwen Code quota); **007**, 009,
-    010 and 014 are implemented.
+10. **011** — deferred: the free Qwen Code OAuth quota was discontinued around
+    2026-04-15 and Qwen Code now requires a Plus/Pro subscription. All other
+    specs (001–010 and 012–014) are implemented, so the backlog is closed.
 
 ## How to run the Spec Kit flow
 

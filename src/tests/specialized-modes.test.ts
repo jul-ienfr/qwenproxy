@@ -454,7 +454,7 @@ test("POST /v1/tasks rejects a malformed JSON body with 400", async () => {
 });
 
 test("POST /v1/tasks rejects invalid messages synchronously with 400", async () => {
-  for (const messages of [undefined, "hello", {}, []]) {
+  const expect400 = async (messages: unknown, param: string) => {
     const response = await app.fetch(
       new Request("http://localhost/v1/tasks", {
         method: "POST",
@@ -466,7 +466,14 @@ test("POST /v1/tasks rejects invalid messages synchronously with 400", async () 
     assert.equal(response.status, 400);
     const body = (await response.json()) as any;
     assert.equal(body.error.type, "invalid_request_error");
-    assert.equal(body.error.param, "messages");
+    assert.equal(body.error.param, param);
+  };
+
+  for (const messages of [undefined, "hello", {}, []]) {
+    await expect400(messages, "messages");
+  }
+  for (const messages of [[{}], [{ role: "" }], [{ role: 5 }], [null]]) {
+    await expect400(messages, "messages[0].role");
   }
 });
 

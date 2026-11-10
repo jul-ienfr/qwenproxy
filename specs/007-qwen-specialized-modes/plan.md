@@ -43,8 +43,9 @@ unknown phases to reasoning, so only the known answer/thinking sets need updatin
    this.
 5. **Async tasks** (`src/core/specialized-tasks.ts`,
    `src/routes/specialized-tasks.ts`).
-   - `POST /v1/tasks` accepts a normal chat-completions body for a specialized
-     model and returns a task immediately.
+   - `POST /v1/tasks` accepts a normal chat-completions body (including a
+     non-empty `messages` array) for a specialized model and returns a task
+     immediately; invalid bodies fail synchronously with 400.
    - The worker calls the local `/v1/chat/completions` endpoint with
      `stream:false`, reusing account selection, quotas, cooldowns, retries and
      metrics. The caller's credential headers (`Authorization`, `x-api-key`,

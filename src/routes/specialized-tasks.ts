@@ -14,6 +14,7 @@ import {
   ValidationError,
 } from "../core/errors.ts";
 import { getUserIdentity } from "../core/request-user.ts";
+import { validateMessagesField } from "../core/message-validation.ts";
 import {
   resolveSpecializedModel,
   specializedCapabilityError,
@@ -95,16 +96,10 @@ app.post("/v1/tasks", async (c) => {
       );
     }
 
-    // The task body is replayed against the chat pipeline, which requires a
-    // non-empty `messages` array. Reject bad shapes synchronously instead of
-    // accepting a 202 that can only fail asynchronously.
-    if (!Array.isArray(record.messages) || record.messages.length === 0) {
-      const error = new ValidationError(
-        "Field 'messages' must be a non-empty array",
-      );
-      error.param = "messages";
-      throw error;
-    }
+    // The task body is replayed against the chat pipeline, so apply the same
+    // message validation synchronously instead of accepting a 202 that can
+    // only fail asynchronously.
+    validateMessagesField(record.messages);
 
     const ownerId = ownerOf(c);
     const capacity = checkSpecializedTaskCapacity(

@@ -5,6 +5,7 @@ import { processImagesForQwen } from "../upload.ts";
 import { logger, isToolcallDebugEnabled } from "../../core/logger.js";
 import { config } from "../../core/config.ts";
 import { ValidationError } from "../../core/errors.ts";
+import { validateMessagesField } from "../../core/message-validation.ts";
 import { getBasicHeaders } from "../../services/auth-playwright.ts";
 import { buildToolInstructions } from "../../tools/instructions.ts";
 import {
@@ -76,29 +77,7 @@ export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
     error.param = "model";
     throw error;
   }
-  if (!Array.isArray(body.messages) || body.messages.length === 0) {
-    const error = new ValidationError(
-      "Field 'messages' must be a non-empty array",
-    );
-    error.param = "messages";
-    throw error;
-  }
-  for (let i = 0; i < body.messages.length; i++) {
-    const message = body.messages[i] as unknown;
-    if (
-      !message ||
-      typeof message !== "object" ||
-      Array.isArray(message) ||
-      typeof (message as Record<string, unknown>).role !== "string" ||
-      ((message as Record<string, unknown>).role as string).trim() === ""
-    ) {
-      const error = new ValidationError(
-        `Field 'messages[${i}].role' must be a non-empty string`,
-      );
-      error.param = `messages[${i}].role`;
-      throw error;
-    }
-  }
+  validateMessagesField(body.messages);
 
   logIncomingChatRequest(c, body);
   const isStream = body.stream ?? false;

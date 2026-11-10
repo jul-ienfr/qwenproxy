@@ -10,8 +10,9 @@ import {
   UpstreamRateLimit,
   InternalError,
   ServiceUnavailable,
+  NotFoundError,
 } from "../core/errors.ts";
-import { computeDynamicIdleTimeout } from "../services/qwen.ts";
+import { computeDynamicIdleTimeout, QwenUpstreamError } from "../services/qwen.ts";
 import { config } from "../core/config.ts";
 
 /**
@@ -66,6 +67,30 @@ test("B: typed UpstreamRateLimit stays 429", () => {
   );
   assert.ok(classified instanceof UpstreamRateLimit);
   assert.strictEqual(classified.statusCode, 429);
+});
+
+// --- Bug B2: the classifier feeds logs + error metrics, so it must report the
+// same concrete upstream status/code the client receives instead of a generic
+// 502 for every QwenUpstreamError.
+test("B2: upstream 404 classifies as NotFoundError and keeps the upstream code", () => {
+  const hinted: any = new Error("missing chat");
+  hinted.upstreamStatus = 404;
+  const hintedResult = classifyError(hinted);
+  assert.ok(hintedResult instanceof NotFoundError);
+  assert.strictEqual(hintedResult.statusCode, 404);
+
+  const typed = classifyError(
+    new QwenUpstreamError("model not found", "Not_Found", 404),
+  );
+  assert.strictEqual(typed.statusCode, 404);
+  assert.strictEqual(typed.type, "not_found_error");
+  assert.strictEqual(typed.code, "Not_Found");
+});
+
+test("B2: invalid upstream hints still fall through to the normal mapping", () => {
+  const weird: any = new Error("odd");
+  weird.upstreamStatus = 999;
+  assert.ok(classifyError(weird) instanceof InternalError);
 });
 
 // --- Bug C: the parallel-escape idle cap must not kill THINKING streams.

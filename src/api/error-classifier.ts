@@ -6,7 +6,6 @@ import {
   ValidationError,
   UpstreamRateLimit,
   UpstreamError,
-  UpstreamTimeout,
   ServiceUnavailable,
   ClientAbortedError,
 } from "../core/errors.js";
@@ -18,6 +17,7 @@ import {
   QwenSessionExpiredError,
   getQwenErrorCode,
 } from "../services/qwen.js";
+import { applyUpstreamHint, errorForStatus, isValidStatus } from "./error-mapping.js";
 
 /**
  * Classifies unknown errors into standard QwenProxyError hierarchy.
@@ -66,7 +66,9 @@ export function classifyError(err: unknown): QwenProxyError {
   }
 
   if (err instanceof QwenUpstreamError) {
-    return err;
+    // Keep logs and error metrics aligned with the HTTP response: a concrete
+    // upstream status (e.g. 404 Not_Found) must not be reported as a 502.
+    return applyUpstreamHint(err);
   }
 
   if (err instanceof QwenSessionExpiredError) {
@@ -74,7 +76,7 @@ export function classifyError(err: unknown): QwenProxyError {
   }
 
   if (err instanceof QwenProxyError) {
-    return err;
+    return applyUpstreamHint(err);
   }
 
   // Client disconnected before the stream could be created. This is not a
@@ -116,25 +118,14 @@ export function classifyError(err: unknown): QwenProxyError {
   }
 
   const statusHint = (err as Error & { upstreamStatus?: number })?.upstreamStatus;
-  if (typeof statusHint === "number") {
+  if (typeof statusHint === "number" && isValidStatus(statusHint)) {
     const message =
       rawError instanceof Error
         ? rawError.message
         : typeof err === "string"
           ? err
           : "Unknown upstream error";
-    switch (statusHint) {
-      case 429:
-        return new UpstreamRateLimit(message);
-      case 502:
-        return new UpstreamError(message);
-      case 503:
-        return new ServiceUnavailable(message);
-      case 504:
-        return new UpstreamTimeout(message);
-      default:
-        break; // unknown hint: fall through to the normal mapping
-    }
+    return errorForStatus(statusHint, message);
   }
 
   if (err instanceof ZodError) {

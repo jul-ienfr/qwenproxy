@@ -1,78 +1,12 @@
 import type { Context } from "hono";
 import type { QwenProxyStatusCode } from "../core/errors.js";
-import {
-  QwenProxyError,
-  ValidationError,
-  AuthError,
-  ForbiddenError,
-  NotFoundError,
-  UpstreamRateLimit,
-  UpstreamError,
-  UpstreamTimeout,
-  InternalError,
-  ClientAbortedError,
-  ServiceUnavailable,
-} from "../core/errors.js";
+import { QwenProxyError } from "../core/errors.js";
 import { classifyError } from "./error-classifier.js";
-
-const VALID_STATUSES: ReadonlySet<number> = new Set([
-  400, 401, 403, 404, 429, 499, 500, 502, 503, 504,
-]);
-
-function isValidStatus(code: number): code is QwenProxyStatusCode {
-  return VALID_STATUSES.has(code);
-}
-
-function errorForStatus(
-  status: QwenProxyStatusCode,
-  message: string,
-): QwenProxyError {
-  switch (status) {
-    case 400:
-      return new ValidationError(message);
-    case 401:
-      return new AuthError(message);
-    case 403:
-      return new ForbiddenError(message);
-    case 404:
-      return new NotFoundError(message);
-    case 429:
-      return new UpstreamRateLimit(message);
-    case 499:
-      return new ClientAbortedError(message);
-    case 500:
-      return new InternalError(message);
-    case 502:
-      return new UpstreamError(message);
-    case 503:
-      return new ServiceUnavailable(message);
-    case 504:
-      return new UpstreamTimeout(message);
-  }
-}
-
-/**
- * `QwenUpstreamError` extends UpstreamError (502) for legacy retry handling,
- * but the concrete upstream status/category is the useful client-facing
- * contract. Rebuild the response error when the hint adds information, while
- * keeping the original message and `param`.
- */
-function applyUpstreamHint(err: QwenProxyError): QwenProxyError {
-  const hint = (err as { upstreamStatus?: unknown }).upstreamStatus;
-  if (typeof hint !== "number" || !isValidStatus(hint)) return err;
-
-  const rawCode = (err as { upstreamCode?: unknown }).upstreamCode;
-  const upstreamCode =
-    typeof rawCode === "string" && rawCode.length > 0 ? rawCode : undefined;
-  if (hint === err.statusCode && !upstreamCode) return err;
-
-  const remapped = errorForStatus(hint, err.message);
-  if (err.param) remapped.param = err.param;
-  if (upstreamCode) {
-    (remapped as { code: string }).code = upstreamCode;
-  }
-  return remapped;
-}
+import {
+  applyUpstreamHint,
+  errorForStatus,
+  isValidStatus,
+} from "./error-mapping.js";
 
 /**
  * Sends a standardized OpenAI-compatible error response.
@@ -88,7 +22,7 @@ export function sendOpenAIError(
   let qwenProxyErr: QwenProxyError;
 
   if (err instanceof QwenProxyError) {
-    qwenProxyErr = applyUpstreamHint(err);
+    qwenProxyErr = applyUpstreamHint(err, { rewriteSameStatus: true });
   } else {
     const hint = (err as Record<string, unknown>)?.upstreamStatus;
     if (typeof hint === "number" && isValidStatus(hint)) {

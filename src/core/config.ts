@@ -129,6 +129,11 @@ const envSchema = z
     MAX_TOOL_CALLS_PER_TURN: z.string().default("6"),
     QWEN_REPEATED_TOOL_CALL_WARN: z.string().default("2"),
     ACCOUNT_MAX_CONCURRENT_STREAMS: z.string().default("2"),
+    // Async specialized tasks re-enter the completions pipeline and can run
+    // for up to 30 minutes. Default API keys have unlimited RPM/concurrency,
+    // so without these caps one client could exhaust the process.
+    SPECIALIZED_TASK_MAX_ACTIVE_PER_USER: z.string().default("4"),
+    SPECIALIZED_TASK_MAX_ACTIVE: z.string().default("32"),
     ACCOUNT_BUSY_WAIT_MS: z.string().default("30000"),
     // Cap for the "wait forever" account-lease queue (thread owner / last
     // usable account): the queue previously had NO deadline, so a stuck lease
@@ -338,6 +343,15 @@ export const config = {
       warningThreshold: parseInt(env.WS_WARNING),
       criticalThreshold: parseInt(env.WS_CRITICAL),
     },
+  },
+  specializedTasks: {
+    /** 0 disables the per-owner cap. */
+    maxActivePerUser: Math.max(
+      0,
+      parseInt(env.SPECIALIZED_TASK_MAX_ACTIVE_PER_USER) || 0,
+    ),
+    /** 0 disables the global per-instance cap. */
+    maxActive: Math.max(0, parseInt(env.SPECIALIZED_TASK_MAX_ACTIVE) || 0),
   },
   retry: {
     baseDelayMs: parseInt(env.RETRY_BASE_DELAY_MS),

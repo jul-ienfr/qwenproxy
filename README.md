@@ -535,6 +535,10 @@ Operational notes:
   A restart marks `queued`/`running` tasks `failed` with `code: "interrupted"`.
 - Task state is **not** shared through Redis: `DATA_SAVE_MODE=redis` still keeps
   each instance's tasks local.
+- Active tasks are capped at **4 per API key** and **32 per instance** by
+  default (`SPECIALIZED_TASK_MAX_ACTIVE_PER_USER`,
+  `SPECIALIZED_TASK_MAX_ACTIVE`; `0` disables a cap). Exceeding a cap returns
+  **429** with `code: "task_limit_exceeded"`.
 - Artifacts are never fetched, re-hosted or executed. Upstream-signed URLs keep
   Qwen's own expiry; download them before that TTL elapses.
 - An unavailable mode returns **400** with `code: "capability_unavailable"`

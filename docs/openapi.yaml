@@ -789,6 +789,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
     get:
       operationId: listSpecializedTasks
       summary: List the caller's specialized tasks
@@ -2508,7 +2510,7 @@ components:
               code: not_found
               param: null
     RateLimited:
-      description: Rate limit exceeded (concurrency or RPM)
+      description: Rate limit exceeded (concurrency, RPM, or active specialized tasks)
       content:
         application/json:
           schema:

@@ -19,6 +19,8 @@ import {
 import {
   awaitSpecializedTask,
   cancelSpecializedTask,
+  checkSpecializedTaskCapacity,
+  countActiveSpecializedTasks,
   createSpecializedTask,
   getSpecializedTask,
   launchSpecializedTask,
@@ -572,4 +574,135 @@ test("chat completions reports capability_unavailable when no account exists", a
   const body = (await response.json()) as any;
   assert.equal(body.error.code, "capability_unavailable");
   assert.match(body.error.message, /requires at least one configured Qwen account/);
+});
+
+test("task capacity enforces per-owner and global active limits", () => {
+  const owner = unique("owner");
+  const first = createSpecializedTask({
+    ownerId: owner,
+    model: "qwen-deep-research",
+    mode: "research",
+  });
+  const second = createSpecializedTask({
+    ownerId: owner,
+    model: "qwen-deep-research",
+    mode: "research",
+  });
+
+  assert.equal(countActiveSpecializedTasks(owner), 2);
+
+  assert.deepEqual(
+    checkSpecializedTaskCapacity(owner, {
+      maxActivePerUser: 2,
+      maxActive: 0,
+    }),
+    { allowed: false, reason: "per_user", limit: 2, active: 2 },
+  );
+
+  // The global count includes the two tasks above plus anything left by other
+  // suites, so derive the boundary instead of assuming an empty store.
+  const globalBase = countActiveSpecializedTasks();
+  const global = checkSpecializedTaskCapacity(owner, {
+    maxActivePerUser: 3,
+    maxActive: globalBase,
+  });
+  assert.equal(global.allowed, false);
+  assert.equal(global.reason, "global");
+  assert.equal(global.limit, globalBase);
+
+  assert.equal(
+    checkSpecializedTaskCapacity(owner, {
+      maxActivePerUser: 3,
+      maxActive: globalBase + 1,
+    }).allowed,
+    true,
+  );
+
+  // 0 means unlimited for both caps.
+  assert.equal(
+    checkSpecializedTaskCapacity(owner, {
+      maxActivePerUser: 0,
+      maxActive: 0,
+    }).allowed,
+    true,
+  );
+
+  cancelSpecializedTask(first.id, owner);
+  assert.equal(countActiveSpecializedTasks(owner), 1);
+  assert.equal(
+    checkSpecializedTaskCapacity(owner, {
+      maxActivePerUser: 2,
+      maxActive: 0,
+    }).allowed,
+    true,
+  );
+
+  cancelSpecializedTask(second.id, owner);
+});
+
+test("POST /v1/tasks returns 429 once the per-user active cap is reached", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  setSpecializedTaskRunnerForTests(async ({ signal }) => {
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () =>
+        reject(Object.assign(new Error("cancelled"), { name: "AbortError" }));
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+      gate.then(() => resolve());
+    });
+    return { content: "done", artifacts: [] };
+  });
+
+  const create = () =>
+    app.fetch(
+      new Request("http://localhost/v1/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "qwen-slides",
+          messages: [{ role: "user", content: "Build a deck" }],
+        }),
+      }),
+    );
+
+  try {
+    const created: string[] = [];
+    // The default per-user cap is 4.
+    for (let i = 0; i < 4; i++) {
+      const response = await create();
+      assert.equal(response.status, 202);
+      created.push(((await response.json()) as any).id);
+    }
+
+    const blocked = await create();
+    assert.equal(blocked.status, 429);
+    const body = (await blocked.json()) as any;
+    assert.equal(body.error.code, "task_limit_exceeded");
+    assert.equal(body.error.type, "rate_limit_error");
+    assert.match(body.error.message, /limit 4/);
+
+    const cancelled = await app.fetch(
+      new Request(`http://localhost/v1/tasks/${created[0]}`, {
+        method: "DELETE",
+      }),
+    );
+    assert.equal(cancelled.status, 200);
+
+    const allowed = await create();
+    assert.equal(allowed.status, 202);
+    created.push(((await allowed.json()) as any).id);
+
+    release();
+    await Promise.all(created.map((id) => awaitSpecializedTask(id)));
+  } finally {
+    release();
+    setSpecializedTaskRunnerForTests(undefined);
+  }
 });

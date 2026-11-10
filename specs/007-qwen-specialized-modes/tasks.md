@@ -23,3 +23,5 @@
 - [x] T012 Document the modes, task contract and artifact TTL in EN/FR
   READMEs and update the spec indexes.
 - [x] T013 Run typecheck, focused tests, full mock suite and build.
+- [x] T014 Cap active async tasks per API key and per instance (429
+  `task_limit_exceeded`), with tests and env documentation.

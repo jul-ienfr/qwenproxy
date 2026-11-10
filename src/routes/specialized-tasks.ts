@@ -8,7 +8,11 @@
 
 import { Hono } from "hono";
 import { config } from "../core/config.ts";
-import { NotFoundError, ValidationError } from "../core/errors.ts";
+import {
+  NotFoundError,
+  SpecializedTaskLimitError,
+  ValidationError,
+} from "../core/errors.ts";
 import { getUserIdentity } from "../core/request-user.ts";
 import {
   resolveSpecializedModel,
@@ -16,6 +20,7 @@ import {
 } from "../core/specialized-modes.ts";
 import {
   cancelSpecializedTask,
+  checkSpecializedTaskCapacity,
   createSpecializedTask,
   getSpecializedTask,
   launchSpecializedTask,
@@ -82,8 +87,21 @@ app.post("/v1/tasks", async (c) => {
       );
     }
 
+    const ownerId = ownerOf(c);
+    const capacity = checkSpecializedTaskCapacity(
+      ownerId,
+      config.specializedTasks,
+    );
+    if (!capacity.allowed) {
+      const scope =
+        capacity.reason === "global" ? "this proxy" : "this API key";
+      throw new SpecializedTaskLimitError(
+        `Too many active specialized tasks for ${scope} (limit ${capacity.limit}). Wait for a running task to finish or cancel one with DELETE /v1/tasks/{taskId}.`,
+      );
+    }
+
     const task = createSpecializedTask({
-      ownerId: ownerOf(c),
+      ownerId,
       model: definition.id,
       mode: definition.kind,
     });

@@ -469,6 +469,10 @@ Notes opérationnelles :
   `failed` avec `code: "interrupted"`.
 - L'état des tâches n'est **pas** partagé via Redis : `DATA_SAVE_MODE=redis`
   conserve les tâches locales à chaque instance.
+- Les tâches actives sont plafonnées à **4 par clé API** et **32 par instance**
+  par défaut (`SPECIALIZED_TASK_MAX_ACTIVE_PER_USER`,
+  `SPECIALIZED_TASK_MAX_ACTIVE` ; `0` désactive un plafond). Dépasser un
+  plafond renvoie **429** avec `code: "task_limit_exceeded"`.
 - Les artefacts ne sont jamais récupérés, ré-hébergés ni exécutés. Les URL
   signées en amont conservent l'expiration de Qwen ; téléchargez-les avant ce
   TTL.

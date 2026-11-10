@@ -83,6 +83,13 @@ export class SpecializedCapabilityError extends ValidationError {
   }
 }
 
+/** Too many specialized async tasks are active on this instance. */
+export class SpecializedTaskLimitError extends QwenProxyError {
+  readonly statusCode = 429;
+  readonly type = "rate_limit_error";
+  readonly code = "task_limit_exceeded";
+}
+
 export class ForbiddenError extends QwenProxyError {
   readonly statusCode = 403;
   readonly type = "permission_error";

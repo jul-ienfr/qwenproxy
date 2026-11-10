@@ -206,6 +206,76 @@ export function listSpecializedTasks(
   return rows.map(toTask);
 }
 
+export interface SpecializedTaskLimits {
+  /** 0 disables the per-owner cap. */
+  maxActivePerUser: number;
+  /** 0 disables the global per-instance cap. */
+  maxActive: number;
+}
+
+export interface SpecializedTaskCapacity {
+  allowed: boolean;
+  reason?: "per_user" | "global";
+  /** The cap that was hit. */
+  limit?: number;
+  /** Active tasks counted at the time of the check. */
+  active?: number;
+}
+
+function countActiveTasksSql(ownerId?: string): number {
+  const row = ownerId
+    ? (getDatabase()
+        .prepare(
+          "SELECT COUNT(*) AS n FROM specialized_tasks WHERE owner_id = ? AND status IN ('queued', 'running')",
+        )
+        .get(ownerId) as { n: number } | undefined)
+    : (getDatabase()
+        .prepare(
+          "SELECT COUNT(*) AS n FROM specialized_tasks WHERE status IN ('queued', 'running')",
+        )
+        .get() as { n: number } | undefined);
+  return Number(row?.n ?? 0);
+}
+
+export function countActiveSpecializedTasks(ownerId?: string): number {
+  ensureTable();
+  return countActiveTasksSql(ownerId);
+}
+
+/**
+ * Budget check before creating a task. Uses the local SQLite store, so the cap
+ * is per instance: specialized tasks are intentionally not shared through
+ * Redis, and neither is this budget.
+ */
+export function checkSpecializedTaskCapacity(
+  ownerId: string,
+  limits: SpecializedTaskLimits,
+): SpecializedTaskCapacity {
+  if (limits.maxActivePerUser > 0) {
+    const active = countActiveSpecializedTasks(ownerId);
+    if (active >= limits.maxActivePerUser) {
+      return {
+        allowed: false,
+        reason: "per_user",
+        limit: limits.maxActivePerUser,
+        active,
+      };
+    }
+  }
+  if (limits.maxActive > 0) {
+    const active = countActiveSpecializedTasks();
+    if (active >= limits.maxActive) {
+      return {
+        allowed: false,
+        reason: "global",
+        limit: limits.maxActive,
+        active,
+      };
+    }
+  }
+  return { allowed: true };
+}
+
 function updateTask(
   id: string,
   patch: {

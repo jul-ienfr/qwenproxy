@@ -55,6 +55,11 @@ unknown phases to reasoning, so only the known answer/thinking sets need updatin
    - Tasks are stored in SQLite (`specialized_tasks`) so status survives client
      disconnects and restarts. Rows older than 7 days are pruned; tasks left
      `running` by a restart become `failed` with `code:"interrupted"`.
+    - Active tasks are bounded per instance and per owner
+      (`SPECIALIZED_TASK_MAX_ACTIVE_PER_USER`, default 4;
+      `SPECIALIZED_TASK_MAX_ACTIVE`, default 32; `0` disables a cap) so
+      unbounded background jobs cannot exhaust the process. Exceeding a cap
+      returns 429 `task_limit_exceeded`.
 6. **Capability errors.** A specialized model request with no configured
    account fails with `capability_unavailable` (400), and upstream
    model/authorization failures for specialized modes are mapped to

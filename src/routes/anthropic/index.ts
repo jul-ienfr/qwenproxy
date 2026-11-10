@@ -175,13 +175,29 @@ app.post("/v1/messages", async (c) => {
             clearInterval(heartbeatInterval);
             const errText = await response.text().catch(() => "");
             console.error(`[Anthropic] Upstream error: ${response.status} ${errText}`);
+            const errorJson = (() => {
+              try {
+                return JSON.parse(errText);
+              } catch {
+                return null;
+              }
+            })();
+            const message =
+              errorJson?.error?.message ||
+              errorJson?.message ||
+              `Upstream error: ${response.status}`;
+            const errorType =
+              response.status === 429
+                ? "rate_limit_error"
+                : response.status === 404
+                  ? "not_found_error"
+                  : response.status === 400
+                    ? "invalid_request_error"
+                    : "api_error";
             await write(
               `event: error\ndata: ${JSON.stringify({
                 type: "error",
-                error: {
-                  type: response.status === 429 ? "rate_limit_error" : "api_error",
-                  message: `Upstream error: ${response.status}`,
-                },
+                error: { type: errorType, message },
               })}\n\n`,
             );
             return;

@@ -77,6 +77,44 @@ test("Anthropic stream surfaces an upstream error frame instead of message_stop"
   assert.doesNotMatch(text, /event: message_stop/);
 });
 
+test("Anthropic stream propagates the pre-stream upstream error message and type", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        error: { message: "bad request detail", type: "invalid_request_error" },
+      }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+
+  try {
+    const res = await app.fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": "sk-dummy",
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "qwen3.7-plus",
+          max_tokens: 64,
+          messages: [{ role: "user", content: "ping" }],
+          stream: true,
+        }),
+      }),
+    );
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.match(text, /event: error/);
+    assert.match(text, /bad request detail/);
+    assert.match(text, /invalid_request_error/);
+    assert.doesNotMatch(text, /event: message_stop/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 test("Gemini stream surfaces an upstream error frame instead of a STOP candidate", async () => {
   const text = await withStubbedFetch(async () => {
     const res = await app.fetch(

@@ -7,22 +7,17 @@ import {
   supportsPromptMediaGeneration,
 } from "../services/media-generation.ts";
 import { logger } from "../core/logger.ts";
+import { getUserIdentity } from "../core/request-user.ts";
 import { sendOpenAIError } from "../api/error-helpers.ts";
 import { NotFoundError, ValidationError } from "../core/errors.ts";
+import {
+  cleanupExpiredVideoTasks,
+  createVideoTask,
+  getVideoTask,
+  updateVideoTask,
+} from "../core/video-tasks.ts";
 
 const DEFAULT_SIZE = "16:9";
-
-const TASK_TTL_MS = 60 * 60_000;
-
-type MediaTaskStatus = "pending" | "running" | "completed" | "failed";
-
-interface VideoTaskEntry {
-  accountId: string;
-  chatId: string;
-  createdAt: number;
-  status: MediaTaskStatus;
-  videoUrl?: string;
-}
 
 interface VideosGenerationsRequest {
   model?: unknown;
@@ -31,15 +26,8 @@ interface VideosGenerationsRequest {
   wait?: unknown;
 }
 
-const videoTasks = new Map<string, VideoTaskEntry>();
-
-function cleanupExpiredTasks(): void {
-  const cutoff = Date.now() - TASK_TTL_MS;
-  for (const [taskId, entry] of videoTasks) {
-    if (entry.createdAt < cutoff) {
-      videoTasks.delete(taskId);
-    }
-  }
+function ownerOf(c: Context): string {
+  return getUserIdentity(c)?.id ?? "legacy";
 }
 
 function validationError(message: string, param: string): ValidationError {
@@ -49,7 +37,7 @@ function validationError(message: string, param: string): ValidationError {
 }
 
 export async function videosGenerations(c: Context): Promise<Response> {
-  cleanupExpiredTasks();
+  cleanupExpiredVideoTasks();
 
   let parsed: unknown;
   try {
@@ -138,10 +126,11 @@ export async function videosGenerations(c: Context): Promise<Response> {
       );
     }
 
-    videoTasks.set(result.task_id, {
+    createVideoTask({
+      taskId: result.task_id,
+      ownerId: ownerOf(c),
       accountId: result.accountId,
       chatId: result.chatId,
-      createdAt: Date.now(),
       status: result.status,
       videoUrl: result.video_url,
     });
@@ -176,14 +165,16 @@ export async function videosGenerations(c: Context): Promise<Response> {
 }
 
 export async function videoTaskStatus(c: Context): Promise<Response> {
-  cleanupExpiredTasks();
+  cleanupExpiredVideoTasks();
 
   const taskId = c.req.param("taskId");
   if (!taskId) {
     return sendOpenAIError(c, new NotFoundError("Video task not found"));
   }
 
-  const entry = videoTasks.get(taskId);
+  // Scope lookups to the caller: another API key must not see this task even
+  // when it knows the id.
+  const entry = getVideoTask(taskId, ownerOf(c));
   if (!entry) {
     return sendOpenAIError(c, new NotFoundError(`Video task not found: ${taskId}`));
   }
@@ -195,8 +186,10 @@ export async function videoTaskStatus(c: Context): Promise<Response> {
     if (wait && !isTerminal) {
       // pollVideoTask blocks until a terminal status or its internal timeout.
       const result = await pollVideoTask({ taskId, accountId: entry.accountId });
-      entry.status = result.status;
-      entry.videoUrl = result.video_url ?? entry.videoUrl;
+      updateVideoTask(taskId, {
+        status: result.status,
+        ...(result.video_url ? { videoUrl: result.video_url } : {}),
+      });
       if (result.status === "failed") {
         logger.error("Video task failed", {
           taskId,

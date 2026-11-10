@@ -8,6 +8,7 @@ process.env.TEST_MOCK_QWEN_AUTH = "true";
 process.env.TOOLCALL_DEBUG = "1";
 
 const { parseRequestBody } = await import("../routes/chat/validation.ts");
+const { ValidationError } = await import("../core/errors.ts");
 const { config } = await import("../core/config.ts");
 const { logger, isToolcallDebugEnabled } = await import("../core/logger.ts");
 
@@ -54,6 +55,21 @@ test("parseRequestBody extracts session key, stream flag and model", async () =>
   assert.strictEqual(parsed.toolInstructions, "");
   assert.strictEqual(parsed.allFiles.length, 0);
   assert.strictEqual(parsed.currentFiles.length, 0);
+});
+
+test("parseRequestBody maps malformed JSON to a 400 ValidationError", async () => {
+  const ctx = mockContext({});
+  ctx.req.json = async () => {
+    throw new SyntaxError("Unexpected token");
+  };
+
+  await assert.rejects(
+    () => parseRequestBody(ctx),
+    (error: any) =>
+      error instanceof ValidationError &&
+      error.statusCode === 400 &&
+      /Invalid JSON body/.test(error.message),
+  );
 });
 
 test("parseRequestBody falls back to conversation_id and then null", async () => {

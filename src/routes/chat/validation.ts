@@ -4,6 +4,7 @@ import type { QwenFileEntry } from "../upload.ts";
 import { processImagesForQwen } from "../upload.ts";
 import { logger, isToolcallDebugEnabled } from "../../core/logger.js";
 import { config } from "../../core/config.ts";
+import { ValidationError } from "../../core/errors.ts";
 import { getBasicHeaders } from "../../services/auth-playwright.ts";
 import { buildToolInstructions } from "../../tools/instructions.ts";
 import {
@@ -51,7 +52,15 @@ export interface ParsedRequest {
 }
 
 export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
-  const body: OpenAIRequest = await c.req.json();
+  let body: OpenAIRequest;
+  try {
+    body = await c.req.json();
+  } catch {
+    // A malformed body is a client error. Without this guard the raw
+    // SyntaxError reaches the generic classifier and becomes a 500, unlike the
+    // other protocol routes which already return 400.
+    throw new ValidationError("Invalid JSON body");
+  }
   logIncomingChatRequest(c, body);
   const isStream = body.stream ?? false;
   const conversationKey = extractExplicitConversationKey(c, body);

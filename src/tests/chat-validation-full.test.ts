@@ -100,6 +100,19 @@ test("parseRequestBody rejects invalid messages with 400", async () => {
   }
 });
 
+test("parseRequestBody rejects messages without a valid role", async () => {
+  for (const messages of [[{}], [{ role: "" }], [{ role: 5 }], [null], ["hi"]]) {
+    await assert.rejects(
+      () => parseRequestBody(mockContext({ model: "qwen3.8-max", messages })),
+      (error: any) =>
+        error instanceof ValidationError &&
+        error.statusCode === 400 &&
+        typeof error.param === "string" &&
+        /^messages\[\d+\]\.role$/.test(error.param),
+    );
+  }
+});
+
 test("parseRequestBody rejects a non-object body with 400", async () => {
   for (const body of [null, [], "text", 42]) {
     await assert.rejects(

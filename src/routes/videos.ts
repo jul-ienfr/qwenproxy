@@ -183,9 +183,16 @@ export async function videoTaskStatus(c: Context): Promise<Response> {
 
   try {
     const isTerminal = entry.status === "completed" || entry.status === "failed";
-    if (wait && !isTerminal) {
-      // pollVideoTask blocks until a terminal status or its internal timeout.
-      const result = await pollVideoTask({ taskId, accountId: entry.accountId });
+    if (!isTerminal) {
+      // Refresh from upstream on every poll. `wait=true` blocks until a
+      // terminal status (or the internal timeout); the default is a single
+      // non-blocking check so async tasks progress instead of staying
+      // "pending" forever after a wait=false generation.
+      const result = await pollVideoTask({
+        taskId,
+        accountId: entry.accountId,
+        once: !wait,
+      });
       updateVideoTask(taskId, {
         status: result.status,
         ...(result.video_url ? { videoUrl: result.video_url } : {}),

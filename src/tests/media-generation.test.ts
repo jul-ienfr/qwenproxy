@@ -5,6 +5,12 @@ process.env.TEST_MOCK_QWEN_AUTH = "true";
 process.env.API_KEY = "";
 
 import { app } from "../api/server.ts";
+import { config } from "../core/config.ts";
+import {
+  createVideoTask,
+  getVideoTask,
+  resetVideoTasksForTests,
+} from "../core/video-tasks.ts";
 import {
   looksLikeAntiBotChallengeText,
   shortMediaId,
@@ -285,6 +291,56 @@ test("Videos Generations Route: validates video generation and task status reque
   assert.equal(res.status, 404);
   json = (await res.json()) as any;
   assert.ok(json.error.message.includes("not found"));
+});
+
+test("Videos Task Status: a plain poll refreshes a pending task from upstream", async () => {
+  resetVideoTasksForTests();
+  createVideoTask({
+    taskId: "task_poll_refresh",
+    ownerId: "local-admin",
+    accountId: "account-test",
+    chatId: "chat-test",
+    status: "pending",
+  });
+
+  const originalFetch = globalThis.fetch;
+  const originalBrowserOnly = config.qwen.browserOnlyFetch;
+  config.qwen.browserOnlyFetch = false;
+  let statusRequests = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      input instanceof Request ? input.url : String(input);
+    if (url.includes("/api/v1/tasks/status/task_poll_refresh")) {
+      statusRequests += 1;
+      return new Response(
+        JSON.stringify({
+          task_status: "completed",
+          video_url: "https://example.com/generated.mp4",
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+
+  try {
+    const res = await app.fetch(
+      new Request("http://localhost/v1/tasks/status/task_poll_refresh"),
+    );
+    assert.equal(res.status, 200);
+    const json = (await res.json()) as any;
+    assert.equal(statusRequests, 1);
+    assert.equal(json.status, "completed");
+    assert.equal(json.video_url, "https://example.com/generated.mp4");
+    assert.equal(
+      getVideoTask("task_poll_refresh", "local-admin")?.status,
+      "completed",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    config.qwen.browserOnlyFetch = originalBrowserOnly;
+    resetVideoTasksForTests();
+  }
 });
 
 test("POST /v1/upload rejects a malformed multipart body with 400", async () => {

@@ -12,6 +12,7 @@
 
 import { Hono, type Context } from "hono";
 import { config } from "../core/config.ts";
+import { getInternalOrigin } from "../core/internal-origin.ts";
 import { buildInternalSessionScopeHeaders } from "../core/request-owner.ts";
 import { extractSseError, statusForSseError } from "../utils/sse-error.ts";
 
@@ -150,7 +151,7 @@ export async function completionsLegacy(c: Context) {
   }
 
   const dispatchToChat = () =>
-    fetch(`http://127.0.0.1:${config.server.port}/v1/chat/completions`, {
+    fetch(`${getInternalOrigin()}/v1/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { config } from "../../core/config.ts";
+import { getInternalOrigin } from "../../core/internal-origin.ts";
 import { logger } from "../../core/logger.ts";
 import { getUserIdentity } from "../../core/request-user.ts";
 import { buildInternalSessionScopeHeaders } from "../../core/request-owner.ts";
@@ -156,7 +157,7 @@ app.post("/v1/responses", async (c) => {
             // Make request to internal Chat Completions endpoint
             // Always request usage in stream for real token counts
             const response = await fetch(
-              `http://127.0.0.1:${config.server.port}/v1/chat/completions`,
+              `${getInternalOrigin()}/v1/chat/completions`,
               {
                 method: "POST",
                 headers: {
@@ -353,7 +354,7 @@ app.post("/v1/responses", async (c) => {
     } else {
       // ============ NON-STREAMING MODE ============
       const response = await fetch(
-        `http://127.0.0.1:${config.server.port}/v1/chat/completions`,
+        `${getInternalOrigin()}/v1/chat/completions`,
         {
           method: "POST",
           headers: {

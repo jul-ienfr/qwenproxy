@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { stream as honoStream } from "hono/streaming";
 import { config } from "../../core/config.ts";
+import { getInternalOrigin } from "../../core/internal-origin.ts";
 import { getUserIdentity } from "../../core/request-user.ts";
 import { buildInternalSessionScopeHeaders } from "../../core/request-owner.ts";
 import { logger } from "../../core/logger.js";
@@ -120,7 +121,7 @@ async function dispatchToChat(
     c.req.header("x-session-affinity") ||
     undefined;
 
-  return fetch(`http://127.0.0.1:${config.server.port}/v1/chat/completions`, {
+  return fetch(`${getInternalOrigin()}/v1/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

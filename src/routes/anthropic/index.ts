@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { Hono, type Context } from "hono";
 import { stream as honoStream } from "hono/streaming";
 import { config } from "../../core/config.ts";
+import { getInternalOrigin } from "../../core/internal-origin.ts";
 import { getUserIdentity } from "../../core/request-user.ts";
 import { buildInternalSessionScopeHeaders } from "../../core/request-owner.ts";
 import { validateAnthropicRequest } from "./validation.ts";
@@ -94,7 +95,7 @@ app.post("/v1/messages", async (c) => {
         : undefined);
 
     const dispatchToChat = (streamMode: boolean) =>
-      fetch(`http://127.0.0.1:${config.server.port}/v1/chat/completions`, {
+      fetch(`${getInternalOrigin()}/v1/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

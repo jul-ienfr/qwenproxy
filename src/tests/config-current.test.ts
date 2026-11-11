@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { config } from "../core/config.ts";
+import { getInternalOrigin } from "../core/internal-origin.ts";
 import { ContextLengthExceededError } from "../core/errors.ts";
 import {
   assertPromptWithinLimits,
@@ -77,6 +78,46 @@ test("qwen web version updates dynamically from live DOM/header discoveries", as
   // Reset back to baseline
   updateQwenWebVersion("0.3.26");
   assert.equal(getQwenWebVersion(), "0.3.26");
+});
+
+test("internal origin follows the bound host instead of assuming loopback", () => {
+  const saved = {
+    host: config.server.host,
+    internalHost: config.server.internalHost,
+    port: config.server.port,
+  };
+
+  try {
+    config.server.port = 3456;
+
+    config.server.host = "127.0.0.1";
+    config.server.internalHost = "127.0.0.1";
+    assert.equal(getInternalOrigin(), "http://127.0.0.1:3456");
+
+    config.server.host = "0.0.0.0";
+    assert.equal(getInternalOrigin(), "http://127.0.0.1:3456");
+
+    // A server bound to a specific LAN address is not listening on loopback.
+    config.server.host = "192.168.1.50";
+    assert.equal(getInternalOrigin(), "http://192.168.1.50:3456");
+
+    config.server.host = "::1";
+    assert.equal(getInternalOrigin(), "http://[::1]:3456");
+
+    // An explicit non-loopback INTERNAL_HOST wins over HOST.
+    config.server.host = "127.0.0.1";
+    config.server.internalHost = "10.0.0.5";
+    assert.equal(getInternalOrigin(), "http://10.0.0.5:3456");
+
+    // Wildcard bind addresses are not connectable targets.
+    config.server.host = "127.0.0.1";
+    config.server.internalHost = "0.0.0.0";
+    assert.equal(getInternalOrigin(), "http://127.0.0.1:3456");
+  } finally {
+    config.server.host = saved.host;
+    config.server.internalHost = saved.internalHost;
+    config.server.port = saved.port;
+  }
 });
 
 test("prompt limits reject byte and model-context overages locally", () => {

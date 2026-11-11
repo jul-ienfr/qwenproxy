@@ -8,6 +8,7 @@
 
 import { Hono } from "hono";
 import { config } from "../core/config.ts";
+import { getInternalOrigin } from "../core/internal-origin.ts";
 import {
   NotFoundError,
   SpecializedTaskLimitError,
@@ -34,24 +35,6 @@ const app = new Hono();
 
 function ownerOf(c: Parameters<typeof getUserIdentity>[0]): string {
   return getUserIdentity(c)?.id ?? "legacy";
-}
-
-/**
- * The worker must call this same process over loopback. Never derive the
- * origin from the request `Host` header: it is attacker-controlled and the
- * call carries the caller's Authorization header.
- */
-function taskOrigin(): string {
-  const host = config.server.host;
-  const connectHost =
-    host === "0.0.0.0" || host === "::" || host === "[::]" || !host
-      ? "127.0.0.1"
-      : host;
-  const formattedHost =
-    connectHost.includes(":") && !connectHost.startsWith("[")
-      ? `[${connectHost}]`
-      : connectHost;
-  return `http://${formattedHost}:${config.server.port}`;
 }
 
 function publicTask(task: SpecializedTask): Record<string, unknown> {
@@ -129,7 +112,7 @@ app.post("/v1/tasks", async (c) => {
       apiKey: c.req.header("x-api-key"),
       googApiKey: c.req.header("x-goog-api-key"),
       researchMode: c.req.header("x-qwenproxy-research-mode"),
-      origin: taskOrigin(),
+      origin: getInternalOrigin(),
     });
     return c.json(publicTask(task), 202);
   } catch (error) {

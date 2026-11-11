@@ -611,8 +611,10 @@ direct Qwen ids pass through unchanged.
 ### Diagnostics & Monitoring
 | Endpoint | Method | Description |
 | :--- | :---: | :--- |
-| `/health` | GET | System health check and active stream metrics |
-| `/metrics` | GET | Prometheus exposition |
+| `/health` | GET | Liveness for everyone; detailed build/runtime/usage data requires an admin identity |
+| `/metrics` | GET | Prometheus exposition (admin identity) |
+| `/logs`, `/logs/live` | GET | Log history and live SSE stream (admin identity) |
+| `/diagnostics/tokens` | GET | Upstream token TTL diagnostics (admin identity) |
 | `/v1/upload` | POST | Multimodal asset upload |
 
 ### API Contract & Interactive Docs

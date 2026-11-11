@@ -87,6 +87,15 @@ test("resolveWebSearch honours body, header, options and explicit false", () => 
   assert.equal(resolveWebSearch(fakeContext(), body({}), true), true);
 });
 
+test("resolveWebSearch rejects an invalid header value instead of ignoring it", () => {
+  assert.throws(
+    () => resolveWebSearch(fakeContext("sometimes"), body({}), false),
+    /x-qwenproxy-web-search/,
+  );
+  // Empty header is equivalent to absent, not invalid.
+  assert.equal(resolveWebSearch(fakeContext(""), body({}), false), false);
+});
+
 test("isSafeCitationUrl only accepts public http(s) URLs", () => {
   assert.equal(isSafeCitationUrl("https://example.com/a"), true);
   assert.equal(isSafeCitationUrl("http://example.org/b?x=1"), true);

@@ -337,6 +337,19 @@ app.get("/v1/models/:model", async (c) => {
       return sendOpenAIError(c, new NotFoundError("Model not found"));
     }
 
+    // Same cache contract as /v1/models: the entity depends on the rendered
+    // protocol shape, so shared caches must key on anthropic-version and the
+    // ETag must cover that shape too.
+    c.header("Vary", "anthropic-version", { append: true });
+    const etag = `"${createHash("md5")
+      .update(JSON.stringify({ anthropic, model }))
+      .digest("hex")}"`;
+    c.header("Cache-Control", "public, max-age=3600");
+    c.header("ETag", etag);
+    if (c.req.header("if-none-match") === etag) {
+      return c.body(null, 304);
+    }
+
     if (anthropic) {
       return c.json(toAnthropicModel(model, accountId));
     }

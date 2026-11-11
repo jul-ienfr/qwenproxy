@@ -286,7 +286,25 @@ test("Videos Generations Route: validates video generation and task status reque
   json = (await res.json()) as any;
   assert.ok(json.error.message.includes("requires a reference image"));
 
-  // 6. Video task status: non-existent task ID returns 404
+  // 6. `wait` must be a JSON boolean, not a truthy string/number.
+  for (const wait of ["yes", 0, null, {}]) {
+    res = await app.fetch(
+      new Request("http://localhost/v1/videos/generations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "wan3.0-video",
+          prompt: "cyberpunk drone flight",
+          wait,
+        }),
+      }),
+    );
+    assert.equal(res.status, 400, `wait ${JSON.stringify(wait)} should be 400`);
+    json = (await res.json()) as any;
+    assert.ok(json.error.message.includes("wait"));
+  }
+
+  // 7. Video task status: non-existent task ID returns 404
   res = await app.fetch(new Request("http://localhost/v1/tasks/status/task_non_existent_123"));
   assert.equal(res.status, 404);
   json = (await res.json()) as any;

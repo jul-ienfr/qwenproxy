@@ -15,8 +15,11 @@ function mockContext(body: unknown): any {
   return {
     req: {
       json: async () => body,
-      header: (name: string) =>
-        name === "x-request-id" ? "req-rf-test" : "test-agent",
+      header: (name: string) => {
+        if (name === "x-request-id") return "req-rf-test";
+        if (name === "user-agent") return "test-agent";
+        return undefined;
+      },
     },
   };
 }

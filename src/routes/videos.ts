@@ -93,7 +93,13 @@ export async function videosGenerations(c: Context): Promise<Response> {
       ),
     );
   }
-  const wait = body.wait !== false;
+  if (body.wait !== undefined && typeof body.wait !== "boolean") {
+    return sendOpenAIError(
+      c,
+      validationError("`wait` must be a boolean", "wait"),
+    );
+  }
+  const wait = body.wait ?? true;
   const ownerId = ownerOf(c);
 
   const capacity = checkVideoTaskCapacity(ownerId, config.videos);

@@ -85,6 +85,11 @@ export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
   }
 
   logIncomingChatRequest(c, body);
+  // Validate the opt-in header before doing any upload/download work so an
+  // invalid value fails fast with a 400 instead of being silently ignored.
+  const headerWebSearch = parseWebSearchHeader(
+    c.req.header("x-qwenproxy-web-search"),
+  );
   const isStream = body.stream ?? false;
   const conversationKey = extractExplicitConversationKey(c, body);
   const messages = body.messages || [];
@@ -113,7 +118,7 @@ export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
     reasoningMode,
     search: searchSuffix,
   } = parseModelSuffix(body.model);
-  const webSearch = resolveWebSearch(c, body, searchSuffix);
+  const webSearch = resolveWebSearch(c, body, searchSuffix, headerWebSearch);
   const specialized = resolveSpecializedModel(baseModel);
   const modelId = specialized
     ? specialized.id
@@ -181,6 +186,24 @@ function parseBooleanFlag(value: unknown): boolean | undefined {
 }
 
 /**
+ * Parse the opt-in web-search header. Absent/empty means "not specified";
+ * anything present but unrecognised is a client error, because silently
+ * treating it as "not requested" hides typos and makes debugging harder.
+ */
+export function parseWebSearchHeader(raw: string | undefined): boolean | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const parsed = parseBooleanFlag(raw);
+  if (parsed === undefined) {
+    const error = new ValidationError(
+      "Header 'x-qwenproxy-web-search' must be a boolean (true/false, 1/0, yes/no, on/off)",
+    );
+    error.param = "x-qwenproxy-web-search";
+    throw error;
+  }
+  return parsed;
+}
+
+/**
  * Resolve the per-request search opt-in. Sources: body `web_search` (or its
  * camelCase alias), the `X-QwenProxy-Web-Search` header, the presence of
  * `web_search_options`, and a `-search` model suffix. An explicit `false` from
@@ -190,14 +213,14 @@ export function resolveWebSearch(
   c: Context,
   body: OpenAIRequest,
   suffixSearch: boolean,
+  parsedHeaderFlag?: boolean,
 ): boolean {
   const bodyAny = body as any;
   const bodyFlag =
     parseBooleanFlag(bodyAny.web_search) ??
     parseBooleanFlag(bodyAny.webSearch);
-  const headerFlag = parseBooleanFlag(
-    c.req.header("x-qwenproxy-web-search"),
-  );
+  const headerFlag =
+    parsedHeaderFlag ?? parseWebSearchHeader(c.req.header("x-qwenproxy-web-search"));
 
   if (bodyFlag === false || headerFlag === false) return false;
 

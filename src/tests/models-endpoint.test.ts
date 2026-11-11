@@ -160,6 +160,34 @@ test("models endpoint returns a single model and 404 for missing model", async (
     const model = (await found.json()) as any;
     assert.equal(model.id, "qwen-test-model");
 
+    const etag = found.headers.get("etag");
+    assert.ok(etag, "single-model responses must carry an ETag");
+    assert.equal(
+      found.headers.get("cache-control"),
+      "public, max-age=3600",
+    );
+    assert.ok(found.headers.get("vary")?.includes("anthropic-version"));
+
+    const revalidated = await app.fetch(
+      new Request("http://localhost/v1/models/qwen-test-model", {
+        headers: { "If-None-Match": etag! },
+      }),
+    );
+    assert.equal(revalidated.status, 304);
+    assert.equal(revalidated.headers.get("etag"), etag);
+
+    const anthropicShape = await app.fetch(
+      new Request("http://localhost/v1/models/qwen-test-model", {
+        headers: { "anthropic-version": "2023-06-01" },
+      }),
+    );
+    assert.equal(anthropicShape.status, 200);
+    assert.notEqual(
+      anthropicShape.headers.get("etag"),
+      etag,
+      "the ETag must not validate the other protocol shape",
+    );
+
     const missing = await app.fetch(
       new Request("http://localhost/v1/models/not-a-model"),
     );

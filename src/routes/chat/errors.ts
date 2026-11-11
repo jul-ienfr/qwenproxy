@@ -1,3 +1,5 @@
+import { statusFromOpenAIError } from "../../services/qwen-errors.ts";
+
 /**
  * Parse a non-SSE upstream body that may contain a Qwen error payload.
  * Returns null when the body is not a recognized error document.
@@ -73,7 +75,7 @@ export function parseQwenErrorPayload(
         code,
         details,
         message: `Qwen upstream error: ${code}: ${details}`,
-        status: 502,
+        status: statusFromOpenAIError(error),
       };
     }
   } catch {

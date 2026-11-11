@@ -23,6 +23,49 @@ export function isRetryableFetchErrorMessage(message: string): boolean {
   );
 }
 
+/**
+ * Infer the client-actionable HTTP status carried by an OpenAI-shaped upstream
+ * error object.
+ *
+ * Qwen sometimes returns such a payload inside an HTTP 200 response (or in a
+ * non-SSE body), so the transport status cannot be trusted as the error status.
+ * Only clearly client-actionable statuses are surfaced: account-session 401/403
+ * stay on the fallback (502) because failover resolves them behind the scenes,
+ * and the caller's own key was already accepted by this proxy.
+ */
+export function statusFromOpenAIError(
+  error: unknown,
+  fallbackStatus = 502,
+): number {
+  const record =
+    typeof error === "object" && error !== null
+      ? (error as Record<string, unknown>)
+      : null;
+
+  const rawStatus = record?.status;
+  if (typeof rawStatus === "number" && Number.isInteger(rawStatus)) {
+    if (rawStatus === 400 || rawStatus === 404 || rawStatus === 429) {
+      return rawStatus;
+    }
+  }
+
+  const code = [record?.code, record?.type].find(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  if (code) {
+    const normalized = code.toLowerCase();
+    if (/(^|[^a-z])rate[_ -]?limit|quota/.test(normalized)) return 429;
+    if (/(^|[^a-z])not[_ -]?found/.test(normalized)) return 404;
+    if (/invalid|bad[_ -]?request|unsupported/.test(normalized)) return 400;
+  }
+
+  return fallbackStatus === 400 ||
+    fallbackStatus === 404 ||
+    fallbackStatus === 429
+    ? fallbackStatus
+    : 502;
+}
+
 export class RetryableQwenStreamError extends UpstreamRateLimit {
   readonly retryAfterMs: number;
   /** Original upstream category; avoids exposing the inherited rate-limit code. */

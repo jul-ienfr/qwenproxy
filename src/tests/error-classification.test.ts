@@ -12,7 +12,7 @@ import {
   ServiceUnavailable,
   NotFoundError,
 } from "../core/errors.ts";
-import { computeDynamicIdleTimeout, QwenUpstreamError, parseQwenJsonError } from "../services/qwen.ts";
+import { computeDynamicIdleTimeout, QwenUpstreamError, RetryableQwenStreamError, parseQwenJsonError } from "../services/qwen.ts";
 import { config } from "../core/config.ts";
 
 /**
@@ -126,6 +126,30 @@ test("B3: OpenAI-shaped upstream errors preserve 400/404/429", () => {
     401,
   ) as any;
   assert.strictEqual(unauthorized.upstreamStatus, 502);
+});
+
+test("B3: pre-stream payload hints survive the retryable classifier path", () => {
+  const hinted = new RetryableQwenStreamError(
+    "Qwen retryable upstream error: invalid_parameter: bad argument",
+    config.retry.baseDelayMs,
+  ) as RetryableQwenStreamError & {
+    upstreamCode: string;
+    upstreamStatus: number;
+  };
+  hinted.upstreamCode = "invalid_parameter";
+  hinted.upstreamStatus = 400;
+
+  const classified = classifyError(hinted);
+  assert.strictEqual(classified.statusCode, 400);
+  assert.strictEqual(classified.type, "invalid_request_error");
+  assert.strictEqual(classified.code, "invalid_parameter");
+
+  const missing = new RetryableQwenStreamError(
+    "Qwen retryable upstream error: model_not_found: gone",
+    config.retry.baseDelayMs,
+  ) as RetryableQwenStreamError & { upstreamStatus: number };
+  missing.upstreamStatus = 404;
+  assert.strictEqual(classifyError(missing).statusCode, 404);
 });
 
 // --- Bug C: the parallel-escape idle cap must not kill THINKING streams.

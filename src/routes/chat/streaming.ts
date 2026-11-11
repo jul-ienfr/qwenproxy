@@ -172,7 +172,22 @@ function hasSseProtocolStart(buffer: string): boolean {
 function throwParsedUpstreamError(
   error: NonNullable<ReturnType<typeof parseQwenErrorPayload>>,
 ): never {
-  throwFromSseUpstreamError(error.code, error.details);
+  try {
+    throwFromSseUpstreamError(error.code, error.details);
+  } catch (thrown) {
+    // A pre-stream payload can carry a client-actionable 400/404/429 (e.g. an
+    // OpenAI-shaped `{"error":{"code":"invalid_parameter","status":400}}`).
+    // Attach it as a hint so the outer classifier does not flatten a
+    // satisfiable request into a generic 502.
+    if (
+      thrown &&
+      typeof thrown === "object" &&
+      (error.status === 400 || error.status === 404 || error.status === 429)
+    ) {
+      (thrown as { upstreamStatus?: number }).upstreamStatus = error.status;
+    }
+    throw thrown;
+  }
 }
 
 export interface AssistantCompleteEvent {
@@ -2115,19 +2130,17 @@ export async function processStreamingResponse(
       // Post-stream: error check + flush remaining content
       const upstreamError = parseQwenErrorPayload(buffer);
       if (upstreamError) {
+        // A JSON error document that ends the stream (no `data:` prefix) is a
+        // failure, not model output. Surface it as a protocol-native error
+        // frame; writing it as assistant content would make clients treat the
+        // error text as a successful answer.
         await writeEvent({
-          id: completionId,
-          object: "chat.completion.chunk",
-          created: createdTimestamp,
-          model: body.model,
-          choices: [makeChoice({ content: upstreamError.message })],
-        });
-        await writeEvent({
-          id: completionId,
-          object: "chat.completion.chunk",
-          created: createdTimestamp,
-          model: body.model,
-          choices: [makeChoice({}, "stop")],
+          error: {
+            message: upstreamError.message,
+            type: "api_error",
+            code: upstreamError.code,
+            param: null,
+          },
         });
         flushWrites();
         await streamWriter.write("data: [DONE]\n\n");

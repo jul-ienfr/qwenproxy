@@ -386,6 +386,53 @@ test("Chat Completions returns explicit error for non-SSE upstream JSON errors",
   }
 });
 
+test("Chat Completions preserves an OpenAI-shaped upstream 400", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input: any) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.includes("/api/v2/chat/completions")) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "Unsupported parameter: max_tokens",
+            type: "invalid_request_error",
+            code: "invalid_parameter",
+            status: 400,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return originalFetch(input);
+  };
+
+  await Promise.resolve();
+
+  try {
+    const res = await app.fetch(
+      new Request("http://localhost/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "qwen3.6-plus",
+          messages: [{ role: "user", content: "hello" }],
+          stream: false,
+        }),
+      }),
+    );
+    assert.strictEqual(res.status, 400);
+
+    const body = await res.json();
+    assert.match(body.error.message, /Unsupported parameter/);
+    assert.strictEqual(body.error.type, "invalid_request_error");
+  } finally {
+    clearAccountCooldown("mock-account");
+    clearAllAccountCooldowns();
+    globalThis.fetch = originalFetch;
+    await Promise.resolve();
+  }
+});
+
 test("Chat Completions returns explicit error for stream=true upstream JSON errors", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input: any) => {

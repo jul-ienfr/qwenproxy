@@ -267,6 +267,44 @@ test("parseQwenErrorPayload parses payload.error documents", () => {
   assert.strictEqual(withObjectNoFields!.details, JSON.stringify({ weird: 1 }));
 });
 
+test("parseQwenErrorPayload preserves a client-actionable status", () => {
+  const invalid = parseQwenErrorPayload(
+    JSON.stringify({
+      error: {
+        message: "bad argument",
+        type: "invalid_request_error",
+        code: "invalid_parameter",
+        status: 400,
+      },
+    }),
+  );
+  assert.ok(invalid);
+  assert.strictEqual(invalid!.status, 400);
+
+  const missing = parseQwenErrorPayload(
+    JSON.stringify({ error: { message: "gone", code: "model_not_found" } }),
+  );
+  assert.ok(missing);
+  assert.strictEqual(missing!.status, 404);
+
+  const limited = parseQwenErrorPayload(
+    JSON.stringify({
+      error: { message: "slow down", type: "rate_limit_error" },
+    }),
+  );
+  assert.ok(limited);
+  assert.strictEqual(limited!.status, 429);
+
+  // Account-session statuses must not look like the caller's own auth failure.
+  const expired = parseQwenErrorPayload(
+    JSON.stringify({
+      error: { message: "login required", code: "token_expired", status: 401 },
+    }),
+  );
+  assert.ok(expired);
+  assert.strictEqual(expired!.status, 502);
+});
+
 test("parseQwenErrorPayload detects WAF challenges and generic non-SSE bodies", () => {
   const waf = parseQwenErrorPayload(
     "<html>aliyun_waf captcha Security Verification page</html>",

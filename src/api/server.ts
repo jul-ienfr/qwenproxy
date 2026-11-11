@@ -125,7 +125,7 @@ function payloadTooLarge(c: Context): Response {
     return c.json(
       {
         type: "error",
-        error: { type: "invalid_request_error", message },
+        error: { type: "request_too_large", message },
       },
       413,
     );

@@ -74,6 +74,7 @@ import {
   QwenSessionExpiredError,
   QwenUpstreamUnavailableError,
   QwenNetworkError,
+  statusFromOpenAIError,
 } from "./qwen-errors.ts";
 import {
   clearAllSessionsForAccount,
@@ -2765,7 +2766,14 @@ export function parseQwenJsonError(
       typeof errorJson.error === "string"
         ? errorJson.error
         : errorJson.error.message || JSON.stringify(errorJson.error);
-    if (status === 429 || isQwenQuotaLimitMessage(message)) {
+    // The transport status can be 200 for a JSON error body, so prefer the
+    // status/code embedded in the payload. 401/403 still fall back to 502.
+    const effectiveStatus = statusFromOpenAIError(errorJson.error, status);
+    if (
+      effectiveStatus === 429 ||
+      status === 429 ||
+      isQwenQuotaLimitMessage(message)
+    ) {
       return new UpstreamRateLimit(`Qwen upstream error: ${message}`);
     }
 
@@ -2778,7 +2786,9 @@ export function parseQwenJsonError(
         ? errorJson.error.code
         : "UpstreamError";
     const upstreamStatus =
-      status === 400 || status === 404 ? status : 502;
+      effectiveStatus === 400 || effectiveStatus === 404
+        ? effectiveStatus
+        : 502;
     return new QwenUpstreamError(
       `Qwen upstream error: ${message}`,
       upstreamCode,

@@ -60,9 +60,25 @@ export function classifyError(err: unknown): QwenProxyError {
       message.includes("quota") ||
       message.includes("upper limit for today");
 
-    return isActualRateLimit
+    const classified = isActualRateLimit
       ? new UpstreamRateLimit(err.message)
       : new UpstreamError(err.message);
+
+    // Non-SSE upstream payloads (and early SSE failures) may carry a
+    // client-actionable 400/404 status. Honor the hint attached by the parser
+    // instead of flattening it to 502; 429 is already represented above.
+    const statusHint = (err as { upstreamStatus?: unknown }).upstreamStatus;
+    if (typeof statusHint === "number" && statusHint !== 429) {
+      const hintTarget = classified as {
+        upstreamStatus?: number;
+        upstreamCode?: string;
+      };
+      hintTarget.upstreamStatus = statusHint;
+      const upstreamCode = getQwenErrorCode(err);
+      if (upstreamCode) hintTarget.upstreamCode = upstreamCode;
+      return applyUpstreamHint(classified);
+    }
+    return classified;
   }
 
   if (err instanceof QwenUpstreamError) {

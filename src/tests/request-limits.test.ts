@@ -52,6 +52,22 @@ test("limits: oversized Gemini requests keep the Gemini error envelope", async (
   assert.equal(body.error.status, "RESOURCE_EXHAUSTED");
 });
 
+test("limits: oversized Anthropic requests keep the Anthropic error envelope", async () => {
+  const res = await post(
+    "/v1/messages",
+    OVERSIZED_BODY,
+    "application/json",
+  );
+  assert.equal(res.status, 413);
+  const body = (await res.json()) as {
+    type: string;
+    error: { type: string; message: string };
+  };
+  assert.equal(body.type, "error");
+  assert.equal(body.error.type, "request_too_large");
+  assert.match(body.error.message, /allowed size/i);
+});
+
 test("limits: admin login bodies are capped at 1 MB", async () => {
   const res = await post(
     "/admin/api/session",

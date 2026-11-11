@@ -25,6 +25,32 @@ test("OPTIONS preflight allows loopback browser origins by default", async () =>
   );
 });
 
+test("OPTIONS preflight reflects SDK-specific requested headers", async () => {
+  const res = await app.fetch(
+    new Request("http://localhost/v1/messages", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:5173",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers":
+          "anthropic-version, anthropic-dangerous-direct-browser-access, x-stainless-lang",
+      },
+    }),
+  );
+
+  assert.strictEqual(res.status, 204);
+  const allowed = (
+    res.headers.get("access-control-allow-headers") || ""
+  ).toLowerCase();
+  assert.ok(allowed.includes("anthropic-version"));
+  assert.ok(allowed.includes("anthropic-dangerous-direct-browser-access"));
+  assert.ok(allowed.includes("x-stainless-lang"));
+  assert.strictEqual(res.headers.get("access-control-max-age"), "600");
+  assert.ok(
+    res.headers.get("access-control-expose-headers")?.includes("retry-after"),
+  );
+});
+
 test("OPTIONS preflight rejects non-loopback browser origins by default", async () => {
   const res = await app.fetch(
     new Request("http://localhost/v1/chat/completions", {

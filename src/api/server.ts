@@ -240,6 +240,52 @@ export function setCacheForTesting(nextCache: MemoryCache | undefined): void {
 
 // Middleware must be registered BEFORE routes
 
+/**
+ * CORS is origin-gated above; once an origin is allowed, reflecting the
+ * preflight's requested headers keeps SDK-specific headers (Anthropic's
+ * `anthropic-version`, the browser SDK's `anthropic-dangerous-direct-browser-access`,
+ * x-stainless-*) working without maintaining a brittle allow-list.
+ */
+function corsAllowHeaders(c: Context): string {
+  const requested = c.req.header("access-control-request-headers")?.trim();
+  if (requested) return requested;
+  return [
+    "Authorization",
+    "Content-Type",
+    "X-Request-Id",
+    "x-api-key",
+    "x-goog-api-key",
+    "anthropic-version",
+    "anthropic-beta",
+    "x-session-id",
+    "x-session-affinity",
+    "x-claude-code-session-id",
+    "x-csrf-token",
+    "x-qwenproxy-chat-mode",
+    "x-qwenproxy-research-mode",
+    "OpenAI-Organization",
+    "OpenAI-Project",
+    "X-Client-Request-Id",
+  ].join(", ");
+}
+
+const CORS_EXPOSED_HEADERS = [
+  "X-Request-Id",
+  "X-Response-Time",
+  "openai-version",
+  "openai-processing-ms",
+  "anthropic-version",
+  "request-id",
+  "retry-after",
+  "x-ratelimit-limit-requests",
+  "x-ratelimit-remaining-requests",
+  "x-ratelimit-reset-requests",
+  "x-ratelimit-limit-tokens",
+  "x-ratelimit-remaining-tokens",
+  "x-ratelimit-reset-tokens",
+  "x-qwenproxy-gemini-warnings",
+].join(", ");
+
 // Explicit CORS configuration wins. Without it, browser clients running on a
 // loopback origin are allowed while arbitrary pages cannot drive the local API.
 function getCorsOrigin(requestOrigin?: string): string {
@@ -270,14 +316,9 @@ app.use("*", async (c, next) => {
       "Access-Control-Allow-Methods",
       "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     );
-    c.header(
-      "Access-Control-Allow-Headers",
-      "Authorization, Content-Type, X-Request-Id, x-api-key, x-goog-api-key, OpenAI-Organization, OpenAI-Project, X-Client-Request-Id, X-QwenProxy-Chat-Mode",
-    );
-    c.header(
-      "Access-Control-Expose-Headers",
-      "X-Request-Id, X-Response-Time, openai-version, openai-processing-ms, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-ratelimit-limit-tokens, x-ratelimit-remaining-tokens, x-ratelimit-reset-tokens",
-    );
+    c.header("Access-Control-Allow-Headers", corsAllowHeaders(c));
+    c.header("Access-Control-Expose-Headers", CORS_EXPOSED_HEADERS);
+    c.header("Access-Control-Max-Age", "600");
   }
   if (c.req.method === "OPTIONS") {
     if (!corsOrigin) {
@@ -290,10 +331,9 @@ app.use("*", async (c, next) => {
         Vary: "Origin",
         "Access-Control-Allow-Methods":
           "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers":
-          "Authorization, Content-Type, X-Request-Id, x-api-key, x-goog-api-key, OpenAI-Organization, OpenAI-Project, X-Client-Request-Id, X-QwenProxy-Chat-Mode",
-        "Access-Control-Expose-Headers":
-          "X-Request-Id, X-Response-Time, openai-version, openai-processing-ms, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-ratelimit-limit-tokens, x-ratelimit-remaining-tokens, x-ratelimit-reset-tokens",
+        "Access-Control-Allow-Headers": corsAllowHeaders(c),
+        "Access-Control-Expose-Headers": CORS_EXPOSED_HEADERS,
+        "Access-Control-Max-Age": "600",
       },
     });
   }

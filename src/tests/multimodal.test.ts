@@ -4,6 +4,7 @@ import assert from "node:assert";
 process.env.TEST_MOCK_QWEN_AUTH = "true";
 
 import { processImagesForQwen } from "../routes/upload.ts";
+import { setRemoteMediaFetcherForTests } from "../core/safe-remote-url.ts";
 import { formatGeneratedVideoContent } from "../routes/chat/media.ts";
 import { fetchQwenModels } from "../services/qwen.ts";
 import {
@@ -180,6 +181,17 @@ test("processImagesForQwen re-uploads remote HTTP files to Qwen OSS", async () =
   let remoteDownloads = 0;
   let stsRequests = 0;
 
+  // Remote downloads now go through the SSRF-safe fetch (which does not use
+  // global fetch), so stub the media fetcher directly for this flow test.
+  setRemoteMediaFetcherForTests(async (url) => {
+    if (url !== remoteUrl) throw new Error(`Unexpected media URL: ${url}`);
+    remoteDownloads++;
+    return new Response(remoteBuffer, {
+      status: 200,
+      headers: { "Content-Type": "application/pdf" },
+    });
+  });
+
   globalThis.fetch = async (input: any, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.url;
 
@@ -251,6 +263,7 @@ test("processImagesForQwen re-uploads remote HTTP files to Qwen OSS", async () =
     );
     assert.strictEqual(result.files[0].size, remoteBuffer.length);
   } finally {
+    setRemoteMediaFetcherForTests(null);
     globalThis.fetch = originalFetch;
   }
 });

@@ -12,7 +12,7 @@ import { qwenUrl } from "../services/qwen-url.ts";
 import { config } from "../core/config.ts";
 import {
   UnsafeRemoteUrlError,
-  assertSafeRemoteMediaUrl,
+  fetchRemoteMedia,
   readResponseWithByteCap,
 } from "../core/safe-remote-url.ts";
 
@@ -293,15 +293,16 @@ async function downloadRemoteMedia(url: string): Promise<{
   filename: string;
   mime: string;
 }> {
-  await assertSafeRemoteMediaUrl(url);
   const headMimeGuess = detectFileType(getFilenameFromUrl(url)).mime;
   const maxSize = getMaxUploadSize(headMimeGuess);
-  const response = await fetch(url, {
+  // Downloads go through the SSRF-safe fetch: DNS is validated by the
+  // connection's lookup hook, so a rebinding resolver cannot point the socket
+  // at a private address after the check.
+  const response = await fetchRemoteMedia(url, {
     headers: {
       "User-Agent": config.auth.userAgent,
       Accept: "image/*,*/*;q=0.8",
     },
-    redirect: "error",
   });
   if (!response.ok) {
     throw new Error(`Remote media download failed: ${response.status}`);
@@ -316,6 +317,9 @@ async function downloadRemoteMedia(url: string): Promise<{
       : detectFileType(filename).mime;
 
   if (!SUPPORTED_MIME_TYPES.has(detectedMime)) {
+    try {
+      await response.body?.cancel();
+    } catch {}
     throw new Error(
       `Unsupported remote media type: ${headerMime || detectedMime || "unknown"}`,
     );

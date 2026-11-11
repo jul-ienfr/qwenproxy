@@ -11,6 +11,9 @@ const { parseRequestBody } = await import("../routes/chat/validation.ts");
 const { ValidationError } = await import("../core/errors.ts");
 const { config } = await import("../core/config.ts");
 const { logger, isToolcallDebugEnabled } = await import("../core/logger.ts");
+const { setRemoteMediaFetcherForTests } = await import(
+  "../core/safe-remote-url.ts"
+);
 
 function mockContext(body: unknown): any {
   return {
@@ -360,6 +363,13 @@ test("parseRequestBody current prompt starts at first tool result when no tool_c
 test("parseRequestBody uploads current-message files and keeps text", async () => {
   const originalFetch = globalThis.fetch;
   const remoteUrl = "https://example.com/docs/report.pdf";
+  setRemoteMediaFetcherForTests(async (url) => {
+    if (url !== remoteUrl) throw new Error(`unexpected media fetch: ${url}`);
+    return new Response(Buffer.from("pdf-bytes"), {
+      status: 200,
+      headers: { "Content-Type": "application/pdf" },
+    });
+  });
   globalThis.fetch = (async (input: any) => {
     const url = typeof input === "string" ? input : input.url;
     if (url === remoteUrl) {
@@ -414,6 +424,7 @@ test("parseRequestBody uploads current-message files and keeps text", async () =
     );
     assert.ok(parsed.currentPrompt.includes("analyze this file"));
   } finally {
+    setRemoteMediaFetcherForTests(null);
     globalThis.fetch = originalFetch;
   }
 });

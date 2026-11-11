@@ -12,7 +12,7 @@ import { logger } from "../core/logger.ts";
 import { sendOpenAIError } from "../api/error-helpers.ts";
 import { ValidationError } from "../core/errors.ts";
 import {
-  assertSafeRemoteMediaUrl,
+  fetchRemoteMedia,
   readResponseWithByteCap,
 } from "../core/safe-remote-url.ts";
 
@@ -48,9 +48,10 @@ function validationError(message: string, param: string): ValidationError {
   return err;
 }
 
-async function urlToBase64(url: string): Promise<string> {
-  await assertSafeRemoteMediaUrl(url);
-  const response = await fetch(url, { redirect: "error" });
+async function urlToBase64(url: string, signal?: AbortSignal): Promise<string> {
+  // Connection-time DNS validation prevents a rebinding resolver from
+  // swapping in a private address after a separate pre-flight check.
+  const response = await fetchRemoteMedia(url, { signal });
   if (!response.ok) {
     throw new Error(`Failed to download generated image: HTTP ${response.status}`);
   }
@@ -205,7 +206,7 @@ export async function imagesGenerations(c: Context): Promise<Response> {
       results.map(async (result): Promise<ImageDataItem> => {
         const item: ImageDataItem =
           responseFormat === "b64_json"
-            ? { b64_json: await urlToBase64(result.url) }
+            ? { b64_json: await urlToBase64(result.url, c.req.raw.signal) }
             : { url: result.url };
         if (result.revised_prompt) {
           item.revised_prompt = result.revised_prompt;
@@ -410,7 +411,7 @@ export async function imagesEdits(c: Context): Promise<Response> {
       results.map(async (result): Promise<ImageDataItem> => {
         const item: ImageDataItem =
           responseFormat === "b64_json"
-            ? { b64_json: await urlToBase64(result.url) }
+            ? { b64_json: await urlToBase64(result.url, c.req.raw.signal) }
             : { url: result.url };
         if (result.revised_prompt) {
           item.revised_prompt = result.revised_prompt;

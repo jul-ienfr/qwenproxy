@@ -311,6 +311,32 @@ test("Videos Generations Route: validates video generation and task status reque
   assert.ok(json.error.message.includes("not found"));
 });
 
+test("Videos Task Status: rejects a non-boolean wait query", async () => {
+  resetVideoTasksForTests();
+  createVideoTask({
+    taskId: "task_wait_invalid",
+    ownerId: "local-admin",
+    accountId: "account-test",
+    chatId: "chat-test",
+    status: "pending",
+  });
+
+  try {
+    for (const wait of ["yes", "1", "maybe"]) {
+      const res = await app.fetch(
+        new Request(
+          `http://localhost/v1/tasks/status/task_wait_invalid?wait=${wait}`,
+        ),
+      );
+      assert.equal(res.status, 400, `wait=${wait} should be 400`);
+      const json = (await res.json()) as any;
+      assert.match(json.error.message, /wait/);
+    }
+  } finally {
+    resetVideoTasksForTests();
+  }
+});
+
 test("Videos Task Status: a plain poll refreshes a pending task from upstream", async () => {
   resetVideoTasksForTests();
   createVideoTask({
@@ -359,6 +385,21 @@ test("Videos Task Status: a plain poll refreshes a pending task from upstream", 
     config.qwen.browserOnlyFetch = originalBrowserOnly;
     resetVideoTasksForTests();
   }
+});
+
+test("POST /v1/upload rejects a non-file 'file' field with 400", async () => {
+  const form = new FormData();
+  form.set("file", "not-a-file");
+  const res = await app.fetch(
+    new Request("http://localhost/v1/upload", {
+      method: "POST",
+      body: form,
+    }),
+  );
+  assert.equal(res.status, 400);
+  const json = (await res.json()) as any;
+  assert.equal(json.error.type, "invalid_request_error");
+  assert.match(json.error.message, /file upload/);
 });
 
 test("POST /v1/upload rejects a malformed multipart body with 400", async () => {

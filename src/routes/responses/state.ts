@@ -31,8 +31,11 @@ export interface StoredResponse {
 const cache = new Map<string, StoredResponse>();
 const MAX_CACHE_SIZE = 500;
 // Max age (ms) - 7 days for SQLite, 24h for cache
-const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const RESPONSE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_AGE_MS = RESPONSE_RETENTION_MS;
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+let lastPruneAt = 0;
 
 let tableReady = false;
 
@@ -68,6 +71,33 @@ function ensureTable(): void {
 }
 
 /**
+ * Drop expired rows and cache entries. Reads already treat stale entries as
+ * missing; this bounds storage on long-running servers where a response is
+ * stored once and never read again (the common case for stateless clients).
+ */
+export function pruneExpiredResponses(now = Date.now()): number {
+  let removed = 0;
+  for (const [id, entry] of cache) {
+    if (now - entry.storedAt > CACHE_MAX_AGE_MS) {
+      cache.delete(id);
+      removed++;
+    }
+  }
+
+  ensureTable();
+  if (!tableReady) return removed;
+  try {
+    const result = getDatabase()
+      .prepare(`DELETE FROM responses_store WHERE stored_at < ?`)
+      .run(now - MAX_AGE_MS);
+    removed += result.changes;
+  } catch {
+    // Retention is best effort; the lookup path still enforces the age check.
+  }
+  return removed;
+}
+
+/**
  * Store a completed response for future `previous_response_id` lookups.
  * Persists to SQLite + in-memory cache.
  */
@@ -100,6 +130,11 @@ export function storeResponse(
 
   // SQLite persistence
   ensureTable();
+  const now = Date.now();
+  if (now - lastPruneAt >= PRUNE_INTERVAL_MS) {
+    lastPruneAt = now;
+    pruneExpiredResponses(now);
+  }
   if (tableReady) {
     try {
       const db = getDatabase();

@@ -205,7 +205,18 @@ export async function videoTaskStatus(c: Context): Promise<Response> {
     return sendOpenAIError(c, new NotFoundError(`Video task not found: ${taskId}`));
   }
 
-  const wait = c.req.query("wait") === "true";
+  const waitRaw = c.req.query("wait");
+  let wait = false;
+  if (waitRaw !== undefined && waitRaw.trim() !== "") {
+    const normalized = waitRaw.trim().toLowerCase();
+    if (normalized !== "true" && normalized !== "false") {
+      return sendOpenAIError(
+        c,
+        validationError("`wait` must be a boolean", "wait"),
+      );
+    }
+    wait = normalized === "true";
+  }
 
   try {
     const isTerminal = entry.status === "completed" || entry.status === "failed";

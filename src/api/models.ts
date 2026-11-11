@@ -284,10 +284,19 @@ app.get("/v1/models", async (c) => {
     // The response shape depends on the protocol header, so a shared cache
     // must key on it as well as the URL.
     c.header("Vary", "anthropic-version", { append: true });
-    // The ETag covers the rendered shape too; otherwise an Anthropic client
-    // could revalidate an OpenAI-shaped entity and receive a 304.
+    const rendered = anthropic
+      ? {
+          data: allModels.map((model) => toAnthropicModel(model, accountId)),
+          has_more: false,
+        }
+      : {
+          object: "list",
+          data: allModels,
+        };
+    // Hash the rendered body so an account-dependent capability field or a
+    // synthesized timestamp can never be served stale under a 304.
     const etag = `"${createHash("md5")
-      .update(JSON.stringify({ anthropic, models: allModels }))
+      .update(JSON.stringify({ anthropic, rendered }))
       .digest("hex")}"`;
 
     c.header("Cache-Control", "public, max-age=3600");
@@ -297,17 +306,7 @@ app.get("/v1/models", async (c) => {
       return c.body(null, 304);
     }
 
-    if (anthropic) {
-      return c.json({
-        data: allModels.map((model) => toAnthropicModel(model, accountId)),
-        has_more: false,
-      });
-    }
-
-    return c.json({
-      object: "list",
-      data: allModels,
-    });
+    return c.json(rendered);
   } catch (error) {
     console.error("❌ [Models] Error fetching models:", error);
     return sendOpenAIError(c, error);
@@ -339,10 +338,12 @@ app.get("/v1/models/:model", async (c) => {
 
     // Same cache contract as /v1/models: the entity depends on the rendered
     // protocol shape, so shared caches must key on anthropic-version and the
-    // ETag must cover that shape too.
+    // ETag must cover that shape too. Hash the rendered body (not the source
+    // model) so a capability/account-dependent field can never be stale.
+    const rendered = anthropic ? toAnthropicModel(model, accountId) : model;
     c.header("Vary", "anthropic-version", { append: true });
     const etag = `"${createHash("md5")
-      .update(JSON.stringify({ anthropic, model }))
+      .update(JSON.stringify({ anthropic, rendered }))
       .digest("hex")}"`;
     c.header("Cache-Control", "public, max-age=3600");
     c.header("ETag", etag);
@@ -350,11 +351,7 @@ app.get("/v1/models/:model", async (c) => {
       return c.body(null, 304);
     }
 
-    if (anthropic) {
-      return c.json(toAnthropicModel(model, accountId));
-    }
-
-    return c.json(model);
+    return c.json(rendered);
   } catch (error) {
     console.error("❌ [Models] Error fetching model:", error);
     return sendOpenAIError(c, error);

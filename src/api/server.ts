@@ -112,7 +112,11 @@ function payloadTooLarge(c: Context): Response {
       413,
     );
   }
-  if (c.req.path.startsWith("/v1/messages")) {
+  const isAnthropic =
+    c.req.path.startsWith("/v1/messages") ||
+    c.req.path === "/messages" ||
+    Boolean(c.req.header("anthropic-version"));
+  if (isAnthropic) {
     c.header(
       "anthropic-version",
       c.req.header("anthropic-version") || "2023-06-01",

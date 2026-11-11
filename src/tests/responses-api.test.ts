@@ -10,6 +10,8 @@ import {
   getResponseHistory,
   getStoredResponse,
   deleteStoredResponse,
+  pruneExpiredResponses,
+  RESPONSE_RETENTION_MS,
 } from "../routes/responses/state.ts";
 import {
   createStreamState,
@@ -98,6 +100,28 @@ test("Responses State: storeResponse, getResponseHistory, getStoredResponse, and
   assert.equal(deleted, true);
   assert.equal(getResponseHistory(responseId), null);
   assert.equal(getStoredResponse(responseId), null);
+});
+
+test("Responses State: expired entries are pruned and fresh entries survive", () => {
+  const freshId = "resp_test_prune_fresh";
+  const staleId = "resp_test_prune_stale";
+  const chat = [{ role: "user" as const, content: "hi" }];
+
+  storeResponse(freshId, minimalResponse(freshId), chat);
+  storeResponse(staleId, minimalResponse(staleId), chat);
+
+  // A prune at the current time must not touch a just-written response.
+  pruneExpiredResponses(Date.now());
+  assert.ok(getStoredResponse(freshId));
+
+  // A prune past the retention window drops both the cache entry and the row.
+  const removed = pruneExpiredResponses(
+    Date.now() + RESPONSE_RETENTION_MS + 1,
+  );
+  assert.ok(removed >= 2);
+  assert.equal(getStoredResponse(freshId), null);
+  assert.equal(getResponseHistory(freshId), null);
+  assert.equal(getStoredResponse(staleId), null);
 });
 
 test("Responses Validation: validateResponsesRequest handles valid and invalid payloads", () => {

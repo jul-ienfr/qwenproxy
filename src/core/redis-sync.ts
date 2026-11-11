@@ -19,6 +19,7 @@ import {
   getAllSessionParents,
 } from "../services/qwen-thread-state.ts";
 import {
+  RESPONSE_RETENTION_MS,
   applyRemoteStoredResponse,
   applyRemoteStoredResponseDelete,
 } from "../routes/responses/state.ts";
@@ -257,9 +258,11 @@ export function getLocalSnapshot(): RedisLocalSnapshot {
     .all() as unknown[];
   let responses: unknown[] = [];
   try {
+    // Do not bootstrap expired rows into Redis: the retention window applies to
+    // the shared snapshot too, otherwise stale responses would be resurrected.
     responses = db
-      .prepare("SELECT * FROM responses_store")
-      .all() as unknown[];
+      .prepare("SELECT * FROM responses_store WHERE stored_at >= ?")
+      .all(Date.now() - RESPONSE_RETENTION_MS) as unknown[];
   } catch {
     // The Responses table is created lazily on first use.
   }

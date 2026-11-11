@@ -174,6 +174,20 @@ test("processImagesForQwen skips null and non-object content parts", async () =>
   assert.deepStrictEqual(result.files, []);
 });
 
+test("processImagesForQwen ignores media parts with a non-string url", async () => {
+  const result = await processImagesForQwen(
+    [
+      { type: "image_url", image_url: { url: 123 } },
+      { type: "file_url", file_url: { url: null } },
+      { type: "text", text: "keep" },
+    ] as any,
+    {},
+  );
+
+  assert.strictEqual(result.text, "keep");
+  assert.deepStrictEqual(result.files, []);
+});
+
 test("processImagesForQwen re-uploads remote HTTP files to Qwen OSS", async () => {
   const originalFetch = globalThis.fetch;
   const remoteUrl = "https://example.com/docs/report.pdf?download=1";

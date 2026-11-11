@@ -642,10 +642,12 @@ export async function uploadFile(c: Context) {
         new ValidationError("Request body must be valid multipart/form-data"),
       );
     }
-    const file = formData.get("file") as File | null;
-
-    if (!file) {
-      return sendOpenAIError(c, new ValidationError("No file provided"));
+    const file = formData.get("file");
+    if (!(file instanceof File)) {
+      return sendOpenAIError(
+        c,
+        new ValidationError("Field 'file' must be a file upload"),
+      );
     }
 
     // Detect MIME from filename if the client sends a generic type
@@ -786,19 +788,23 @@ export async function processImagesForQwen(
     if (part.type === "text" && part.text) {
       textParts.push(part.text);
     } else if (
-      (part.type === "image_url" && part.image_url?.url) ||
-      (part.type === "video_url" && part.video_url?.url) ||
-      (part.type === "audio_url" && part.audio_url?.url) ||
-      (part.type === "file_url" && part.file_url?.url)
+      part.type === "image_url" ||
+      part.type === "video_url" ||
+      part.type === "audio_url" ||
+      part.type === "file_url"
     ) {
-      const mediaUrl =
+      const candidateUrl =
         part.type === "video_url"
-          ? part.video_url!.url
+          ? part.video_url?.url
           : part.type === "audio_url"
-            ? part.audio_url!.url
+            ? part.audio_url?.url
             : part.type === "file_url"
-              ? part.file_url!.url
-              : part.image_url!.url;
+              ? part.file_url?.url
+              : part.image_url?.url;
+      // Malformed client content (for example a numeric url) must be ignored,
+      // not crash the request with a 500 while it is being normalised.
+      if (typeof candidateUrl !== "string" || candidateUrl === "") continue;
+      const mediaUrl = candidateUrl;
       let fileUrl = "";
       let filename = "";
       let fileSize = 0;

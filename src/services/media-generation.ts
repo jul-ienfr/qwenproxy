@@ -28,6 +28,21 @@ import {
  * Heuristic for a WAF/captcha challenge page body returned by Qwen instead of JSON.
  * Kept local so media generation does not depend on a solver-specific helper.
  */
+/**
+ * Build an UpstreamError that carries the real upstream HTTP status. Routes
+ * then return 429/404/etc. instead of collapsing every media failure into a
+ * generic 500/502.
+ */
+function upstreamStatusError(message: string, status: number): UpstreamError {
+  const error = new UpstreamError(message) as UpstreamError & {
+    upstreamStatus?: number;
+  };
+  if (Number.isInteger(status) && status >= 400 && status <= 599) {
+    error.upstreamStatus = status;
+  }
+  return error;
+}
+
 export function looksLikeAntiBotChallengeText(text: string): boolean {
   const lower = String(text || "").toLowerCase();
   return (
@@ -818,8 +833,9 @@ async function createMediaChatSession(
           throw error;
         }
         if (!result.ok) {
-          throw new UpstreamError(
+          throw upstreamStatusError(
             `Failed to create ${chatType} chat session: ${result.status} ${rawText.substring(0, 200)}`,
+            result.status,
           );
         }
         const chatId = result.data?.data?.id || result.data?.data?.chat_id || result.data?.id;
@@ -856,8 +872,9 @@ async function createMediaChatSession(
     throw error;
   }
   if (!response.ok) {
-    throw new UpstreamError(
+    throw upstreamStatusError(
       `Failed to create ${chatType} chat session: ${response.status} ${text.substring(0, 200)}`,
+      response.status,
     );
   }
 
@@ -1329,8 +1346,9 @@ export async function generateImage(params: {
         );
       }
       if (completionsStatus !== 200) {
-        throw new UpstreamError(
+        throw upstreamStatusError(
           `Image ${operation} request failed: ${completionsStatus} ${rawBody.substring(0, 200)}`,
+          completionsStatus,
         );
       }
 
@@ -1551,8 +1569,9 @@ export async function generateVideo(params: {
 
       const { status: completionsStatus, rawBody } = completionsResult;
       if (completionsStatus !== 200) {
-        throw new UpstreamError(
+        throw upstreamStatusError(
           `Video generation request failed: ${completionsStatus} ${rawBody.substring(0, 200)}`,
+          completionsStatus,
         );
       }
 

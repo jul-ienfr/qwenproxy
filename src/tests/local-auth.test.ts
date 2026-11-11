@@ -10,6 +10,7 @@ import {
   isPlaceholderApiKey,
   isWildcardBind,
   persistApiKey,
+  updateEnvVariable,
 } from "../core/local-auth.ts";
 
 test("local-auth: loopback and placeholder helpers", () => {
@@ -61,6 +62,25 @@ test("local-auth: persistApiKey preserves a non-empty existing assignment", () =
     persistApiKey("sk-generated", envPath);
 
     assert.equal(fs.readFileSync(envPath, "utf8"), "API_KEY=sk-existing\n");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("local-auth: updateEnvVariable refuses control characters", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "qwenproxy-auth-"));
+  const envPath = path.join(tempDir, ".env");
+
+  try {
+    fs.writeFileSync(envPath, "PORT=7936\n");
+    assert.throws(
+      () => updateEnvVariable("PROXY_URL", "http://host:80\nEVIL=1", envPath),
+      /control characters/,
+    );
+    assert.equal(fs.readFileSync(envPath, "utf8"), "PORT=7936\n");
+
+    updateEnvVariable("PROXY_URL", "http://host:8080", envPath);
+    assert.match(fs.readFileSync(envPath, "utf8"), /PROXY_URL=http:\/\/host:8080/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

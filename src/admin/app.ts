@@ -299,14 +299,23 @@ function mappingPayload(body: Record<string, unknown>): {
         throw new Error("Each mapping entry must be an object with alias/target");
       }
       const record = entry as Record<string, unknown>;
-      return {
-        alias: String(record.alias ?? ""),
-        target: String(record.target ?? ""),
-      };
+      // Never coerce: String({}) silently writes "[object Object]" as a model
+      // alias and the broken mapping survives until someone notices.
+      if (typeof record.alias !== "string" || typeof record.target !== "string") {
+        throw new Error(
+          "Each mapping entry must have a string 'alias' and 'target'",
+        );
+      }
+      return { alias: record.alias, target: record.target };
     });
   } else if (typeof raw === "object") {
     mappings = Object.entries(raw as Record<string, unknown>).map(
-      ([alias, target]) => ({ alias, target: String(target ?? "") }),
+      ([alias, target]) => {
+        if (typeof target !== "string") {
+          throw new Error(`Mapping target for '${alias}' must be a string`);
+        }
+        return { alias, target };
+      },
     );
   } else {
     throw new Error("Field 'mappings' must be an object or an array");

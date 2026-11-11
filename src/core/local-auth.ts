@@ -48,6 +48,11 @@ export function updateEnvVariable(
   value: string,
   envPath = getEnvFilePath(),
 ): void {
+  // A newline would start a new assignment in the .env file: a dashboard
+  // setting must never be able to inject unrelated environment variables.
+  if (/[\r\n\0]/.test(value)) {
+    throw new Error(`Value for ${key} must not contain control characters`);
+  }
   try {
     const existing = fs.existsSync(envPath)
       ? fs.readFileSync(envPath, "utf-8")

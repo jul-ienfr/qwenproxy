@@ -343,6 +343,9 @@ test("admin API: invalid mappings are rejected with actionable errors", async ()
     { mappings: { "gpt-4o": "" } },
     { mappings: { a: "b", b: "qwen3.8-max" } },
     { mappings: { "gpt-4o-high": "qwen3.8-max" } },
+    { mappings: [{ alias: "gpt-4o", target: 123 }] },
+    { mappings: [{ alias: "gpt-4o" }] },
+    { mappings: { "gpt-4o": 123 } },
     {},
   ];
 

@@ -9,7 +9,9 @@
 import type { Context } from "hono";
 import {
   extractProvidedApiKeys,
+  GLOBAL_ADMIN_IDENTITY,
   identityErrorMessage,
+  LOCAL_ADMIN_IDENTITY,
   resolveIdentity,
 } from "../core/auth-identity.ts";
 import {
@@ -19,7 +21,12 @@ import {
   verifyAdminSession,
   type AdminSessionPayload,
 } from "../core/admin-session.ts";
-import type { UserIdentity } from "../core/users.ts";
+import { getUserById, type UserIdentity } from "../core/users.ts";
+
+const LEGACY_SESSION_SUBJECTS = new Set([
+  LOCAL_ADMIN_IDENTITY.id,
+  GLOBAL_ADMIN_IDENTITY.id,
+]);
 
 export interface AdminAuthSuccess {
   identity: UserIdentity;
@@ -55,6 +62,34 @@ export function adminJsonError(
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/**
+ * Revalidate a signed dashboard session against its backing identity.
+ *
+ * Legacy operator identities (global API key / loopback) have no database row.
+ * Per-user sessions must still map to an active admin user: revoking or
+ * demoting a user immediately invalidates cookies minted before the change
+ * instead of leaving dashboard access valid until the 8h TTL expires.
+ */
+export function revalidateAdminSession(
+  session: AdminSessionPayload,
+): UserIdentity | null {
+  if (LEGACY_SESSION_SUBJECTS.has(session.sub)) {
+    return identityFromSession(session);
+  }
+
+  const user = getUserById(session.sub);
+  if (!user || user.revoked_at || user.role !== "admin") return null;
+
+  return {
+    id: user.id,
+    label: user.label,
+    role: user.role,
+    rateLimitRpm: 0,
+    maxConcurrency: 0,
+    legacy: false,
+  };
+}
+
 export function authenticateAdminRequest(c: Context): AdminAuthResult {
   const candidates = extractProvidedApiKeys({
     authorization: c.req.header("authorization"),
@@ -89,6 +124,17 @@ export function authenticateAdminRequest(c: Context): AdminAuthResult {
     return { response: adminJsonError(c, 401, "Admin session required") };
   }
 
+  const identity = revalidateAdminSession(session);
+  if (!identity) {
+    return {
+      response: adminJsonError(
+        c,
+        401,
+        "Admin session no longer valid; sign in again",
+      ),
+    };
+  }
+
   if (MUTATING_METHODS.has(c.req.method.toUpperCase())) {
     const origin = c.req.header("origin");
     if (origin) {
@@ -114,7 +160,7 @@ export function authenticateAdminRequest(c: Context): AdminAuthResult {
   }
 
   return {
-    identity: identityFromSession(session),
+    identity,
     via: "session",
     session,
   };

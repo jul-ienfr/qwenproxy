@@ -5,7 +5,7 @@ process.env.API_KEY = "sk-dash-admin-test-key";
 
 import { app } from "../api/server.ts";
 import { getDatabase } from "../core/database.ts";
-import { createUser } from "../core/users.ts";
+import { createUser, revokeUser } from "../core/users.ts";
 
 const ADMIN_KEY = "sk-dash-admin-test-key";
 const db = getDatabase();
@@ -188,6 +188,34 @@ test("dashboard: a non-admin user key is refused everywhere", async () => {
     bearer(created.apiKey),
   );
   assert.equal(overview.status, 403);
+});
+
+test("dashboard: revoking an admin invalidates existing session cookies", async () => {
+  const created = createUser("dash-revocable-admin", { role: "admin" });
+  const login = await app.request(
+    "/admin/api/session",
+    jsonRequest({ apiKey: created.apiKey }, { method: "POST" }),
+  );
+  assert.equal(login.status, 200);
+  const cookie = sessionCookie(login);
+
+  const before = await app.request("/admin/api/overview", {
+    headers: { cookie },
+  });
+  assert.equal(before.status, 200);
+
+  assert.equal(revokeUser(created.user.id), true);
+
+  const overview = await app.request("/admin/api/overview", {
+    headers: { cookie },
+  });
+  assert.equal(overview.status, 401);
+
+  const current = await app.request("/admin/api/session", {
+    headers: { cookie },
+  });
+  assert.equal(current.status, 401);
+  assert.match(current.headers.get("set-cookie") || "", /Max-Age=0/);
 });
 
 test("dashboard: logout clears the session cookie", async () => {

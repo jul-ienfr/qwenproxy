@@ -353,6 +353,11 @@ app.post("/v1/messages", async (c) => {
       return c.json(anthropicResponse);
     }
   } catch (error: any) {
+    // Client closed the request mid-flight: silent, mirrors the 499 handling
+    // of the chat/completions routes instead of reporting a server failure.
+    if (c.req.raw.signal.aborted) {
+      return new Response(null, { status: 499 });
+    }
     console.error("❌ [Anthropic] Error:", error);
     return anthropicError(
       c,

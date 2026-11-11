@@ -13,7 +13,6 @@ import {
   DEFAULT_SESSION_TTL_SECONDS,
   buildClearedSessionCookie,
   buildSessionCookie,
-  identityFromSession,
   isSecureRequest,
   readSessionCookie,
   verifyAdminSession,
@@ -26,7 +25,7 @@ import { getUserIdentity } from "../core/request-user.ts";
 import { getServerLogHistory, subscribeServerLogStream } from "../core/server-log-buffer.ts";
 import { loadModelsWithVariants } from "../api/models.ts";
 import { recordAudit, listAudit } from "../core/admin-audit.ts";
-import { adminJsonError } from "./auth.ts";
+import { adminJsonError, revalidateAdminSession } from "./auth.ts";
 import { accountsApp } from "./accounts-api.ts";
 import { buildOverview } from "./overview.ts";
 import { redactLogHistory, redactLogEntry } from "./logs.ts";
@@ -165,7 +164,15 @@ adminDashboardApp.get("/api/session", (c) => {
   if (!session) {
     return adminJsonError(c, 401, "Admin session required");
   }
-  const identity = identityFromSession(session);
+  const identity = revalidateAdminSession(session);
+  if (!identity) {
+    c.header("Set-Cookie", buildClearedSessionCookie(secureCookie(c)));
+    return adminJsonError(
+      c,
+      401,
+      "Admin session no longer valid; sign in again",
+    );
+  }
   return c.json({
     user: {
       id: identity.id,

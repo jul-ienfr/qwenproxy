@@ -18,10 +18,14 @@ import { videosGenerations, videoTaskStatus } from "../routes/videos.js";
 import { app as specializedTasksApp } from "../routes/specialized-tasks.ts";
 import { responsesApp } from "../routes/responses/index.js";
 import { completionsLegacy } from "../routes/completions.js";
-import { anthropicApp } from "../routes/anthropic/index.ts";
-import { geminiApp } from "../routes/gemini/index.ts";
+import { anthropicApp, anthropicError } from "../routes/anthropic/index.ts";
+import { geminiApp, geminiError } from "../routes/gemini/index.ts";
 import { docsApp } from "./docs.ts";
-import { sendOpenAIError, createError } from "./error-helpers.js";
+import {
+  resolveQwenProxyError,
+  sendOpenAIError,
+  createError,
+} from "./error-helpers.js";
 import { AuthError, NotFoundError } from "../core/errors.js";
 import type { QwenAccount } from "../core/accounts.js";
 import { isAuthMockEnabled } from "../services/auth-playwright.js";
@@ -145,6 +149,59 @@ async function enforceBodyLimit(
     maxSize: bodyLimitForPath(c.req.path),
     onError: payloadTooLarge,
   })(c, next);
+}
+
+/**
+ * Anthropic's public error types keyed by HTTP status. Unknown statuses use the
+ * generic `api_error` so a 5xx never masquerades as a client mistake.
+ */
+function anthropicErrorTypeForStatus(status: number): string {
+  switch (status) {
+    case 400:
+      return "invalid_request_error";
+    case 401:
+      return "authentication_error";
+    case 403:
+      return "permission_error";
+    case 404:
+      return "not_found_error";
+    case 413:
+      return "request_too_large";
+    case 429:
+      return "rate_limit_error";
+    case 529:
+      return "overloaded_error";
+    default:
+      return "api_error";
+  }
+}
+
+/**
+ * Route-level handlers render their own protocol envelope. This is the safety
+ * net for uncaught errors and unmatched paths so Anthropic/Gemini clients never
+ * receive an OpenAI-shaped body from the global handlers.
+ */
+function sendProtocolError(c: Context, err: unknown): Response {
+  if (c.req.path.startsWith("/v1beta/")) {
+    const resolved = resolveQwenProxyError(err);
+    return geminiError(c, resolved.statusCode, resolved.message);
+  }
+
+  const isAnthropic =
+    c.req.path.startsWith("/v1/messages") ||
+    c.req.path === "/messages" ||
+    Boolean(c.req.header("anthropic-version"));
+  if (isAnthropic) {
+    const resolved = resolveQwenProxyError(err);
+    return anthropicError(
+      c,
+      anthropicErrorTypeForStatus(resolved.statusCode),
+      resolved.message,
+      resolved.statusCode,
+    );
+  }
+
+  return sendOpenAIError(c, err);
 }
 
 function buildPortInUseMessage(port: number, host: string): string {
@@ -720,10 +777,10 @@ app.onError((err, c) => {
     error: err instanceof Error ? err.message : String(err),
     stack: err instanceof Error ? err.stack : undefined,
   });
-  return sendOpenAIError(c, err);
+  return sendProtocolError(c, err);
 });
 
-app.notFound((c) => sendOpenAIError(c, new NotFoundError("Not found")));
+app.notFound((c) => sendProtocolError(c, new NotFoundError("Not found")));
 
 export interface StartedServerInfo {
   host: string;

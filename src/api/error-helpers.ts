@@ -9,6 +9,34 @@ import {
 } from "./error-mapping.js";
 
 /**
+ * Resolves an unknown error into a QwenProxyError so every protocol adapter can
+ * share the same status/code classification while rendering its own envelope.
+ */
+export function resolveQwenProxyError(
+  err: unknown,
+  fallbackStatus?: QwenProxyStatusCode,
+): QwenProxyError {
+  if (err instanceof QwenProxyError) {
+    return applyUpstreamHint(err, { rewriteSameStatus: true });
+  }
+
+  const hint = (err as Record<string, unknown>)?.upstreamStatus;
+  if (typeof hint === "number" && isValidStatus(hint)) {
+    return errorForStatus(
+      hint,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  if (fallbackStatus) {
+    return errorForStatus(
+      fallbackStatus,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  return classifyError(err);
+}
+
+/**
  * Sends a standardized OpenAI-compatible error response.
  * Handles QwenProxyError directly (preserving concrete upstream status/code),
  * checks upstreamStatus hints on plain errors, and falls back to the error
@@ -19,26 +47,7 @@ export function sendOpenAIError(
   err: unknown,
   fallbackStatus?: QwenProxyStatusCode,
 ): Response {
-  let qwenProxyErr: QwenProxyError;
-
-  if (err instanceof QwenProxyError) {
-    qwenProxyErr = applyUpstreamHint(err, { rewriteSameStatus: true });
-  } else {
-    const hint = (err as Record<string, unknown>)?.upstreamStatus;
-    if (typeof hint === "number" && isValidStatus(hint)) {
-      qwenProxyErr = errorForStatus(
-        hint,
-        err instanceof Error ? err.message : String(err),
-      );
-    } else if (fallbackStatus) {
-      qwenProxyErr = errorForStatus(
-        fallbackStatus,
-        err instanceof Error ? err.message : String(err),
-      );
-    } else {
-      qwenProxyErr = classifyError(err);
-    }
-  }
+  const qwenProxyErr = resolveQwenProxyError(err, fallbackStatus);
 
   const inner = qwenProxyErr.toOpenAI().error;
   const body = {

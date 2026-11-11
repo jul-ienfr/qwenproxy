@@ -136,6 +136,11 @@ const envSchema = z
     SPECIALIZED_TASK_MAX_ACTIVE: z.string().default("32"),
     // Hard deadline for one async specialized task (default 30 minutes).
     SPECIALIZED_TASK_TIMEOUT_MS: z.string().default("1800000"),
+    // Prompt-driven video generation creates an upstream task per request and
+    // keeps an in-memory status entry for an hour. Cap concurrent work so one
+    // client cannot pile up expensive upstream jobs (0 disables a cap).
+    VIDEO_TASK_MAX_ACTIVE_PER_USER: z.string().default("2"),
+    VIDEO_TASK_MAX_ACTIVE: z.string().default("8"),
     ACCOUNT_BUSY_WAIT_MS: z.string().default("30000"),
     // Cap for the "wait forever" account-lease queue (thread owner / last
     // usable account): the queue previously had NO deadline, so a stuck lease
@@ -359,6 +364,15 @@ export const config = {
       1000,
       parseInt(env.SPECIALIZED_TASK_TIMEOUT_MS) || 1_800_000,
     ),
+  },
+  videos: {
+    /** 0 disables the per-owner concurrent-task cap. */
+    maxActivePerUser: Math.max(
+      0,
+      parseInt(env.VIDEO_TASK_MAX_ACTIVE_PER_USER) || 0,
+    ),
+    /** 0 disables the global per-instance cap. */
+    maxActive: Math.max(0, parseInt(env.VIDEO_TASK_MAX_ACTIVE) || 0),
   },
   retry: {
     baseDelayMs: parseInt(env.RETRY_BASE_DELAY_MS),

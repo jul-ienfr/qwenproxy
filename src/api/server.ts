@@ -2,6 +2,7 @@ import net from "node:net";
 import { v4 as uuidv4 } from "uuid";
 import { Hono, type Context } from "hono";
 import { serve } from "@hono/node-server";
+import { bodyLimit } from "hono/body-limit";
 import { config, getRuntimeChatMode, setRuntimeChatMode } from "../core/config.js";
 import { saveTuiSettings } from "../tui/settings.ts";
 import { metrics } from "../core/metrics.js";
@@ -71,6 +72,79 @@ const app = new Hono();
 function formatAccountId(accountId: string): string {
   const normalized = accountId.trim();
   return normalized.length > 12 ? `${normalized.slice(0, 12)}…` : normalized;
+}
+
+const MEGABYTE = 1024 * 1024;
+/**
+ * Request-body budgets. `content-length` is checked without buffering; chunked
+ * uploads are buffered only up to the same cap. The upload route accepts Qwen's
+ * 100MB video limit, image edits are capped by the route itself at 20MB, and
+ * everything else (chat/JSON/admin payloads) stays small.
+ */
+const DEFAULT_BODY_LIMIT_BYTES = 32 * MEGABYTE;
+const UPLOAD_BODY_LIMIT_BYTES = 110 * MEGABYTE;
+const IMAGE_EDIT_BODY_LIMIT_BYTES = 22 * MEGABYTE;
+const ADMIN_BODY_LIMIT_BYTES = 1 * MEGABYTE;
+
+function bodyLimitForPath(path: string): number {
+  if (path === "/v1/upload") return UPLOAD_BODY_LIMIT_BYTES;
+  if (path === "/v1/images/edits") return IMAGE_EDIT_BODY_LIMIT_BYTES;
+  if (path.startsWith("/admin/api/")) return ADMIN_BODY_LIMIT_BYTES;
+  return DEFAULT_BODY_LIMIT_BYTES;
+}
+
+/** Protocol-native 413 so oversized bodies do not look like a server crash. */
+function payloadTooLarge(c: Context): Response {
+  const message = "Request body exceeds the allowed size";
+  if (c.req.path.startsWith("/v1beta/")) {
+    return c.json(
+      {
+        error: {
+          code: 413,
+          message,
+          status: "RESOURCE_EXHAUSTED",
+        },
+      },
+      413,
+    );
+  }
+  if (c.req.path.startsWith("/v1/messages")) {
+    c.header(
+      "anthropic-version",
+      c.req.header("anthropic-version") || "2023-06-01",
+    );
+    return c.json(
+      {
+        type: "error",
+        error: { type: "invalid_request_error", message },
+      },
+      413,
+    );
+  }
+  if (c.req.path.startsWith("/admin/api/")) {
+    return c.json({ error: { type: "invalid_request_error", message } }, 413);
+  }
+  return c.json(
+    {
+      error: {
+        message,
+        type: "invalid_request_error",
+        code: "request_too_large",
+        param: null,
+      },
+    },
+    413,
+  );
+}
+
+async function enforceBodyLimit(
+  c: Context,
+  next: () => Promise<void>,
+): Promise<Response | void> {
+  return bodyLimit({
+    maxSize: bodyLimitForPath(c.req.path),
+    onError: payloadTooLarge,
+  })(c, next);
 }
 
 function buildPortInUseMessage(port: number, host: string): string {
@@ -384,6 +458,7 @@ app.use("/v1/*", async (c, next) => {
   await next();
 });
 
+app.use("/v1/*", enforceBodyLimit);
 app.use("/v1/*", adapterStreamGuard);
 
 // Gemini-compatible surface. It shares identity resolution with /v1 but uses
@@ -405,6 +480,7 @@ app.use("/v1beta/*", async (c, next) => {
   await next();
 });
 
+app.use("/v1beta/*", enforceBodyLimit);
 app.use("/v1beta/*", adapterStreamGuard);
 
 app.use("/admin/api/*", async (c, next) => {
@@ -421,6 +497,8 @@ app.use("/admin/api/*", async (c, next) => {
   setUserIdentity(c, auth.identity);
   await next();
 });
+
+app.use("/admin/api/*", enforceBodyLimit);
 
 // Routes
 app.route("", modelsApp);

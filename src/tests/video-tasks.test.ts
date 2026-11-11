@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   VIDEO_TASK_TTL_MS,
+  checkVideoTaskCapacity,
   cleanupExpiredVideoTasks,
+  countActiveVideoTasks,
   createVideoTask,
   getVideoTask,
   resetVideoTasksForTests,
@@ -64,6 +66,76 @@ test("video tasks: cleanup drops only entries older than the TTL", () => {
   assert.equal(cleanupExpiredVideoTasks(now), 1);
   assert.equal(getVideoTask("old"), undefined);
   assert.ok(getVideoTask("fresh"));
+
+  resetVideoTasksForTests();
+});
+
+test("video tasks: terminal tasks do not consume an active slot", () => {
+  resetVideoTasksForTests();
+  seed("pending", "owner-a");
+  seed("running", "owner-a");
+  seed("done", "owner-a");
+  updateVideoTask("running", { status: "running" });
+  updateVideoTask("done", { status: "completed" });
+
+  assert.equal(countActiveVideoTasks("owner-a"), 2);
+  assert.equal(countActiveVideoTasks(), 2);
+
+  resetVideoTasksForTests();
+});
+
+test("video tasks: per-user and global caps reject new active work", () => {
+  resetVideoTasksForTests();
+  seed("task-a1", "owner-a");
+  seed("task-a2", "owner-a");
+  seed("task-b1", "owner-b");
+  updateVideoTask("task-a2", { status: "running" });
+
+  const perUser = checkVideoTaskCapacity("owner-a", {
+    maxActivePerUser: 2,
+    maxActive: 10,
+  });
+  assert.equal(perUser.allowed, false);
+  assert.equal(perUser.reason, "per_user");
+
+  assert.equal(
+    checkVideoTaskCapacity("owner-b", {
+      maxActivePerUser: 2,
+      maxActive: 10,
+    }).allowed,
+    true,
+  );
+
+  const global = checkVideoTaskCapacity("owner-c", {
+    maxActivePerUser: 2,
+    maxActive: 3,
+  });
+  assert.equal(global.allowed, false);
+  assert.equal(global.reason, "global");
+
+  updateVideoTask("task-a1", { status: "completed" });
+  assert.equal(
+    checkVideoTaskCapacity("owner-a", {
+      maxActivePerUser: 2,
+      maxActive: 10,
+    }).allowed,
+    true,
+  );
+
+  resetVideoTasksForTests();
+});
+
+test("video tasks: zero caps disable the budget", () => {
+  resetVideoTasksForTests();
+  seed("task-a1", "owner-a");
+
+  assert.equal(
+    checkVideoTaskCapacity("owner-a", {
+      maxActivePerUser: 0,
+      maxActive: 0,
+    }).allowed,
+    true,
+  );
 
   resetVideoTasksForTests();
 });

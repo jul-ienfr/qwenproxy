@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { config } from "../core/config.ts";
 import {
   generateVideo,
   isSupportedMediaSize,
@@ -8,9 +9,10 @@ import {
 } from "../services/media-generation.ts";
 import { logger } from "../core/logger.ts";
 import { getUserIdentity } from "../core/request-user.ts";
-import { sendOpenAIError } from "../api/error-helpers.ts";
+import { createError, sendOpenAIError } from "../api/error-helpers.ts";
 import { NotFoundError, ValidationError } from "../core/errors.ts";
 import {
+  checkVideoTaskCapacity,
   cleanupExpiredVideoTasks,
   createVideoTask,
   getVideoTask,
@@ -92,6 +94,20 @@ export async function videosGenerations(c: Context): Promise<Response> {
     );
   }
   const wait = body.wait !== false;
+  const ownerId = ownerOf(c);
+
+  const capacity = checkVideoTaskCapacity(ownerId, config.videos);
+  if (!capacity.allowed) {
+    return sendOpenAIError(
+      c,
+      createError(
+        429,
+        capacity.reason === "per_user"
+          ? `Too many active video tasks for this API key (limit ${capacity.limit}); wait for one to finish`
+          : `Too many active video tasks on this instance (limit ${capacity.limit}); try again later`,
+      ),
+    );
+  }
 
   logger.info("Video generation request", {
     model,
@@ -128,7 +144,7 @@ export async function videosGenerations(c: Context): Promise<Response> {
 
     createVideoTask({
       taskId: result.task_id,
-      ownerId: ownerOf(c),
+      ownerId,
       accountId: result.accountId,
       chatId: result.chatId,
       status: result.status,

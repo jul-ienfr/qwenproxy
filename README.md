@@ -600,6 +600,15 @@ direct Qwen ids pass through unchanged.
 | `/v1/videos/generations` | POST | Video generation (`wan3.0-video` up to 1080P, `wan2.7-t2v`) |
 | `/v1/tasks/status/:taskId` | GET | Check asynchronous video task progress |
 
+Video tasks are scoped to the API key that created them and retained in memory
+for one hour. Active (pending/running) jobs are capped at **2 per API key** and
+**8 per instance** by default (`VIDEO_TASK_MAX_ACTIVE_PER_USER`,
+`VIDEO_TASK_MAX_ACTIVE`; `0` disables a cap); exceeding a cap returns **429**.
+
+JSON request bodies are capped at **32 MB**, image edits at **22 MB**, uploads
+at **110 MB** and dashboard payloads at **1 MB**; oversized requests get a
+protocol-native **413** without being buffered beyond the cap.
+
 ### Specialized Tasks (Deep Research, Web Dev, Full-Stack, Slides)
 | Endpoint | Method | Description |
 | :--- | :---: | :--- |

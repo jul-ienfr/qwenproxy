@@ -91,6 +91,19 @@ test("accounts: proxy edit, cooldown clear and delete", async () => {
   const id = createdIds[0];
   assert.ok(id);
 
+  // A malformed proxy must be rejected instead of silently clearing the
+  // configured proxy.
+  const badType = await app.request(
+    `/admin/api/accounts/${encodeURIComponent(id)}/proxy`,
+    jsonRequest({ proxy: 42 }, { method: "PATCH" }),
+  );
+  assert.equal(badType.status, 400);
+  const afterBadType = (await (
+    await app.request("/admin/api/accounts")
+  ).json()) as { accounts: Array<{ id: string; proxy: string | null }> };
+  const unchanged = afterBadType.accounts.find((item) => item.id === id);
+  assert.ok(unchanged?.proxy, "proxy should still be configured");
+
   const patched = await app.request(
     `/admin/api/accounts/${encodeURIComponent(id)}/proxy`,
     jsonRequest({ proxy: null }, { method: "PATCH" }),

@@ -5,6 +5,7 @@ process.env.TEST_MOCK_QWEN_AUTH = "true";
 process.env.API_KEY = "";
 
 import { app } from "../api/server.js";
+import { recordServerLog } from "../core/server-log-buffer.ts";
 
 test("OPTIONS preflight allows loopback browser origins by default", async () => {
   const res = await app.fetch(
@@ -129,6 +130,18 @@ test("a real API key is still enforced on loopback", async () => {
     if (previous === undefined) delete process.env.API_KEY;
     else process.env.API_KEY = previous;
   }
+});
+
+test("the HTTP log surface redacts credentials", async () => {
+  recordServerLog(
+    "INFO",
+    "upstream headers authorization: Bearer sk-test-abcdefghijklmnopqr",
+  );
+  const res = await app.fetch(new Request("http://localhost/logs"));
+  assert.strictEqual(res.status, 200);
+  const body = await res.text();
+  assert.ok(!body.includes("sk-test-abcdefghijklmnopqr"));
+  assert.ok(body.includes("sk-***"));
 });
 
 test("paths without /v1 redirect (308, preserves method) to the /v1 routes", async () => {

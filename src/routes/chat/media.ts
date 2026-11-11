@@ -19,7 +19,7 @@ import {
   mediaLog,
   supportsPromptMediaGeneration,
 } from "../../services/media-generation.ts";
-import { sendOpenAIError } from "../../api/error-helpers.ts";
+import { resolveQwenProxyError, sendOpenAIError } from "../../api/error-helpers.ts";
 import { ValidationError } from "../../core/errors.ts";
 
 
@@ -193,6 +193,10 @@ export async function handleMediaChatCompletion(
           error: error instanceof Error ? error.message : String(error),
         }),
       );
+      // The caller is gone: do not pretend the request failed server-side.
+      if (requestSignal?.aborted) {
+        return new Response(null, { status: 499 });
+      }
       return sendOpenAIError(c, error, 500);
     }
   }
@@ -261,20 +265,17 @@ export async function handleMediaChatCompletion(
           error: message,
         }),
       );
+      // The HTTP status is already committed, but the request still failed.
+      // Emit the same OpenAI-shaped error frame the chat pipeline uses instead
+      // of a successful stop whose content is an error sentence.
       try {
+        const resolved = resolveQwenProxyError(error, 500);
         await writeChunk({
-          ...baseChunk,
-          choices: [
-            {
-              index: 0,
-              delta: { content: `⚠️ Media generation failed: ${message}` },
-              finish_reason: null,
-            },
-          ],
-        });
-        await writeChunk({
-          ...baseChunk,
-          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          error: {
+            message: resolved.message,
+            type: resolved.type,
+            code: resolved.code,
+          },
         });
         await stream.write(encoder.encode("data: [DONE]\n\n"));
       } catch {

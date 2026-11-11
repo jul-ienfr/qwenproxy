@@ -63,6 +63,7 @@ import {
   getServerLogHistory,
   subscribeServerLogStream,
 } from "../core/server-log-buffer.ts";
+import { redactLogEntry } from "../admin/logs.ts";
 // Module-level state (initialized in startServer)
 let cache: MemoryCache | undefined;
 let watchdog: Watchdog | undefined;
@@ -773,34 +774,53 @@ app.get("/metrics", (c) => {
 app.get("/logs", (c) => {
   const denied = requireAdminAccess(c);
   if (denied) return denied;
-  return c.json(getServerLogHistory());
+  // The HTTP log surface is redacted like the dashboard view: raw secrets stay
+  // in the local log file for debugging, never in an API response.
+  return c.json(getServerLogHistory().map(redactLogEntry));
 });
 
 app.get("/logs/live", (c) => {
   const denied = requireAdminAccess(c);
   if (denied) return denied;
   const encoder = new TextEncoder();
+  let unsubscribe: (() => void) | undefined;
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    unsubscribe?.();
+    unsubscribe = undefined;
+  };
+
   return c.body(
     new ReadableStream({
       start(controller) {
         const past = getServerLogHistory();
         for (const entry of past) {
           try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(entry)}\n\n`));
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(redactLogEntry(entry))}\n\n`),
+            );
           } catch {}
         }
 
-        const unsubscribe = subscribeServerLogStream((entry) => {
+        unsubscribe = subscribeServerLogStream((entry) => {
+          if (closed) return;
           try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(entry)}\n\n`));
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(redactLogEntry(entry))}\n\n`),
+            );
           } catch {
-            unsubscribe();
+            cleanup();
           }
         });
 
-        c.req.raw.signal.addEventListener("abort", () => {
-          unsubscribe();
-        });
+        c.req.raw.signal.addEventListener("abort", cleanup);
+      },
+      cancel() {
+        // The consumer may stop reading without aborting the request; release
+        // the subscription so the broadcast set does not leak.
+        cleanup();
       },
     }),
     200,

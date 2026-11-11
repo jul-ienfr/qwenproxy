@@ -101,12 +101,19 @@ accountsApp.patch("/:id/proxy", async (c) => {
   const id = c.req.param("id");
   const body = await readJson(c);
   if (!body) return adminJsonError(c, 400, "A JSON body is required");
+  // `null`/absent clears the proxy. Anything else must be a string: coercing a
+  // malformed value to null would silently wipe a working proxy.
+  if (
+    body.proxy !== undefined &&
+    body.proxy !== null &&
+    typeof body.proxy !== "string"
+  ) {
+    return adminJsonError(c, 400, "Field 'proxy' must be a string or null");
+  }
   const proxy =
     body.proxy === null || body.proxy === undefined
       ? null
-      : typeof body.proxy === "string"
-        ? body.proxy
-        : null;
+      : (body.proxy as string);
 
   try {
     if (!updateAccountProxy(id, proxy)) {

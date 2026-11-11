@@ -113,6 +113,25 @@ test("parseRequestBody rejects messages without a valid role", async () => {
   }
 });
 
+test("parseRequestBody rejects a non-boolean stream with 400", async () => {
+  for (const stream of ["true", "false", 1, 0, null, {}]) {
+    await assert.rejects(
+      () =>
+        parseRequestBody(
+          mockContext({
+            model: "qwen3.8-max",
+            messages: [{ role: "user", content: "hi" }],
+            stream,
+          }),
+        ),
+      (error: any) =>
+        error instanceof ValidationError &&
+        error.statusCode === 400 &&
+        error.param === "stream",
+    );
+  }
+});
+
 test("parseRequestBody rejects a non-object body with 400", async () => {
   for (const body of [null, [], "text", 42]) {
     await assert.rejects(

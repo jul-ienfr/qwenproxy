@@ -431,3 +431,18 @@ test("POST /v1/chat/mode rejects invalid bodies with 400", async () => {
     assert.ok(json.error?.message);
   }
 });
+
+test("POST /v1/chat/mode rejects an unknown mode instead of silently resetting", async () => {
+  const res = await app.fetch(
+    new Request("http://localhost/v1/chat/mode", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "stateles-typo" }),
+    }),
+  );
+  assert.equal(res.status, 400);
+  const json = (await res.json()) as any;
+  assert.equal(json.error.type, "invalid_request_error");
+  assert.equal(json.error.code, "bad_request");
+  assert.equal(json.error.param, "mode");
+});

@@ -570,6 +570,25 @@ export function normalizeChatMode(
   return "thread";
 }
 
+/**
+ * Whether a caller-supplied chat mode is a recognized spelling. `normalizeChatMode`
+ * is intentionally permissive and falls back to "thread"; APIs that mutate the
+ * runtime mode should reject an unknown value instead of silently ignoring it.
+ */
+export function isValidChatModeInput(mode: string): boolean {
+  const m = mode.trim().toLowerCase().replace(/_/g, "-");
+  return (
+    m === "thread" ||
+    m === "thread-temp" ||
+    m === "temp-thread" ||
+    m === "stateless" ||
+    m === "stateles" ||
+    m === "stateless-temp" ||
+    m === "stateles-temp" ||
+    m === "temp"
+  );
+}
+
 export function setRuntimeChatMode(
   mode?: string | null,
 ): "thread" | "thread-temp" | "stateless" | "stateless-temp" {

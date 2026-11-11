@@ -168,6 +168,44 @@ test("Responses stream reports response.failed for an upstream error frame", asy
   assert.doesNotMatch(text, /event: response.completed/);
 });
 
+test("Responses stream preserves the inner error code on a pre-stream failure", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          message: "quota gone",
+          type: "rate_limit_error",
+          code: "rate_limit_exceeded",
+        },
+      }),
+      { status: 429, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+
+  try {
+    const res = await app.fetch(
+      new Request("http://localhost/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "qwen3.7-plus",
+          input: "ping",
+          stream: true,
+        }),
+      }),
+    );
+    assert.equal(res.status, 200);
+    const frames = dataFrames(await res.text());
+    const failure = frames.find((frame) => frame.type === "response.failed");
+    assert.ok(failure, "a response.failed event must be emitted");
+    assert.equal(failure.response.status, "failed");
+    assert.equal(failure.response.error.code, "rate_limit_exceeded");
+    assert.equal(failure.response.error.message, "quota gone");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 test("Legacy completions stream emits an error chunk for an upstream error frame", async () => {
   const text = await withStubbedFetch(async () => {
     const res = await app.fetch(

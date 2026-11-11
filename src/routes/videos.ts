@@ -121,6 +121,7 @@ export async function videosGenerations(c: Context): Promise<Response> {
       prompt,
       size,
       waitForCompletion: wait,
+      signal: c.req.raw.signal,
     });
 
     const created = Math.floor(Date.now() / 1000);
@@ -172,6 +173,9 @@ export async function videosGenerations(c: Context): Promise<Response> {
       status: result.status,
     });
   } catch (error) {
+    if (c.req.raw.signal.aborted) {
+      return new Response(null, { status: 499 });
+    }
     logger.error("Video generation failed", {
       model,
       error: error instanceof Error ? error.message : String(error),
@@ -208,6 +212,7 @@ export async function videoTaskStatus(c: Context): Promise<Response> {
         taskId,
         accountId: entry.accountId,
         once: !wait,
+        signal: c.req.raw.signal,
       });
       updateVideoTask(taskId, {
         status: result.status,
@@ -228,6 +233,9 @@ export async function videoTaskStatus(c: Context): Promise<Response> {
       created: Math.floor(entry.createdAt / 1000),
     });
   } catch (error) {
+    if (c.req.raw.signal.aborted) {
+      return new Response(null, { status: 499 });
+    }
     logger.error("Video task status check failed", {
       taskId,
       error: error instanceof Error ? error.message : String(error),

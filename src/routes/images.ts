@@ -196,7 +196,9 @@ export async function imagesGenerations(c: Context): Promise<Response> {
 
   try {
     const results = await Promise.all(
-      Array.from({ length: n }, () => generateImage({ model, prompt, size })),
+      Array.from({ length: n }, () =>
+        generateImage({ model, prompt, size, signal: c.req.raw.signal }),
+      ),
     );
 
     const data: ImageDataItem[] = await Promise.all(
@@ -215,6 +217,11 @@ export async function imagesGenerations(c: Context): Promise<Response> {
     logger.info("Image generation completed", { model, n });
     return c.json({ created: Math.floor(Date.now() / 1000), data });
   } catch (error) {
+    // The client closed the request while the upstream was still generating.
+    // Abort upstream work and avoid reporting a misleading 500.
+    if (c.req.raw.signal.aborted) {
+      return new Response(null, { status: 499 });
+    }
     logger.error("Image generation failed", {
       model,
       error: error instanceof Error ? error.message : String(error),
@@ -394,6 +401,7 @@ export async function imagesEdits(c: Context): Promise<Response> {
           prompt,
           size,
           edit: { buffer, filename, mime },
+          signal: c.req.raw.signal,
         }),
       ),
     );
@@ -414,6 +422,9 @@ export async function imagesEdits(c: Context): Promise<Response> {
     logger.info("Image edit completed", { model, n });
     return c.json({ created: Math.floor(Date.now() / 1000), data });
   } catch (error) {
+    if (c.req.raw.signal.aborted) {
+      return new Response(null, { status: 499 });
+    }
     logger.error("Image edit failed", {
       model,
       error: error instanceof Error ? error.message : String(error),

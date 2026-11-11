@@ -9,6 +9,7 @@
 import {
   config,
   getRuntimeChatMode,
+  isValidChatModeInput,
   setRuntimeChatMode,
 } from "../core/config.ts";
 import { parseProxyUrl } from "../core/proxy-config.ts";
@@ -141,7 +142,13 @@ export function applySetting(
 
   switch (settingKey) {
     case "chat_mode": {
-      const mode = setRuntimeChatMode(String(rawValue));
+      const raw = String(rawValue ?? "").trim();
+      if (!isValidChatModeInput(raw)) {
+        throw new Error(
+          `chat_mode must be thread, thread-temp, stateless or stateless-temp`,
+        );
+      }
+      const mode = setRuntimeChatMode(raw);
       saveTuiSettings({ chat: { mode } });
       break;
     }
@@ -200,9 +207,37 @@ export function applySettings(
 ): SettingDescriptor[] {
   const keys = Object.keys(values);
   if (keys.length === 0) throw new Error("No settings supplied");
+
+  // Reject unknown keys before touching any live setting so a bad batch never
+  // leaves the process half-updated.
   for (const key of keys) {
-    applySetting(key, values[key]);
+    if (!isKnownSetting(key)) throw new Error(`Unknown setting: ${key}`);
   }
+
+  const previous = new Map(
+    listSettings().map((entry) => [entry.key, entry.value]),
+  );
+  const applied: string[] = [];
+
+  try {
+    for (const key of keys) {
+      applySetting(key, values[key]);
+      applied.push(key);
+    }
+  } catch (error) {
+    // Roll back the keys that were already applied; the dashboard sends the
+    // whole form at once, so a rejected value must not silently keep the
+    // earlier fields' changes active.
+    for (const key of applied.reverse()) {
+      try {
+        applySetting(key, previous.get(key));
+      } catch {
+        // Best effort; surface the original validation error below.
+      }
+    }
+    throw error;
+  }
+
   return listSettings();
 }
 

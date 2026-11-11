@@ -281,21 +281,28 @@ app.get("/v1/models", async (c) => {
     const { models: allModels, accountId } = await loadModelsWithVariants();
     const anthropic = wantsAnthropicModelsFormat(c.req.header("anthropic-version"));
 
+    // The response shape depends on the protocol header, so a shared cache
+    // must key on it as well as the URL.
+    c.header("Vary", "anthropic-version", { append: true });
+    // The ETag covers the rendered shape too; otherwise an Anthropic client
+    // could revalidate an OpenAI-shaped entity and receive a 304.
+    const etag = `"${createHash("md5")
+      .update(JSON.stringify({ anthropic, models: allModels }))
+      .digest("hex")}"`;
+
+    c.header("Cache-Control", "public, max-age=3600");
+    c.header("ETag", etag);
+
+    if (c.req.header("if-none-match") === etag) {
+      return c.body(null, 304);
+    }
+
     if (anthropic) {
       return c.json({
         data: allModels.map((model) => toAnthropicModel(model, accountId)),
         has_more: false,
       });
     }
-
-    const etag = `"${createHash("md5").update(JSON.stringify(allModels)).digest("hex")}"`;
-
-    if (c.req.header("if-none-match") === etag) {
-      return c.body(null, 304);
-    }
-
-    c.header("Cache-Control", "public, max-age=3600");
-    c.header("ETag", etag);
 
     return c.json({
       object: "list",

@@ -94,6 +94,42 @@ test("settings: malformed payloads are rejected", async () => {
   assert.equal(badProxy.status, 400);
 });
 
+test("settings: invalid chat modes are rejected", async () => {
+  const response = await app.request(
+    "/admin/api/settings",
+    jsonRequest(
+      { values: { chat_mode: "not-a-mode" } },
+      { method: "PUT" },
+    ),
+  );
+  assert.equal(response.status, 400);
+  const body = (await response.json()) as { error: { message: string } };
+  assert.match(body.error.message, /chat_mode/);
+});
+
+test("settings: a rejected batch rolls back earlier values", async () => {
+  const before = valueOf(listSettings(), "rate_limit_requests");
+  const response = await app.request(
+    "/admin/api/settings",
+    jsonRequest(
+      {
+        values: {
+          // Applied first, then invalidated by the second key.
+          rate_limit_requests: 4321,
+          user_default_rpm: -1,
+        },
+      },
+      { method: "PUT" },
+    ),
+  );
+  assert.equal(response.status, 400);
+  assert.equal(
+    valueOf(listSettings(), "rate_limit_requests"),
+    before,
+    "the earlier field must not stay applied after the batch is rejected",
+  );
+});
+
 test("settings: valid values are hot-applied and returned", async () => {
   const response = await app.request(
     "/admin/api/settings",

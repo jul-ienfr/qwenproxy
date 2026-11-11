@@ -92,6 +92,19 @@ test("Anthropic: validateAnthropicRequest validates required fields", () => {
     false,
   );
 
+  // Non-integer or non-finite max_tokens must not reach the upstream body.
+  for (const max_tokens of [1.5, Number.POSITIVE_INFINITY]) {
+    assert.equal(
+      validateAnthropicRequest({
+        model: "claude-3-7-sonnet",
+        max_tokens,
+        messages: [{ role: "user", content: "Hello" }],
+      }).valid,
+      false,
+      `max_tokens=${max_tokens} must be rejected`,
+    );
+  }
+
   // Empty messages
   assert.equal(
     validateAnthropicRequest({

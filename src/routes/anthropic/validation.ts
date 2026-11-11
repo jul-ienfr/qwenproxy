@@ -23,8 +23,13 @@ export function validateAnthropicRequest(body: unknown): ValidationResult {
     return { valid: false, error: "Missing required field: max_tokens" };
   }
 
-  if (typeof req.max_tokens !== "number" || req.max_tokens < 1) {
-    return { valid: false, error: "max_tokens must be a positive number" };
+  if (
+    typeof req.max_tokens !== "number" ||
+    !Number.isFinite(req.max_tokens) ||
+    !Number.isInteger(req.max_tokens) ||
+    req.max_tokens < 1
+  ) {
+    return { valid: false, error: "max_tokens must be a positive integer" };
   }
 
   // messages is required

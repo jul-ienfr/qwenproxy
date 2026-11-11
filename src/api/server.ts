@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { Hono, type Context } from "hono";
 import { serve } from "@hono/node-server";
 import { bodyLimit } from "hono/body-limit";
-import { config, getRuntimeChatMode, setRuntimeChatMode } from "../core/config.js";
+import { config, getRuntimeChatMode, setRuntimeChatMode, isValidChatModeInput } from "../core/config.js";
 import { saveTuiSettings } from "../tui/settings.ts";
 import { metrics } from "../core/metrics.js";
 import { logger, maskEmail } from "../core/logger.js";
@@ -26,7 +26,7 @@ import {
   sendOpenAIError,
   createError,
 } from "./error-helpers.js";
-import { AuthError, NotFoundError } from "../core/errors.js";
+import { AuthError, NotFoundError, ValidationError } from "../core/errors.js";
 import type { QwenAccount } from "../core/accounts.js";
 import { isAuthMockEnabled } from "../services/auth-playwright.js";
 import {
@@ -621,16 +621,30 @@ app.post("/v1/chat/mode", async (c) => {
   if (identity.role !== "admin") {
     return sendOpenAIError(c, createError(403, "Admin role required"));
   }
-  const parsed = await c.req.json().catch(() => ({}));
+  let parsed: unknown;
+  try {
+    parsed = await c.req.json();
+  } catch {
+    return sendOpenAIError(c, new ValidationError("Invalid JSON body"));
+  }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return c.json(
-      { error: { message: "Request body must be a JSON object" } },
-      400,
+    return sendOpenAIError(
+      c,
+      new ValidationError("Request body must be a JSON object"),
     );
   }
   const body = parsed as { mode?: unknown };
   if (typeof body.mode !== "string" || body.mode.trim() === "") {
-    return c.json({ error: { message: "Field 'mode' is required" } }, 400);
+    const error = new ValidationError("Field 'mode' is required");
+    error.param = "mode";
+    return sendOpenAIError(c, error);
+  }
+  if (!isValidChatModeInput(body.mode)) {
+    const error = new ValidationError(
+      `Unsupported chat mode '${body.mode}'; expected thread, thread-temp, stateless or stateless-temp`,
+    );
+    error.param = "mode";
+    return sendOpenAIError(c, error);
   }
   const updated = setRuntimeChatMode(body.mode);
   saveTuiSettings({ chat: { mode: updated } });

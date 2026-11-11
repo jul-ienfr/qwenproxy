@@ -78,6 +78,11 @@ export async function parseRequestBody(c: Context): Promise<ParsedRequest> {
     throw error;
   }
   validateMessagesField(body.messages);
+  if (body.stream !== undefined && typeof body.stream !== "boolean") {
+    const error = new ValidationError("Field 'stream' must be a boolean");
+    error.param = "stream";
+    throw error;
+  }
 
   logIncomingChatRequest(c, body);
   const isStream = body.stream ?? false;

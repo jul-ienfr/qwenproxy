@@ -181,11 +181,24 @@ app.post("/v1/responses", async (c) => {
             );
 
             if (!response.ok) {
-              const errorText = await response.text();
+              // Preserve the inner error's message/code so response.failed
+              // identifies the real cause (e.g. rate_limit_exceeded) instead
+              // of a generic "api_error" for every upstream status.
+              const errorJson = await response.json().catch(() => null);
+              const message =
+                errorJson?.error?.message ||
+                `Upstream service error: ${response.status}`;
               console.error(
-                `[Responses] Upstream error: ${response.status} ${errorText}`,
+                `[Responses] Upstream error: ${response.status} ${message}`,
               );
-              throw new Error(`Upstream service error: ${response.status}`);
+              const failure = new Error(message) as Error & {
+                code?: string;
+                statusCode?: number;
+              };
+              failure.code =
+                errorJson?.error?.code || errorJson?.error?.type;
+              failure.statusCode = response.status;
+              throw failure;
             }
 
             const reader = response.body?.getReader();

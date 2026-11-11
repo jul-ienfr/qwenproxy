@@ -103,6 +103,48 @@ test("models endpoint returns ETag and supports 304", async () => {
       }),
     );
     assert.equal(second.status, 304);
+    assert.equal(second.headers.get("etag"), etag);
+    assert.equal(
+      second.headers.get("cache-control"),
+      "public, max-age=3600",
+    );
+    assert.ok(
+      second.headers.get("vary")?.includes("anthropic-version"),
+      "the protocol header must be part of the cache key",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("models endpoint renders and caches the Anthropic shape separately", async () => {
+  const originalFetch = installModelsFetchMock();
+  try {
+    const openai = await app.fetch(new Request("http://localhost/v1/models"));
+    const openaiEtag = openai.headers.get("etag");
+    assert.ok(openaiEtag);
+
+    const anthropic = await app.fetch(
+      new Request("http://localhost/v1/models", {
+        headers: { "anthropic-version": "2023-06-01" },
+      }),
+    );
+    assert.equal(anthropic.status, 200);
+    const body = (await anthropic.json()) as {
+      data: Array<{ id: string; type: string }>;
+      has_more: boolean;
+    };
+    assert.equal(body.has_more, false);
+    assert.ok(body.data.some((model) => model.id === "qwen-test-model"));
+    assert.equal(body.data[0]?.type, "model");
+    assert.notEqual(
+      anthropic.headers.get("etag"),
+      openaiEtag,
+      "the ETag must not validate the other response shape",
+    );
+    assert.ok(
+      anthropic.headers.get("vary")?.includes("anthropic-version"),
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

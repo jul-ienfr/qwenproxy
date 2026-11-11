@@ -92,6 +92,11 @@ export function setClipboardText(text: string): boolean {
  * Safely reads the system clipboard text on Windows/macOS/Linux without throwing.
  */
 export function getClipboardText(): string {
+  // node:test shares the real desktop clipboard with other processes, which
+  // makes exact-content assertions flaky (a slow clip.exe/PowerShell round-trip
+  // can also return the previous value). Writes made in this process are
+  // mirrored in memory, so use that authoritative copy under the test runner.
+  if (process.env.NODE_TEST_CONTEXT) return memoryClipboard;
   try {
     if (process.platform === "win32") {
       const res = execSync(

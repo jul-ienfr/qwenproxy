@@ -286,6 +286,38 @@ test("POST /v1/completions propagates the inner chat error status", async () => 
   }
 });
 
+test("POST /v1/completions preserves the inner error code", async () => {
+  const mock = installMockFetch(
+    () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "Unsupported parameter",
+            type: "invalid_request_error",
+            code: "invalid_parameter",
+          },
+        }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      ),
+  );
+
+  try {
+    const res = await app.fetch(
+      new Request("http://localhost/v1/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "qwen3.6-plus", prompt: "hi" }),
+      }),
+    );
+    assert.strictEqual(res.status, 400);
+    const body = await res.json();
+    assert.strictEqual(body.error.type, "invalid_request_error");
+    assert.strictEqual(body.error.code, "invalid_parameter");
+  } finally {
+    mock.restore();
+  }
+});
+
 test("POST /v1/completions validates model and prompt", async () => {
   const mock = installMockFetch(() => {
     return new Response(JSON.stringify(NON_STREAM_CHAT_RESPONSE), {

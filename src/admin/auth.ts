@@ -126,6 +126,40 @@ export function revalidateAdminSession(
   };
 }
 
+/**
+ * Reject a browser cross-origin dashboard mutation. Compare hosts rather than
+ * full origins: a TLS-terminating reverse proxy makes the browser send https://
+ * while Node sees http://. The Host header (and therefore the request URL) must
+ * still match exactly. No Origin header means a non-browser client, which is
+ * allowed (CSRF only exists for ambient cookie/legacy credentials).
+ */
+function rejectCrossOriginMutation(c: Context): Response | null {
+  if (!MUTATING_METHODS.has(c.req.method.toUpperCase())) return null;
+  const origin = c.req.header("origin");
+  if (!origin) return null;
+
+  let originHost: string | null = null;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    originHost = null;
+  }
+  let expectedHost: string | null = null;
+  try {
+    expectedHost = new URL(c.req.url).host;
+  } catch {
+    expectedHost = c.req.header("host")?.trim() || null;
+  }
+  if (
+    !originHost ||
+    !expectedHost ||
+    originHost.toLowerCase() !== expectedHost.toLowerCase()
+  ) {
+    return adminJsonError(c, 403, "Cross-origin dashboard mutation rejected");
+  }
+  return null;
+}
+
 export function authenticateAdminRequest(c: Context): AdminAuthResult {
   const candidates = extractProvidedApiKeys({
     authorization: c.req.header("authorization"),
@@ -155,6 +189,11 @@ export function authenticateAdminRequest(c: Context): AdminAuthResult {
     // proxy-minted key was supplied.
     const local = resolveIdentity([]);
     if (local.identity) {
+      // The legacy no-key identity has no CSRF token to verify, so still reject
+      // browser cross-origin mutations; otherwise any web page could drive the
+      // operator's dashboard through the browser.
+      const crossOrigin = rejectCrossOriginMutation(c);
+      if (crossOrigin) return { response: crossOrigin };
       return { identity: local.identity, via: "key" };
     }
     return { response: adminJsonError(c, 401, "Admin session required") };
@@ -171,41 +210,13 @@ export function authenticateAdminRequest(c: Context): AdminAuthResult {
     };
   }
 
-  if (MUTATING_METHODS.has(c.req.method.toUpperCase())) {
-    const origin = c.req.header("origin");
-    if (origin) {
-      // Compare hosts rather than full origins: a TLS-terminating reverse proxy
-      // makes the browser send https:// while Node sees http://. The Host header
-      // (and therefore the request URL) must still match exactly.
-      let originHost: string | null = null;
-      try {
-        originHost = new URL(origin).host;
-      } catch {
-        originHost = null;
-      }
-      let expectedHost: string | null = null;
-      try {
-        expectedHost = new URL(c.req.url).host;
-      } catch {
-        expectedHost = c.req.header("host")?.trim() || null;
-      }
-      if (
-        !originHost ||
-        !expectedHost ||
-        originHost.toLowerCase() !== expectedHost.toLowerCase()
-      ) {
-        return {
-          response: adminJsonError(
-            c,
-            403,
-            "Cross-origin dashboard mutation rejected",
-          ),
-        };
-      }
-    }
-    if (!validateCsrf(session, c.req.header("x-csrf-token"))) {
-      return { response: adminJsonError(c, 403, "Invalid CSRF token") };
-    }
+  const crossOrigin = rejectCrossOriginMutation(c);
+  if (crossOrigin) return { response: crossOrigin };
+  if (
+    MUTATING_METHODS.has(c.req.method.toUpperCase()) &&
+    !validateCsrf(session, c.req.header("x-csrf-token"))
+  ) {
+    return { response: adminJsonError(c, 403, "Invalid CSRF token") };
   }
 
   return {

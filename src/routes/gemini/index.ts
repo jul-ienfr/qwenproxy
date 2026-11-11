@@ -27,6 +27,7 @@ import type {
   GeminiResponse,
   TranslationWarning,
 } from "./types.ts";
+import { resolveQwenProxyError } from "../../api/error-helpers.ts";
 
 const app = new Hono();
 
@@ -341,10 +342,7 @@ app.post("/v1beta/models/*", async (c) => {
         }
       } catch (error) {
         if (!isClientAbort(c, error)) {
-          const statusCode =
-            typeof (error as { statusCode?: unknown })?.statusCode === "number"
-              ? ((error as { statusCode: number }).statusCode)
-              : 500;
+          const statusCode = resolveQwenProxyError(error, 500).statusCode;
           logger.error("[Gemini] Stream error", {
             error: error instanceof Error ? error.message : String(error),
             statusCode,
@@ -393,11 +391,8 @@ app.post("/v1beta/models/*", async (c) => {
     logger.error("[Gemini] Request error", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return geminiError(
-      c,
-      500,
-      error instanceof Error ? error.message : "Internal server error",
-    );
+    const resolved = resolveQwenProxyError(error, 500);
+    return geminiError(c, resolved.statusCode, resolved.message);
   }
 });
 

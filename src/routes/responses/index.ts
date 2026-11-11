@@ -5,6 +5,7 @@ import { logger } from "../../core/logger.ts";
 import { getUserIdentity } from "../../core/request-user.ts";
 import { buildInternalSessionScopeHeaders } from "../../core/request-owner.ts";
 import { extractSseError, statusForSseError } from "../../utils/sse-error.ts";
+import { resolveQwenProxyError } from "../../api/error-helpers.ts";
 import { validateResponsesRequest } from "./validation.ts";
 import {
   responsesToChatCompletions,
@@ -451,7 +452,13 @@ app.post("/v1/responses", async (c) => {
       return new Response(null, { status: 499 });
     }
     console.error("❌ [Responses] Error:", error);
-    return responsesError(c, "api_error", "Internal server error", 500);
+    const resolved = resolveQwenProxyError(error, 500);
+    return responsesError(
+      c,
+      resolved.type,
+      resolved.message,
+      resolved.statusCode,
+    );
   }
 });
 

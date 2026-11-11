@@ -12,10 +12,10 @@ import { getUserIdentity } from "../core/request-user.ts";
 import { createError, sendOpenAIError } from "../api/error-helpers.ts";
 import { NotFoundError, ValidationError } from "../core/errors.ts";
 import {
-  checkVideoTaskCapacity,
   cleanupExpiredVideoTasks,
   createVideoTask,
   getVideoTask,
+  reserveVideoTaskCapacity,
   updateVideoTask,
 } from "../core/video-tasks.ts";
 
@@ -102,7 +102,7 @@ export async function videosGenerations(c: Context): Promise<Response> {
   const wait = body.wait ?? true;
   const ownerId = ownerOf(c);
 
-  const capacity = checkVideoTaskCapacity(ownerId, config.videos);
+  const capacity = reserveVideoTaskCapacity(ownerId, config.videos);
   if (!capacity.allowed) {
     return sendOpenAIError(
       c,
@@ -187,6 +187,10 @@ export async function videosGenerations(c: Context): Promise<Response> {
       error: error instanceof Error ? error.message : String(error),
     });
     return sendOpenAIError(c, error, 500);
+  } finally {
+    // The task (when created) now counts as active on its own; release the
+    // reservation so it does not also consume a slot.
+    capacity.release();
   }
 }
 

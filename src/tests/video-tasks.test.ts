@@ -8,6 +8,7 @@ import {
   countActiveVideoTasks,
   createVideoTask,
   getVideoTask,
+  reserveVideoTaskCapacity,
   resetVideoTasksForTests,
   updateVideoTask,
 } from "../core/video-tasks.ts";
@@ -137,5 +138,56 @@ test("video tasks: zero caps disable the budget", () => {
     true,
   );
 
+  resetVideoTasksForTests();
+});
+
+test("video tasks: reservations close the concurrent-start race", () => {
+  resetVideoTasksForTests();
+  const limits = { maxActivePerUser: 2, maxActive: 2 };
+
+  const first = reserveVideoTaskCapacity("owner-a", limits);
+  const second = reserveVideoTaskCapacity("owner-a", limits);
+  const third = reserveVideoTaskCapacity("owner-a", limits);
+  assert.equal(first.allowed, true);
+  assert.equal(second.allowed, true);
+  assert.equal(third.allowed, false);
+  assert.equal(third.reason, "per_user");
+
+  // The global budget counts reservations from every owner.
+  const other = reserveVideoTaskCapacity("owner-b", limits);
+  assert.equal(other.allowed, false);
+  assert.equal(other.reason, "global");
+
+  // Releasing is idempotent and frees the slot for another owner.
+  first.release();
+  first.release();
+  const otherRetry = reserveVideoTaskCapacity("owner-b", limits);
+  assert.equal(otherRetry.allowed, true);
+  otherRetry.release();
+
+  // Once the real task exists it keeps consuming the budget after release.
+  createVideoTask({
+    taskId: "created",
+    ownerId: "owner-a",
+    accountId: "account-1",
+    chatId: "chat-1",
+    status: "pending",
+  });
+  second.release();
+  const next = reserveVideoTaskCapacity("owner-a", limits);
+  assert.equal(next.allowed, true);
+
+  next.release();
+  resetVideoTasksForTests();
+});
+
+test("video tasks: zero caps keep reservations unlimited", () => {
+  resetVideoTasksForTests();
+  const unlimited = { maxActivePerUser: 0, maxActive: 0 };
+  const reservations = Array.from({ length: 12 }, () =>
+    reserveVideoTaskCapacity("owner-a", unlimited),
+  );
+  assert.ok(reservations.every((reservation) => reservation.allowed));
+  for (const reservation of reservations) reservation.release();
   resetVideoTasksForTests();
 });

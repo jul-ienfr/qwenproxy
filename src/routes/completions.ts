@@ -15,6 +15,7 @@ import { config } from "../core/config.ts";
 import { getInternalOrigin } from "../core/internal-origin.ts";
 import { buildInternalSessionScopeHeaders } from "../core/request-owner.ts";
 import { extractSseError, statusForSseError } from "../utils/sse-error.ts";
+import { resolveQwenProxyError } from "../api/error-helpers.ts";
 
 const app = new Hono();
 
@@ -48,7 +49,11 @@ async function completionsUpstreamError(c: Context, response: Response) {
         : response.status === 400
           ? "invalid_request_error"
           : "api_error";
-  return completionsError(c, type, message, response.status);
+  const code =
+    typeof errorJson?.error?.code === "string" && errorJson.error.code
+      ? errorJson.error.code
+      : undefined;
+  return completionsError(c, type, message, response.status, code);
 }
 
 function completionsError(
@@ -56,6 +61,7 @@ function completionsError(
   type: string,
   message: string,
   statusCode: number,
+  code?: string,
 ) {
   return c.json(
     {
@@ -63,7 +69,9 @@ function completionsError(
         message,
         type,
         param: null,
-        code: type === "invalid_request_error" ? "invalid_request" : type,
+        code:
+          code ||
+          (type === "invalid_request_error" ? "invalid_request" : type),
       },
     },
     statusCode as any,
@@ -378,7 +386,13 @@ export async function completionsLegacy(c: Context) {
     if (c.req.raw.signal.aborted) {
       return new Response(null, { status: 499 });
     }
-    return completionsError(c, "api_error", "Internal server error", 500);
+    const resolved = resolveQwenProxyError(error, 500);
+    return completionsError(
+      c,
+      resolved.type,
+      resolved.message,
+      resolved.statusCode,
+    );
   }
 }
 

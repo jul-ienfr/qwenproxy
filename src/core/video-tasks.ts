@@ -108,6 +108,69 @@ export function createVideoTask(
 }
 
 /**
+ * In-flight generation requests that have passed the budget check but have not
+ * created a task yet. Without this, N concurrent `wait` requests all observe
+ * the same free slot and blow past the configured cap.
+ */
+const videoReservations = new Map<string, number>();
+let totalVideoReservations = 0;
+
+export interface VideoTaskReservation extends VideoTaskCapacity {
+  release: () => void;
+}
+
+/**
+ * Atomically check the budget and reserve one slot for an in-flight
+ * generation. Always call `release()` once the upstream task (or failure) has
+ * been recorded so the reservation does not linger.
+ */
+export function reserveVideoTaskCapacity(
+  ownerId: string,
+  limits: VideoTaskLimits,
+): VideoTaskReservation {
+  cleanupExpiredVideoTasks();
+
+  const ownReserved = videoReservations.get(ownerId) ?? 0;
+  const ownerActive = countActiveVideoTasks(ownerId) + ownReserved;
+  if (limits.maxActivePerUser > 0 && ownerActive >= limits.maxActivePerUser) {
+    return {
+      allowed: false,
+      reason: "per_user",
+      limit: limits.maxActivePerUser,
+      active: ownerActive,
+      release: () => {},
+    };
+  }
+
+  const globalActive = countActiveVideoTasks() + totalVideoReservations;
+  if (limits.maxActive > 0 && globalActive >= limits.maxActive) {
+    return {
+      allowed: false,
+      reason: "global",
+      limit: limits.maxActive,
+      active: globalActive,
+      release: () => {},
+    };
+  }
+
+  videoReservations.set(ownerId, ownReserved + 1);
+  totalVideoReservations += 1;
+
+  let released = false;
+  return {
+    allowed: true,
+    release: () => {
+      if (released) return;
+      released = true;
+      const remaining = (videoReservations.get(ownerId) ?? 1) - 1;
+      if (remaining > 0) videoReservations.set(ownerId, remaining);
+      else videoReservations.delete(ownerId);
+      totalVideoReservations = Math.max(0, totalVideoReservations - 1);
+    },
+  };
+}
+
+/**
  * Look up a task. When `ownerId` is provided, a task owned by a different
  * identity is reported as missing so ownership cannot be probed.
  */
@@ -135,4 +198,6 @@ export function updateVideoTask(
 /** Test helper: clear all in-memory video tasks. */
 export function resetVideoTasksForTests(): void {
   videoTasks.clear();
+  videoReservations.clear();
+  totalVideoReservations = 0;
 }

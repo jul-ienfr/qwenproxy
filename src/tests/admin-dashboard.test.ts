@@ -352,6 +352,34 @@ test("dashboard: origin checks tolerate a TLS proxy but reject another host", as
   assert.equal(opaque.status, 403);
 });
 
+test("dashboard: legacy no-key mutations still reject a cross-origin browser", async () => {
+  const previous = process.env.API_KEY;
+  delete process.env.API_KEY;
+  try {
+    const foreign = await app.request(
+      "/admin/api/accounts",
+      jsonRequest(
+        { email: "x@example.com", password: "secret" },
+        { method: "POST", headers: { origin: "https://evil.example" } },
+      ),
+    );
+    assert.equal(foreign.status, 403);
+    const body = (await foreign.json()) as any;
+    assert.match(body.error.message, /Cross-origin/);
+
+    // No Origin means a non-browser client; the legacy operator path stays
+    // usable and reaches the route (which rejects the incomplete body).
+    const legacy = await app.request(
+      "/admin/api/accounts",
+      jsonRequest({}, { method: "POST" }),
+    );
+    assert.equal(legacy.status, 400);
+  } finally {
+    if (previous === undefined) delete process.env.API_KEY;
+    else process.env.API_KEY = previous;
+  }
+});
+
 test("dashboard: logout clears the session cookie", async () => {
   const login = await app.request(
     "/admin/api/session",

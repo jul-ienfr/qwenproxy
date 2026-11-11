@@ -16,8 +16,35 @@ import {
 import type { AnthropicRequest, OpenAIResponse } from "./types.ts";
 import { estimateTokenCount } from "../../utils/context-truncation.ts";
 import { extractSseError, statusForSseError } from "../../utils/sse-error.ts";
+import { resolveQwenProxyError } from "../../api/error-helpers.ts";
 
 const app = new Hono();
+
+/**
+ * Anthropic's public error types keyed by HTTP status. Mirrors the global
+ * handler in server.ts so route-level catches render the same envelope as the
+ * framework-level safety net.
+ */
+function anthropicTypeForStatus(status: number): string {
+  switch (status) {
+    case 400:
+      return "invalid_request_error";
+    case 401:
+      return "authentication_error";
+    case 403:
+      return "permission_error";
+    case 404:
+      return "not_found_error";
+    case 413:
+      return "request_too_large";
+    case 429:
+      return "rate_limit_error";
+    case 529:
+      return "overloaded_error";
+    default:
+      return "api_error";
+  }
+}
 
 function generateRequestId(): string {
   return `req_${crypto.randomBytes(12).toString("hex")}`;
@@ -189,14 +216,7 @@ app.post("/v1/messages", async (c) => {
               errorJson?.error?.message ||
               errorJson?.message ||
               `Upstream error: ${response.status}`;
-            const errorType =
-              response.status === 429
-                ? "rate_limit_error"
-                : response.status === 404
-                  ? "not_found_error"
-                  : response.status === 400
-                    ? "invalid_request_error"
-                    : "api_error";
+            const errorType = anthropicTypeForStatus(response.status);
             await write(
               `event: error\ndata: ${JSON.stringify({
                 type: "error",
@@ -295,16 +315,8 @@ app.post("/v1/messages", async (c) => {
           if (!isClientAbort) {
             console.error("❌ [Anthropic] Stream error:", error?.message || error);
           }
-          const statusCode =
-            typeof error?.statusCode === "number" ? error.statusCode : 500;
-          const errorType =
-            statusCode === 429
-              ? "rate_limit_error"
-              : statusCode === 404
-                ? "not_found_error"
-                : statusCode === 400
-                  ? "invalid_request_error"
-                  : "api_error";
+          const statusCode = resolveQwenProxyError(error, 500).statusCode;
+          const errorType = anthropicTypeForStatus(statusCode);
           try {
             await write(
               `event: error\ndata: ${JSON.stringify({
@@ -328,16 +340,12 @@ app.post("/v1/messages", async (c) => {
         const errorText = errorJson?.error?.message || `HTTP ${response.status}`;
         console.error(`[Anthropic] Upstream error: ${response.status} ${errorText}`);
 
-        const errorType =
-          response.status === 429
-            ? "rate_limit_error"
-            : response.status === 404
-              ? "not_found_error"
-              : response.status === 400
-                ? "invalid_request_error"
-                : "api_error";
-
-        return anthropicError(c, errorType, errorText, response.status);
+        return anthropicError(
+          c,
+          anthropicTypeForStatus(response.status),
+          errorText,
+          response.status,
+        );
       }
 
       const openaiResponse: OpenAIResponse = await response.json();
@@ -359,11 +367,12 @@ app.post("/v1/messages", async (c) => {
       return new Response(null, { status: 499 });
     }
     console.error("❌ [Anthropic] Error:", error);
+    const resolved = resolveQwenProxyError(error, 500);
     return anthropicError(
       c,
-      "api_error",
-      error?.message || "Internal server error",
-      500,
+      anthropicTypeForStatus(resolved.statusCode),
+      resolved.message || "Internal server error",
+      resolved.statusCode,
     );
   }
 });

@@ -35,6 +35,28 @@ async function withStubbedFetch<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/** A dispatch failure that carries the upstream HTTP status it represents. */
+function hintedFetchFailure(status: number, message: string): typeof fetch {
+  return (async () => {
+    const error = new Error(message) as Error & { upstreamStatus?: number };
+    error.upstreamStatus = status;
+    throw error;
+  }) as typeof fetch;
+}
+
+async function withFetch<T>(
+  replacement: typeof fetch,
+  run: () => Promise<T>,
+): Promise<T> {
+  const original = globalThis.fetch;
+  globalThis.fetch = replacement;
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
 function dataFrames(text: string): any[] {
   return text
     .split("\n")
@@ -285,4 +307,118 @@ test("Legacy completions stream terminates when the upstream body fails mid-stre
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test("Anthropic non-stream propagates an upstream status hint", async () => {
+  const res = await withFetch(
+    hintedFetchFailure(404, "model not found upstream"),
+    async () =>
+      app.fetch(
+        new Request("http://localhost/v1/messages", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": "sk-dummy",
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "qwen3.7-plus",
+            max_tokens: 64,
+            messages: [{ role: "user", content: "ping" }],
+          }),
+        }),
+      ),
+  );
+
+  assert.equal(res.status, 404);
+  const json = (await res.json()) as any;
+  assert.equal(json.error.type, "not_found_error");
+  assert.match(json.error.message, /model not found upstream/);
+});
+
+test("Anthropic stream error events use the hinted upstream status", async () => {
+  const res = await withFetch(
+    hintedFetchFailure(404, "model not found upstream"),
+    async () =>
+      app.fetch(
+        new Request("http://localhost/v1/messages", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": "sk-dummy",
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "qwen3.7-plus",
+            max_tokens: 64,
+            messages: [{ role: "user", content: "ping" }],
+            stream: true,
+          }),
+        }),
+      ),
+  );
+
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.match(text, /event: error/);
+  assert.match(text, /not_found_error/);
+  assert.match(text, /model not found upstream/);
+});
+
+test("Gemini non-stream propagates an upstream status hint", async () => {
+  const res = await withFetch(
+    hintedFetchFailure(404, "model not found upstream"),
+    async () =>
+      app.fetch(
+        new Request(
+          "http://localhost/v1beta/models/qwen3.7-plus:generateContent",
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-api-key": "sk-dummy",
+            },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: "ping" }] }],
+            }),
+          },
+        ),
+      ),
+  );
+
+  assert.equal(res.status, 404);
+  const json = (await res.json()) as any;
+  assert.equal(json.error.code, 404);
+  assert.equal(json.error.status, "NOT_FOUND");
+  assert.match(json.error.message, /model not found upstream/);
+});
+
+test("Gemini stream error frames use the hinted upstream status", async () => {
+  const res = await withFetch(
+    hintedFetchFailure(404, "model not found upstream"),
+    async () =>
+      app.fetch(
+        new Request(
+          "http://localhost/v1beta/models/qwen3.7-plus:streamGenerateContent",
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-api-key": "sk-dummy",
+            },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: "ping" }] }],
+            }),
+          },
+        ),
+      ),
+  );
+
+  assert.equal(res.status, 200);
+  const frames = dataFrames(await res.text());
+  const failure = frames.find((frame) => frame.error);
+  assert.ok(failure, "an error frame must be emitted");
+  assert.equal(failure.error.code, 404);
+  assert.equal(failure.error.status, "NOT_FOUND");
+  assert.match(failure.error.message, /model not found upstream/);
 });

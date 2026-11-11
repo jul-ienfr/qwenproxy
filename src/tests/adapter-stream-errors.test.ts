@@ -229,3 +229,60 @@ test("Legacy completions stream emits an error chunk for an upstream error frame
   assert.equal(failure.error.message, "upstream exploded");
   assert.match(text, /data: \[DONE\]/);
 });
+
+test("Legacy completions stream terminates when the upstream body fails mid-stream", async () => {
+  const original = globalThis.fetch;
+  let pulls = 0;
+  globalThis.fetch = (async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      pull(controller) {
+        if (pulls++ === 0) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":null}]}\n\n',
+            ),
+          );
+          return;
+        }
+        controller.error(new Error("socket reset"));
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const res = await app.fetch(
+      new Request("http://localhost/v1/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "qwen3.7-plus",
+          prompt: "ping",
+          stream: true,
+        }),
+      }),
+    );
+    assert.equal(res.status, 200);
+
+    // Without an explicit close the response would hang forever; the timeout
+    // proves the route terminates the stream after a read failure.
+    const text = await Promise.race([
+      res.text(),
+      new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error("stream did not terminate")), 2000),
+      ),
+    ]);
+
+    const frames = dataFrames(text);
+    const failure = frames.find((frame) => frame.error);
+    assert.ok(failure, "a terminal error chunk must be emitted");
+    assert.match(failure.error.message, /socket reset/);
+    assert.match(text, /data: \[DONE\]/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

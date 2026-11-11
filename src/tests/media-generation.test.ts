@@ -402,6 +402,21 @@ test("POST /v1/upload rejects a non-file 'file' field with 400", async () => {
   assert.match(json.error.message, /file upload/);
 });
 
+test("POST /v1/upload rejects an empty file with 400", async () => {
+  const form = new FormData();
+  form.set("file", new File([], "empty.png", { type: "image/png" }));
+  const res = await app.fetch(
+    new Request("http://localhost/v1/upload", {
+      method: "POST",
+      body: form,
+    }),
+  );
+  assert.equal(res.status, 400);
+  const json = (await res.json()) as any;
+  assert.equal(json.error.type, "invalid_request_error");
+  assert.match(json.error.message, /must not be empty/);
+});
+
 test("POST /v1/upload rejects a malformed multipart body with 400", async () => {
   const res = await app.fetch(
     new Request("http://localhost/v1/upload", {

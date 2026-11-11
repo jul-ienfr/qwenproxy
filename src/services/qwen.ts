@@ -2635,7 +2635,7 @@ function isQwenQuotaLimitMessage(details: string): boolean {
   );
 }
 
-function parseQwenJsonError(
+export function parseQwenJsonError(
   raw: string,
   status: number,
   accountId?: string,
@@ -2765,14 +2765,24 @@ function parseQwenJsonError(
       typeof errorJson.error === "string"
         ? errorJson.error
         : errorJson.error.message || JSON.stringify(errorJson.error);
-    if (isQwenQuotaLimitMessage(message)) {
+    if (status === 429 || isQwenQuotaLimitMessage(message)) {
       return new UpstreamRateLimit(`Qwen upstream error: ${message}`);
     }
 
+    // This OpenAI-shaped error carries the real HTTP status. Preserve the
+    // client-actionable 400/404 instead of flattening every such failure to
+    // 502; 401/403 stay 502 because they concern the account's session, which
+    // the failover layer resolves without telling the caller its key is bad.
+    const upstreamCode =
+      typeof errorJson.error?.code === "string" && errorJson.error.code
+        ? errorJson.error.code
+        : "UpstreamError";
+    const upstreamStatus =
+      status === 400 || status === 404 ? status : 502;
     return new QwenUpstreamError(
       `Qwen upstream error: ${message}`,
-      "UpstreamError",
-      502,
+      upstreamCode,
+      upstreamStatus,
     );
   }
 

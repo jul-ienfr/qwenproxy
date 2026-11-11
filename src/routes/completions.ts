@@ -307,8 +307,31 @@ export async function completionsLegacy(c: Context) {
               controller.enqueue(encoder.encode("data: [DONE]\n\n"));
               controller.close();
             }
-          } catch {
-            // Client disconnect — the stream is gone; nothing else to emit.
+          } catch (error) {
+            // A read failure after the SSE status is committed must still
+            // terminate the response: leaving the controller open would hang
+            // the client until it times out. Surface the failure and close,
+            // unless the client itself went away.
+            if (!closed) {
+              if (!c.req.raw.signal.aborted) {
+                enqueue({
+                  error: {
+                    message:
+                      error instanceof Error ? error.message : String(error),
+                    type: "api_error",
+                    code: "upstream_error",
+                    param: null,
+                  },
+                });
+              }
+              try {
+                controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                controller.close();
+                closed = true;
+              } catch {
+                // Already closed by the runtime.
+              }
+            }
           } finally {
             reader.releaseLock();
           }

@@ -12,7 +12,7 @@ import {
   ServiceUnavailable,
   NotFoundError,
 } from "../core/errors.ts";
-import { computeDynamicIdleTimeout, QwenUpstreamError } from "../services/qwen.ts";
+import { computeDynamicIdleTimeout, QwenUpstreamError, parseQwenJsonError } from "../services/qwen.ts";
 import { config } from "../core/config.ts";
 
 /**
@@ -91,6 +91,41 @@ test("B2: invalid upstream hints still fall through to the normal mapping", () =
   const weird: any = new Error("odd");
   weird.upstreamStatus = 999;
   assert.ok(classifyError(weird) instanceof InternalError);
+});
+
+// --- Bug B3: an OpenAI-shaped Qwen error must keep the real HTTP status it
+// arrived with instead of always becoming 502.
+test("B3: OpenAI-shaped upstream errors preserve 400/404/429", () => {
+  const bad = parseQwenJsonError(
+    JSON.stringify({ error: { message: "invalid parameter", code: "invalid_param" } }),
+    400,
+  ) as any;
+  assert.ok(bad instanceof QwenUpstreamError);
+  assert.strictEqual(bad.upstreamStatus, 400);
+  assert.strictEqual(bad.upstreamCode, "invalid_param");
+  assert.strictEqual(classifyError(bad).statusCode, 400);
+
+  const missing = parseQwenJsonError(
+    JSON.stringify({ error: { message: "no such model" } }),
+    404,
+  ) as any;
+  assert.strictEqual(missing.upstreamStatus, 404);
+  assert.strictEqual(classifyError(missing).statusCode, 404);
+
+  const limited = parseQwenJsonError(
+    JSON.stringify({ error: { message: "slow down" } }),
+    429,
+  ) as any;
+  assert.ok(limited instanceof UpstreamRateLimit);
+  assert.strictEqual(limited.statusCode, 429);
+
+  // Account-session statuses must not be exposed as the caller's own auth
+  // failure: failover handles them behind the scenes.
+  const unauthorized = parseQwenJsonError(
+    JSON.stringify({ error: { message: "token expired" } }),
+    401,
+  ) as any;
+  assert.strictEqual(unauthorized.upstreamStatus, 502);
 });
 
 // --- Bug C: the parallel-escape idle cap must not kill THINKING streams.

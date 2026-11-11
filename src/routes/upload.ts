@@ -649,6 +649,14 @@ export async function uploadFile(c: Context) {
         new ValidationError("Field 'file' must be a file upload"),
       );
     }
+    // An empty upload cannot be stored by Qwen; reject it here instead of
+    // letting the STS/OSS round-trip fail as a server error.
+    if (file.size === 0) {
+      return sendOpenAIError(
+        c,
+        new ValidationError("Field 'file' must not be empty"),
+      );
+    }
 
     // Detect MIME from filename if the client sends a generic type
     let fileType = file.type;

@@ -26,6 +26,11 @@ import { getServerLogHistory, subscribeServerLogStream } from "../core/server-lo
 import { loadModelsWithVariants } from "../api/models.ts";
 import { recordAudit, listAudit } from "../core/admin-audit.ts";
 import { adminJsonError, revalidateAdminSession, sessionCredentialHash } from "./auth.ts";
+import {
+  checkLoginThrottle,
+  clearLoginFailures,
+  recordLoginFailure,
+} from "./login-throttle.ts";
 import { accountsApp } from "./accounts-api.ts";
 import { buildOverview } from "./overview.ts";
 import { redactLogHistory, redactLogEntry } from "./logs.ts";
@@ -65,6 +70,23 @@ async function readJson(
   const body = await c.req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   return body as Record<string, unknown>;
+}
+
+/**
+ * Source address used for failed-login throttling. Forwarding headers are
+ * deliberately ignored: they are caller-controlled unless a trusted proxy
+ * strips them, and honoring them here would let an attacker rotate buckets.
+ * Direct embedded deployments without a socket share one bucket.
+ */
+function loginThrottleKey(c: Context): string {
+  const socket = (
+    c.env as
+      | { incoming?: { socket?: { remoteAddress?: string } } }
+      | undefined
+  )?.incoming?.socket;
+  const address =
+    typeof socket?.remoteAddress === "string" ? socket.remoteAddress.trim() : "";
+  return address || "unknown";
 }
 
 function serializeModelMappings(state: ModelMappingState) {
@@ -114,12 +136,24 @@ adminDashboardApp.get("/assets/admin.js", (c) => {
 // ─── Session ────────────────────────────────────────────────────────────────
 
 adminDashboardApp.post("/api/session", async (c) => {
+  const throttleKey = loginThrottleKey(c);
+  const throttle = checkLoginThrottle(throttleKey);
+  if (!throttle.allowed) {
+    c.header("Retry-After", String(throttle.retryAfterSec ?? 1));
+    return adminJsonError(
+      c,
+      429,
+      "Too many failed login attempts; try again later",
+    );
+  }
+
   const body = await readJson(c);
   const apiKey =
     body && typeof body.apiKey === "string" ? body.apiKey.trim() : "";
   const resolution = resolveIdentity(apiKey ? [apiKey] : []);
 
   if (resolution.error || !resolution.identity) {
+    recordLoginFailure(throttleKey);
     return adminJsonError(
       c,
       401,
@@ -127,8 +161,10 @@ adminDashboardApp.post("/api/session", async (c) => {
     );
   }
   if (resolution.identity.role !== "admin") {
+    recordLoginFailure(throttleKey);
     return adminJsonError(c, 403, "Admin role required");
   }
+  clearLoginFailures(throttleKey);
 
   const session = createAdminSession(
     resolution.identity,

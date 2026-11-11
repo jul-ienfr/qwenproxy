@@ -6,12 +6,17 @@ process.env.API_KEY = "sk-dash-admin-test-key";
 import { app } from "../api/server.ts";
 import { getDatabase } from "../core/database.ts";
 import { createUser, revokeUser, rotateUserKey } from "../core/users.ts";
+import {
+  LOGIN_MAX_FAILURES,
+  resetLoginThrottleForTests,
+} from "../admin/login-throttle.ts";
 
 const ADMIN_KEY = "sk-dash-admin-test-key";
 const db = getDatabase();
 let snapshot: Array<Record<string, unknown>> = [];
 
 beforeEach(() => {
+  resetLoginThrottleForTests();
   snapshot = db.prepare("SELECT * FROM users").all() as Array<
     Record<string, unknown>
   >;
@@ -129,6 +134,31 @@ test("dashboard: login rejects a wrong key and accepts the admin key", async () 
   assert.equal(typeof snapshot.requests.rpm, "number");
   assert.equal(typeof snapshot.memory.rssMb, "number");
   assert.equal(typeof snapshot.usage.totalTokens, "number");
+});
+
+test("dashboard: repeated failed logins are throttled", async () => {
+  for (let attempt = 0; attempt < LOGIN_MAX_FAILURES; attempt++) {
+    const wrong = await app.request(
+      "/admin/api/session",
+      jsonRequest({ apiKey: "sk-dash-brute-force" }, { method: "POST" }),
+    );
+    assert.equal(wrong.status, 401);
+  }
+
+  // Once the cap is reached the source is locked out, including for a valid
+  // credential: otherwise reaching the cap would still confirm the key.
+  const locked = await app.request(
+    "/admin/api/session",
+    jsonRequest({ apiKey: ADMIN_KEY }, { method: "POST" }),
+  );
+  assert.equal(locked.status, 429);
+  const retryAfter = Number(locked.headers.get("retry-after"));
+  assert.ok(Number.isFinite(retryAfter) && retryAfter > 0);
+  const body = (await locked.json()) as {
+    error: { type: string; message: string };
+  };
+  assert.equal(body.error.type, "invalid_request_error");
+  assert.match(body.error.message, /too many failed login attempts/i);
 });
 
 test("dashboard: bearer clients bypass cookies and CSRF", async () => {

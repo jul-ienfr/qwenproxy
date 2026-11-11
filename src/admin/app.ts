@@ -25,7 +25,7 @@ import { getUserIdentity } from "../core/request-user.ts";
 import { getServerLogHistory, subscribeServerLogStream } from "../core/server-log-buffer.ts";
 import { loadModelsWithVariants } from "../api/models.ts";
 import { recordAudit, listAudit } from "../core/admin-audit.ts";
-import { adminJsonError, revalidateAdminSession } from "./auth.ts";
+import { adminJsonError, revalidateAdminSession, sessionCredentialHash } from "./auth.ts";
 import { accountsApp } from "./accounts-api.ts";
 import { buildOverview } from "./overview.ts";
 import { redactLogHistory, redactLogEntry } from "./logs.ts";
@@ -130,7 +130,11 @@ adminDashboardApp.post("/api/session", async (c) => {
     return adminJsonError(c, 403, "Admin role required");
   }
 
-  const session = createAdminSession(resolution.identity);
+  const session = createAdminSession(
+    resolution.identity,
+    DEFAULT_SESSION_TTL_SECONDS,
+    { keyHash: sessionCredentialHash(resolution.identity, apiKey) },
+  );
   c.header(
     "Set-Cookie",
     buildSessionCookie(

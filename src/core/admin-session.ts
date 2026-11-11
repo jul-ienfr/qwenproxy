@@ -23,6 +23,11 @@ export interface AdminSessionPayload {
   csrf: string;
   iat: number;
   exp: number;
+  /**
+   * Digest of the credential that created the session. Optional for legacy
+   * sessions; revalidation rejects a mismatch so key rotation ends access.
+   */
+  keyHash?: string;
 }
 
 export interface CreatedAdminSession {
@@ -82,6 +87,7 @@ function timingSafeEqualString(a: string, b: string): boolean {
 export function createAdminSession(
   identity: UserIdentity,
   ttlSeconds = DEFAULT_SESSION_TTL_SECONDS,
+  options: { keyHash?: string } = {},
 ): CreatedAdminSession {
   const now = Math.floor(Date.now() / 1000);
   const payload: AdminSessionPayload = {
@@ -91,6 +97,7 @@ export function createAdminSession(
     csrf: crypto.randomBytes(24).toString("base64url"),
     iat: now,
     exp: now + Math.max(60, ttlSeconds),
+    ...(options.keyHash ? { keyHash: options.keyHash } : {}),
   };
   const body = Buffer.from(JSON.stringify(payload), "utf8").toString(
     "base64url",
@@ -123,6 +130,12 @@ export function verifyAdminSession(
     if (typeof payload.iat !== "number") return null;
     if (typeof payload.sub !== "string" || !payload.sub) return null;
     if (typeof payload.csrf !== "string" || !payload.csrf) return null;
+    if (
+      payload.keyHash !== undefined &&
+      (typeof payload.keyHash !== "string" || payload.keyHash.length === 0)
+    ) {
+      return null;
+    }
     return payload;
   } catch {
     return null;

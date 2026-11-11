@@ -40,6 +40,18 @@ test("admin-session: create then verify round-trips the admin identity", () => {
   assert.equal(identity.legacy, false);
 });
 
+test("admin-session: an optional credential hash is round-tripped", () => {
+  const created = createAdminSession(adminIdentity, 60, {
+    keyHash: "a".repeat(64),
+  });
+  const verified = verifyAdminSession(created.token);
+  assert.ok(verified);
+  assert.equal(verified.keyHash, "a".repeat(64));
+
+  const unbound = createAdminSession(adminIdentity);
+  assert.equal(verifyAdminSession(unbound.token)?.keyHash, undefined);
+});
+
 test("admin-session: tampered tokens are rejected", () => {
   const created = createAdminSession(adminIdentity);
   const [body, signature] = created.token.split(".");

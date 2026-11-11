@@ -184,6 +184,18 @@ export function getUserByLabel(label: string): PublicUser | undefined {
 }
 
 /**
+ * Internal credential digest used to revalidate sessions after a key rotation.
+ * Never include this value in admin API responses.
+ */
+export function getUserApiKeyHash(id: string): string | null {
+  seedEnvUsers();
+  const row = getDatabase()
+    .prepare("SELECT api_key_hash FROM users WHERE id = ?")
+    .get(id) as { api_key_hash: string } | undefined;
+  return row?.api_key_hash ?? null;
+}
+
+/**
  * Look up a key including revoked rows. Callers need the distinction to reject
  * a revoked key instead of falling back to loopback local-admin trust.
  */

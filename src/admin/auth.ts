@@ -7,6 +7,8 @@
  */
 
 import type { Context } from "hono";
+import { config } from "../core/config.ts";
+import { getRuntimeApiKey, isPlaceholderApiKey } from "../core/local-auth.ts";
 import {
   extractProvidedApiKeys,
   GLOBAL_ADMIN_IDENTITY,
@@ -21,12 +23,36 @@ import {
   verifyAdminSession,
   type AdminSessionPayload,
 } from "../core/admin-session.ts";
-import { getUserById, type UserIdentity } from "../core/users.ts";
+import {
+  getUserApiKeyHash,
+  getUserById,
+  hashApiKey,
+  type UserIdentity,
+} from "../core/users.ts";
 
 const LEGACY_SESSION_SUBJECTS = new Set([
   LOCAL_ADMIN_IDENTITY.id,
   GLOBAL_ADMIN_IDENTITY.id,
 ]);
+
+function currentGlobalKeyHash(): string | null {
+  const key = (getRuntimeApiKey() || config.apiKey || "").trim();
+  if (!key || isPlaceholderApiKey(key)) return null;
+  return hashApiKey(key);
+}
+
+/**
+ * Digest to bind a dashboard session to the credential that created it.
+ * Loopback logins have no configured key, so they stay unbound and are
+ * revalidated as a legacy operator identity.
+ */
+export function sessionCredentialHash(
+  identity: UserIdentity,
+  providedKey: string,
+): string | undefined {
+  if (!providedKey || identity.id === LOCAL_ADMIN_IDENTITY.id) return undefined;
+  return hashApiKey(providedKey);
+}
 
 export interface AdminAuthSuccess {
   identity: UserIdentity;
@@ -74,11 +100,21 @@ export function revalidateAdminSession(
   session: AdminSessionPayload,
 ): UserIdentity | null {
   if (LEGACY_SESSION_SUBJECTS.has(session.sub)) {
+    if (session.keyHash) {
+      const current = currentGlobalKeyHash();
+      if (!current || current !== session.keyHash) return null;
+    }
     return identityFromSession(session);
   }
 
   const user = getUserById(session.sub);
   if (!user || user.revoked_at || user.role !== "admin") return null;
+  // Bound sessions die when the API key is rotated. Sessions minted before
+  // this binding existed have no hash and require a fresh login.
+  const currentKeyHash = getUserApiKeyHash(session.sub);
+  if (!session.keyHash || !currentKeyHash || session.keyHash !== currentKeyHash) {
+    return null;
+  }
 
   return {
     id: user.id,
@@ -138,13 +174,26 @@ export function authenticateAdminRequest(c: Context): AdminAuthResult {
   if (MUTATING_METHODS.has(c.req.method.toUpperCase())) {
     const origin = c.req.header("origin");
     if (origin) {
-      let expected: string | null = null;
+      // Compare hosts rather than full origins: a TLS-terminating reverse proxy
+      // makes the browser send https:// while Node sees http://. The Host header
+      // (and therefore the request URL) must still match exactly.
+      let originHost: string | null = null;
       try {
-        expected = new URL(c.req.url).origin;
+        originHost = new URL(origin).host;
       } catch {
-        expected = null;
+        originHost = null;
       }
-      if (expected && origin !== expected) {
+      let expectedHost: string | null = null;
+      try {
+        expectedHost = new URL(c.req.url).host;
+      } catch {
+        expectedHost = c.req.header("host")?.trim() || null;
+      }
+      if (
+        !originHost ||
+        !expectedHost ||
+        originHost.toLowerCase() !== expectedHost.toLowerCase()
+      ) {
         return {
           response: adminJsonError(
             c,

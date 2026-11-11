@@ -5,7 +5,7 @@ process.env.API_KEY = "sk-dash-admin-test-key";
 
 import { app } from "../api/server.ts";
 import { getDatabase } from "../core/database.ts";
-import { createUser, revokeUser } from "../core/users.ts";
+import { createUser, revokeUser, rotateUserKey } from "../core/users.ts";
 
 const ADMIN_KEY = "sk-dash-admin-test-key";
 const db = getDatabase();
@@ -216,6 +216,110 @@ test("dashboard: revoking an admin invalidates existing session cookies", async 
   });
   assert.equal(current.status, 401);
   assert.match(current.headers.get("set-cookie") || "", /Max-Age=0/);
+});
+
+test("dashboard: rotating an admin key invalidates existing session cookies", async () => {
+  const created = createUser("dash-rotatable-admin", { role: "admin" });
+  const login = await app.request(
+    "/admin/api/session",
+    jsonRequest({ apiKey: created.apiKey }, { method: "POST" }),
+  );
+  assert.equal(login.status, 200);
+  const cookie = sessionCookie(login);
+
+  const rotated = rotateUserKey(created.user.id);
+
+  const stale = await app.request("/admin/api/overview", {
+    headers: { cookie },
+  });
+  assert.equal(stale.status, 401);
+
+  const relogin = await app.request(
+    "/admin/api/session",
+    jsonRequest({ apiKey: rotated.apiKey }, { method: "POST" }),
+  );
+  assert.equal(relogin.status, 200);
+  const freshCookie = sessionCookie(relogin);
+  const overview = await app.request("/admin/api/overview", {
+    headers: { cookie: freshCookie },
+  });
+  assert.equal(overview.status, 200);
+});
+
+test("dashboard: changing the global API_KEY invalidates legacy sessions", async () => {
+  const login = await app.request(
+    "/admin/api/session",
+    jsonRequest({ apiKey: ADMIN_KEY }, { method: "POST" }),
+  );
+  assert.equal(login.status, 200);
+  const cookie = sessionCookie(login);
+
+  const previous = process.env.API_KEY;
+  process.env.API_KEY = "sk-dash-rotated-global-key";
+  try {
+    const stale = await app.request("/admin/api/overview", {
+      headers: { cookie },
+    });
+    assert.equal(stale.status, 401);
+
+    const relogin = await app.request(
+      "/admin/api/session",
+      jsonRequest({ apiKey: "sk-dash-rotated-global-key" }, { method: "POST" }),
+    );
+    assert.equal(relogin.status, 200);
+  } finally {
+    if (previous === undefined) delete process.env.API_KEY;
+    else process.env.API_KEY = previous;
+  }
+});
+
+test("dashboard: origin checks tolerate a TLS proxy but reject another host", async () => {
+  const login = await app.request(
+    "/admin/api/session",
+    jsonRequest({ apiKey: ADMIN_KEY }, { method: "POST" }),
+  );
+  const cookie = sessionCookie(login);
+  const { csrf } = (await login.json()) as { csrf: string };
+
+  const settings = { values: { rate_limit_requests: 1234 } };
+  const proxied = await app.request(
+    "/admin/api/settings",
+    jsonRequest(settings, {
+      method: "PUT",
+      headers: {
+        cookie,
+        "x-csrf-token": csrf,
+        origin: "https://localhost",
+      },
+    }),
+  );
+  assert.equal(proxied.status, 200);
+
+  const foreign = await app.request(
+    "/admin/api/settings",
+    jsonRequest(settings, {
+      method: "PUT",
+      headers: {
+        cookie,
+        "x-csrf-token": csrf,
+        origin: "https://evil.example",
+      },
+    }),
+  );
+  assert.equal(foreign.status, 403);
+
+  const opaque = await app.request(
+    "/admin/api/settings",
+    jsonRequest(settings, {
+      method: "PUT",
+      headers: {
+        cookie,
+        "x-csrf-token": csrf,
+        origin: "null",
+      },
+    }),
+  );
+  assert.equal(opaque.status, 403);
 });
 
 test("dashboard: logout clears the session cookie", async () => {

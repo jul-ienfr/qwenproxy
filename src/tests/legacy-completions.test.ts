@@ -96,6 +96,24 @@ async function readSse(response: Response): Promise<string[]> {
     .map((line) => line.slice(6));
 }
 
+test("POST /v1/completions rejects a non-boolean stream", async () => {
+  const res = await app.fetch(
+    new Request("http://localhost/v1/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "qwen3.6-plus",
+        prompt: "Write a tagline.",
+        stream: "yes",
+      }),
+    }),
+  );
+  assert.strictEqual(res.status, 400);
+  const body = await res.json();
+  assert.strictEqual(body.error.type, "invalid_request_error");
+  assert.ok(body.error.message.includes("stream"));
+});
+
 test("POST /v1/completions (non-stream) maps chat output to text_completion", async () => {
   const mock = installMockFetch(() => {
     return new Response(JSON.stringify(NON_STREAM_CHAT_RESPONSE), {

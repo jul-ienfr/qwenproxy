@@ -120,6 +120,17 @@ export async function completionsLegacy(c: Context) {
     );
   }
 
+  if (
+    body.stream !== undefined &&
+    typeof body.stream !== "boolean"
+  ) {
+    return completionsError(
+      c,
+      "invalid_request_error",
+      "The 'stream' parameter must be a boolean",
+      400,
+    );
+  }
   const prompt = body.prompt as string | Array<string | number>;
   const promptText = Array.isArray(prompt)
     ? prompt.map((part) => String(part)).join("\n")

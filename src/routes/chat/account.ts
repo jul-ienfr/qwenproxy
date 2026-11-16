@@ -1,11 +1,18 @@
 import { v4 as uuidv4 } from "uuid";
 import {
+	computeQuotaCooldownMs,
 	getAccountCooldownInfo,
 	getNextAccount,
 	getNextAvailableAccount,
+	isAccountUnavailableForModel,
 	markAccountRateLimited,
 	syncCooldownsFromDb,
 } from "../../core/account-manager.ts";
+import {
+	getModelLimit,
+	markAccountModelLimited,
+} from "../../core/account-model-limits.ts";
+import { mapClientModelToQwen } from "../../core/model-alias.ts";
 import { markAccountSuccessful, markAccountFailed, getAccountsByPriority } from "../../core/account-priority.ts";
 import { recordWafHardBlock, noteWafRecovery } from "../../core/waf-isolation.ts";
 import { isCaptchaRecoveryInBackoff } from "../../services/captcha-coordinator.ts";
@@ -76,8 +83,9 @@ import {
 	classifyRetryAction,
 	isAntiBotError as isAntiBotPolicyError,
 	isAccountInitializationError,
-	isChatInProgressError,
+		isChatInProgressError,
 	isNetworkLikeError,
+	isModelScopedQuotaError,
 	isQuotaLikeError,
 	isTerminalLocalError,
 	shouldRetryInvalidInputOnSameAccount,
@@ -359,10 +367,27 @@ export interface AcquireParams {
 	  researchMode?: "normal" | "advance";
 	}
 
+function getEffectiveAccountLimitInfo(
+	accountId: string,
+	model?: string,
+): { onCooldown: boolean; remainingMs: number; reason: string } | null {
+	const accountCooldown = getAccountCooldownInfo(accountId);
+	if (accountCooldown) return accountCooldown;
+	if (!model) return null;
+	const modelLimit = getModelLimit(accountId, model);
+	if (!modelLimit) return null;
+	return {
+		onCooldown: true,
+		remainingMs: Math.max(0, modelLimit.until - Date.now()),
+		reason: `${modelLimit.reason}(${modelLimit.model})`,
+	};
+}
+
 /** Exported for unit tests — selects the first account for a request. */
 export function resolveInitialAccount(
   preferredAccountId?: string | null,
   excludeAccountIds?: Iterable<string>,
+  model?: string,
 ): {
   account: SelectedAccount;
   configuredAccounts: SelectedAccount[];
@@ -389,7 +414,7 @@ export function resolveInitialAccount(
 					candidate.email.toLowerCase() === needle ||
 					candidate.email.toLowerCase().includes(needle),
 			);
-			if (preferred && !getAccountCooldownInfo(preferred.id)) {
+			if (preferred && !isAccountUnavailableForModel(preferred.id, model)) {
 				return { account: preferred, configuredAccounts };
 			}
 			// Preferred is missing/on cooldown: fall through to next available.
@@ -398,11 +423,11 @@ export function resolveInitialAccount(
 
 		// Error failover: rotate away from sticky/current account when requested.
 		if (preferredAccountId === null || excluded.size > 0) {
-			const next = getNextAvailableAccount(excluded);
+			const next = getNextAvailableAccount(excluded, model);
 			if (next) return { account: next, configuredAccounts };
 		}
 
-		const account = getNextAccount();
+		const account = getNextAccount(model);
 		if (!account) {
 			// All accounts on cooldown; caller will handle this.
 			return { account: configuredAccounts[0], configuredAccounts };
@@ -434,12 +459,13 @@ function hasFreeAlternateAccount(
 	accounts: SelectedAccount[],
 	currentAccountId: string,
 	triedAccountIds: Set<string>,
+	model?: string,
 ): boolean {
 	return accounts.some(
 		(candidate) =>
 			candidate.id !== currentAccountId &&
 			!triedAccountIds.has(candidate.id) &&
-			!getAccountCooldownInfo(candidate.id) &&
+			!isAccountUnavailableForModel(candidate.id, model) &&
 			!isAccountTemporarilyBusy(candidate.id) &&
 			!isAccountBusy(candidate.id),
 	);
@@ -459,13 +485,14 @@ function getNextFreeAccountForParallel(
 	accounts: QwenAccount[],
 	triedAccountIds: Set<string>,
 	currentAccountId: string,
+	model?: string,
 ): QwenAccount | null {
 	const ordered = getAccountsByPriority(accounts);
 	const free = ordered.find(
 		(c) =>
 			c.id !== currentAccountId &&
 			!triedAccountIds.has(c.id) &&
-			!getAccountCooldownInfo(c.id) &&
+			!isAccountUnavailableForModel(c.id, model) &&
 			!isAccountTemporarilyBusy(c.id) &&
 			!isAccountBusy(c.id),
 	);
@@ -473,7 +500,7 @@ function getNextFreeAccountForParallel(
 	// No free slot anywhere: fall back to the normal picker so we still rotate
 	// (the tryAcquireAccountLease fail-fast will report account_busy and the
 	// loop gives up rather than blocking on a busy pool).
-	return getNextAvailableAccount(triedAccountIds);
+	return getNextAvailableAccount(triedAccountIds, model);
 }
 
 
@@ -568,7 +595,8 @@ export async function acquireUpstreamStream(
 		excludeSet.add(stickyThreadAccountId);
 	}
 
-	const resolved = resolveInitialAccount(resolvedPreferred, excludeSet);
+	const quotaModel = mapClientModelToQwen(params.contextModelId || model);
+	const resolved = resolveInitialAccount(resolvedPreferred, excludeSet, quotaModel);
 
 	if (logger.isLevelEnabled("info")) {
 		// Why THIS account? The operator needs the decision, not just the
@@ -576,7 +604,7 @@ export async function acquireUpstreamStream(
 		// came from logs that showed only the outcome.
 		const poolSize = resolved.configuredAccounts.length;
 		const cooldownCount = resolved.configuredAccounts.filter((a) =>
-			getAccountCooldownInfo(a.id),
+			getEffectiveAccountLimitInfo(a.id, quotaModel),
 		).length;
 		const why =
 			resolved.account.id === stickyThreadAccountId
@@ -603,7 +631,7 @@ export async function acquireUpstreamStream(
 		const accountEmail = maskEmail(account.email);
 
 		if (triedAccountIds.has(accountId)) {
-			account = getNextAvailableAccount(triedAccountIds);
+			account = getNextAvailableAccount(triedAccountIds, quotaModel);
 			continue;
 		}
 		triedAccountIds.add(accountId);
@@ -618,13 +646,13 @@ export async function acquireUpstreamStream(
 			isAccountTemporarilyBusy(accountId) &&
 			params.allowTemporarilyBusyAccountId !== accountId &&
 			accountId !== stickyThreadAccountId &&
-			hasFreeAlternateAccount(configuredAccounts, accountId, triedAccountIds)
+			hasFreeAlternateAccount(configuredAccounts, accountId, triedAccountIds, quotaModel)
 		) {
 			console.log(
 				`⏭️  [Chat] Skipping account ${accountEmail} (${accountId}) temporarily busy (chat in progress)`,
 			);
-			const nextCandidate = getNextAvailableAccount(triedAccountIds);
-			if (nextCandidate && !getAccountCooldownInfo(nextCandidate.id)) {
+			const nextCandidate = getNextAvailableAccount(triedAccountIds, quotaModel);
+			if (nextCandidate && !getEffectiveAccountLimitInfo(nextCandidate.id, quotaModel)) {
 				account = nextCandidate;
 				continue;
 			}
@@ -639,13 +667,13 @@ export async function acquireUpstreamStream(
 		if (
 			isAccountBusy(accountId) &&
 			accountId !== stickyThreadAccountId &&
-			hasFreeAlternateAccount(configuredAccounts, accountId, triedAccountIds)
+			hasFreeAlternateAccount(configuredAccounts, accountId, triedAccountIds, quotaModel)
 		) {
 			console.log(
 				`⏭️  [Chat] Skipping account ${accountEmail} (${accountId}) busy; rotating to a free account`,
 			);
-			const nextCandidate = getNextAvailableAccount(triedAccountIds);
-			if (nextCandidate && !getAccountCooldownInfo(nextCandidate.id)) {
+			const nextCandidate = getNextAvailableAccount(triedAccountIds, quotaModel);
+			if (nextCandidate && !getEffectiveAccountLimitInfo(nextCandidate.id, quotaModel)) {
 				account = nextCandidate;
 				continue;
 			}
@@ -653,7 +681,7 @@ export async function acquireUpstreamStream(
 			// do NOT skip this busy account to death. Fall through and queue on its slot.
 		}
 
-		const cooldownInfo = getAccountCooldownInfo(accountId);
+		const cooldownInfo = getEffectiveAccountLimitInfo(accountId, quotaModel);
 		if (cooldownInfo) {
 			console.log(
 				`⏭️  [Chat] Skipping account ${accountEmail} (${accountId}) on cooldown for ${Math.round(cooldownInfo.remainingMs / 1000)}s (${cooldownInfo.reason})`,
@@ -663,7 +691,7 @@ export async function acquireUpstreamStream(
 					`⚠️  [Chat] Sticky account is on cooldown; recreating upstream chat on another account with full context.`,
 				);
 			}
-			account = getNextAvailableAccount(triedAccountIds);
+			account = getNextAvailableAccount(triedAccountIds, quotaModel);
 			continue;
 		}
 
@@ -869,6 +897,7 @@ export async function acquireUpstreamStream(
 					configuredAccounts,
 					accountId,
 					triedAccountIds,
+					quotaModel,
 				);
 			const result = await tryCreateStreamWithRetry(
 				{
@@ -1054,7 +1083,7 @@ export async function acquireUpstreamStream(
 				break;
 			}
 
-			const nextAfterChallenge = getNextAvailableAccount(triedAccountIds);
+			const nextAfterChallenge = getNextAvailableAccount(triedAccountIds, quotaModel);
 			if (!nextAfterChallenge) {
 				console.warn(
 					`⚠️  [Chat] WAF challenge retries exhausted | ${accountEmail} | no other account available`,
@@ -1078,7 +1107,7 @@ export async function acquireUpstreamStream(
 			});
 		}
 
-		account = getNextAvailableAccount(triedAccountIds);
+		account = getNextAvailableAccount(triedAccountIds, quotaModel);
 	}
 
 	// All accounts exhausted.
@@ -1086,7 +1115,7 @@ export async function acquireUpstreamStream(
 
 	if (!lastError && configuredAccounts.length > 0) {
 		const cooldownInfos = configuredAccounts
-			.map((acc) => getAccountCooldownInfo(acc.id))
+			.map((acc) => getEffectiveAccountLimitInfo(acc.id, quotaModel))
 			.filter(
 				(
 					info,
@@ -1938,12 +1967,23 @@ async function tryCreateStreamWithRetry(
 				}
 
 				markAccountFailed(currentAccountId);
-				markAccountRateLimited(
-					currentAccountId,
-					policy.accountCooldownMs,
-					policy.accountCooldownReason || "QuotaExceeded",
-					{ silent: true },
-				);
+				if (isModelScopedQuotaError(err)) {
+					const cooldownDuration =
+						policy.accountCooldownMs ?? computeQuotaCooldownMs(Date.now());
+					markAccountModelLimited(
+						currentAccountId,
+						mapClientModelToQwen(params.contextModelId || params.model),
+						Date.now() + cooldownDuration,
+						"MembershipLimit",
+					);
+				} else {
+					markAccountRateLimited(
+						currentAccountId,
+						policy.accountCooldownMs,
+						policy.accountCooldownReason || "QuotaExceeded",
+						{ silent: true },
+					);
+				}
 				return { success: false, error: err };
 			}
 
@@ -2113,20 +2153,38 @@ async function tryCreateStreamWithRetry(
 			!isSingleAccount &&
 			accountSwitches < maxAccountSwitches
 		) {
+			const quotaModelForSwitch = mapClientModelToQwen(
+				params.contextModelId || params.model,
+			);
 			const nextAccount = params.parallelEscape
-				? getNextFreeAccountForParallel(accounts, triedAccounts, currentAccountId)
-				: getNextAvailableAccount(triedAccounts);
+				? getNextFreeAccountForParallel(
+						accounts,
+						triedAccounts,
+						currentAccountId,
+						quotaModelForSwitch,
+					)
+				: getNextAvailableAccount(triedAccounts, quotaModelForSwitch);
 			if (nextAccount && nextAccount.id !== currentAccountId) {
 				console.warn(
 					`🔄 [Chat] Switching account after ${policy.reason} | ${currentAccountEmail} -> ${maskEmail(nextAccount.email)}`,
 				);
 				if ((policy.accountCooldownMs ?? 0) > 0) {
-					markAccountRateLimited(
-						currentAccountId,
-						policy.accountCooldownMs,
-						policy.accountCooldownReason || "RetrySwitch",
-					);
+					if (isModelScopedQuotaError(err)) {
+						markAccountModelLimited(
+							currentAccountId,
+							quotaModelForSwitch,
+							Date.now() + policy.accountCooldownMs!,
+							"MembershipLimit",
+						);
+					} else {
+						markAccountRateLimited(
+							currentAccountId,
+							policy.accountCooldownMs,
+							policy.accountCooldownReason || "RetrySwitch",
+						);
+					}
 				}
+				const previousAccountId = currentAccountId;
 				triedAccounts.add(currentAccountId);
 				currentAccountId = nextAccount.id;
 				currentAccountEmail = maskEmail(nextAccount.email);
@@ -2145,7 +2203,7 @@ async function tryCreateStreamWithRetry(
 				if (params.useThreadNative) {
 					const abandonedChatId = params.existingThread?.chatSessionId;
 					if (abandonedChatId) {
-						enqueueOrphanChatDeletion(currentAccountId, abandonedChatId, policy.reason);
+						enqueueOrphanChatDeletion(previousAccountId, abandonedChatId, policy.reason);
 					}
 					params.existingThread = null;
 					params.finalPrompt = params.fullPrompt;

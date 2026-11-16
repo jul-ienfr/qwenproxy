@@ -953,6 +953,34 @@ interface BrowserTextResponse {
   raw: string;
 }
 
+export function isBrowserUnauthorizedPayload(status: number, contentType: string, raw: string): boolean {
+  if (status === 401) return true;
+  if (!raw) return false;
+  const ct = (contentType || "").toLowerCase();
+  if (ct && !ct.includes("json") && !raw.trimStart().startsWith("{")) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.success !== false) return false;
+    const code = String(parsed.data?.code || parsed.code || "").toLowerCase();
+    const details = String(
+      parsed.data?.details || parsed.details || parsed.message || "",
+    ).toLowerCase();
+    return (
+      code === "unauthorized" ||
+      code === "unauthenticated" ||
+      details.includes("token has expired") ||
+      details.includes("session has expired") ||
+      details.includes("please log in again") ||
+      details.includes("please sign in again") ||
+      details.includes("401")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function requestQwenTextInBrowser(
   accountId: string | undefined,
   method: "GET" | "POST" | "DELETE",
@@ -997,9 +1025,25 @@ export async function requestQwenTextInBrowser(
     browserHeaders["Content-Type"] = "application/json";
   }
 
+  const updateBrowserAuthHeader = (token: string | undefined) => {
+    if (!token) return;
+    const clean = token.replace(/^Bearer\s+/i, "").trim();
+    if (!clean) return;
+    let updated = false;
+    for (const key of Object.keys(browserHeaders)) {
+      if (key.toLowerCase() === "authorization") {
+        browserHeaders[key] = `Bearer ${clean}`;
+        updated = true;
+      }
+    }
+    if (!updated) {
+      browserHeaders["Authorization"] = `Bearer ${clean}`;
+    }
+  };
+
   const evaluateRequest = (page: Page) =>
     page.evaluate(
-      async ({ url, method, headers, body, referrer, timeoutMs, tz }: {
+      async ({ url, method, headers, body, referrer, timeoutMs, tz, version }: {
         url: string;
         method: "GET" | "POST" | "DELETE";
         headers: Record<string, string>;
@@ -1007,6 +1051,7 @@ export async function requestQwenTextInBrowser(
         referrer?: string;
         timeoutMs: number;
         tz: string;
+        version: string;
       }): Promise<BrowserTextResponse> => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -1019,9 +1064,39 @@ export async function requestQwenTextInBrowser(
             signal: controller.signal,
             ...(referrer ? { referrer } : {}),
           });
+          let contentType = response.headers.get("content-type") || "";
+          let raw = await response.text();
 
-          // If 401 Unauthorized in browser, try silent in-page token refresh before giving up
-          if (response.status === 401) {
+          let needsRefresh = response.status === 401;
+          if (
+            !needsRefresh &&
+            raw &&
+            (!contentType ||
+              contentType.toLowerCase().includes("json") ||
+              raw.trimStart().startsWith("{"))
+          ) {
+            try {
+              const j = JSON.parse(raw);
+              if (j && j.success === false) {
+                const code = String(j.data?.code || j.code || "").toLowerCase();
+                const details = String(
+                  j.data?.details || j.details || j.message || "",
+                ).toLowerCase();
+                needsRefresh =
+                  code === "unauthorized" ||
+                  code === "unauthenticated" ||
+                  details.includes("token has expired") ||
+                  details.includes("session has expired") ||
+                  details.includes("please log in again") ||
+                  details.includes("please sign in again") ||
+                  details.includes("401");
+              }
+            } catch {}
+          }
+
+          // Qwen often returns HTTP 200 with {"success":false,"data":{"code":"unauthorized"}}
+          // as well as HTTP 401. Attempt an in-page refresh before returning to Node.
+          if (needsRefresh) {
             try {
               const rTok = localStorage.getItem("refresh_token");
               if (rTok) {
@@ -1031,7 +1106,7 @@ export async function requestQwenTextInBrowser(
                   headers: {
                     accept: "application/json, text/plain, */*",
                     source: "web",
-                    version: "0.3.11",
+                    version,
                     "x-request-origin": "https://chat.qwen.ai",
                     timezone: tz,
                     authorization: `Bearer ${rTok}`,
@@ -1046,9 +1121,10 @@ export async function requestQwenTextInBrowser(
                   localStorage.setItem("access_token", freshTok);
                   if (nextRTok) localStorage.setItem("refresh_token", nextRTok);
                   document.cookie = `token=${encodeURIComponent(freshTok)}; path=/; domain=.qwen.ai; max-age=31536000`;
-                  if (headers["authorization"] || headers["Authorization"]) {
-                    headers["authorization"] = `Bearer ${freshTok}`;
-                    headers["Authorization"] = `Bearer ${freshTok}`;
+                  for (const k of Object.keys(headers)) {
+                    if (k.toLowerCase() === "authorization") {
+                      headers[k] = `Bearer ${freshTok}`;
+                    }
                   }
                   response = await fetch(url, {
                     method,
@@ -1058,6 +1134,8 @@ export async function requestQwenTextInBrowser(
                     signal: controller.signal,
                     ...(referrer ? { referrer } : {}),
                   });
+                  contentType = response.headers.get("content-type") || "";
+                  raw = await response.text();
                 }
               }
             } catch {}
@@ -1065,8 +1143,8 @@ export async function requestQwenTextInBrowser(
 
           return {
             status: response.status,
-            contentType: response.headers.get("content-type") || "",
-            raw: await response.text(),
+            contentType,
+            raw,
           };
         } finally {
           clearTimeout(timeoutId);
@@ -1080,6 +1158,7 @@ export async function requestQwenTextInBrowser(
         referrer: options.referrer,
         timeoutMs: options.timeoutMs ?? Math.min(config.timeouts.page, 20_000),
         tz: formatAsciiTimezone(),
+        version: getQwenWebVersion(),
       },
     );
   const recoverOnTimeout = !options.noMutexRecovery;
@@ -1094,12 +1173,14 @@ export async function requestQwenTextInBrowser(
     recoverOnTimeout,
   );
 
-  // If evaluateRequest still received 401, trigger outer token refresh and retry once
-  if (response.status === 401 && accountId) {
+  // If evaluateRequest still received 401 or JSON unauthorized (e.g. refresh_token
+  // was only in SQLite/cookies), refresh via Node and update browserHeaders before retrying.
+  if (isBrowserUnauthorizedPayload(response.status, response.contentType, response.raw) && accountId) {
     try {
       const { refreshAccountToken } = await import("./playwright.ts");
       const refreshed = await refreshAccountToken(accountId);
       if (refreshed.success) {
+        updateBrowserAuthHeader(refreshed.token);
         response = await withQwenBrowserPage<BrowserTextResponse>(
           accountId,
           evaluateRequest,
@@ -2388,7 +2469,7 @@ export async function deleteSingleQwenChat(
 
   const requestHeaders: Record<string, string> = {
     source: "web",
-    version: getQwenWebVersion() || "0.3.26",
+    version: getQwenWebVersion(),
     timezone: formatAsciiTimezone(),
     "x-request-id": crypto.randomUUID(),
     Referer: qwenUrl(`/c/${encodeURIComponent(chatId)}`),
@@ -2441,7 +2522,7 @@ export async function fetchRemoteQwenChats(
   }
 
   const requestHeaders: Record<string, string> = {
-    version: getQwenWebVersion() || "0.3.26",
+    version: getQwenWebVersion(),
     timezone: formatAsciiTimezone(),
     "x-request-id": crypto.randomUUID(),
     Referer: qwenUrl("/settings/chats"),

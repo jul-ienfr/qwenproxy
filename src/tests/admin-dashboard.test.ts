@@ -10,6 +10,7 @@ import {
   LOGIN_MAX_FAILURES,
   resetLoginThrottleForTests,
 } from "../admin/login-throttle.ts";
+import { ADMIN_JS } from "../admin/ui.ts";
 
 const ADMIN_KEY = "sk-dash-admin-test-key";
 const db = getDatabase();
@@ -80,6 +81,14 @@ test("dashboard: static UI is served without authentication", async () => {
   const script = await app.request("/admin/assets/admin.js");
   assert.equal(script.status, 200);
   assert.match(script.headers.get("content-type") || "", /javascript/);
+});
+
+test("dashboard: the served admin script is syntactically valid", async () => {
+  const served = await (await app.request("/admin/assets/admin.js")).text();
+  // A template-literal escape bug once shipped a real newline inside a string
+  // literal, so the SPA failed to parse and the dashboard rendered blank.
+  assert.doesNotThrow(() => new Function(served));
+  assert.doesNotThrow(() => new Function(ADMIN_JS));
 });
 
 test("dashboard: unauthenticated API calls fail closed", async () => {

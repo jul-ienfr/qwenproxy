@@ -658,7 +658,7 @@ export const ADMIN_JS = `(function () {
       return entry.alias + "=" + entry.target;
     });
     if (state.fallback) lines.push("*=" + state.fallback);
-    return lines.join(",\n");
+    return lines.join(",\\n");
   }
 
   function mappingSourceLabel(state) {

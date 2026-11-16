@@ -71,4 +71,12 @@ test("buildToolInstructions: robustness rules guard against malformed/nested cal
   );
   // Only valid JSON inside the block (no markdown/comments/text).
   assert.ok(result.includes("no markdown"), "missing JSON-only-inside-block rule");
+  assert.ok(
+    result.includes("JSON String Escaping"),
+    "missing JSON string escaping rule",
+  );
+  assert.ok(
+    result.includes("Windows paths MUST double every backslash"),
+    "missing Windows-path escaping example",
+  );
 });

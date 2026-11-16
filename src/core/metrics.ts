@@ -38,6 +38,21 @@ export class Metrics extends EventEmitter {
       ["toolcalls.total", "counter", "Total tool calls processed"],
       ["toolcalls.malformed", "counter", "Malformed tool calls detected"],
       ["toolcalls.recovered", "counter", "Malformed tool calls recovered/healed"],
+      [
+        "toolcalls.escape_repaired",
+        "counter",
+        "Invalid JSON escapes normalized in tool-call arguments",
+      ],
+      [
+        "toolcalls.block_split",
+        "counter",
+        "Tool-call blocks split into multiple top-level objects",
+      ],
+      [
+        "toolcalls.integrity_violation",
+        "counter",
+        "Emitted tool-call arguments diverged from the finalized call",
+      ],
       ["chats.cleaned", "counter", "Remote chats automatically cleaned"],
       // Web search metrics
       ["search.requests", "counter", "Requests that opted into web search"],

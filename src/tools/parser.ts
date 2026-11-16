@@ -1,5 +1,10 @@
 import crypto from "node:crypto";
-import { robustParseJSON, computeMissingJsonClosingTokens } from "../utils/json.ts";
+import {
+  robustParseJSON,
+  computeMissingJsonClosingTokens,
+  normalizeJsonStringEscapes,
+  normalizeJsonEscapeAt,
+} from "../utils/json.ts";
 import { logger, isToolcallDebugEnabled } from "../core/logger.js";
 import { metrics } from "../core/metrics.ts";
 import type { ParsedToolCall } from "./types";
@@ -49,7 +54,20 @@ interface ActiveIncrementalToolCall {
   emittedArgumentsLength: number;
   startEmitted: boolean;
   disabled: boolean;
+  emittedArgumentsText: string;
+  valueSource: string;
+  scanOffset: number;
+  scanStack: string[];
+  scanInString: boolean;
+  scanStarted: boolean;
+  scanComplete: boolean;
+  scanInvalid: boolean;
 }
+
+const MARKER_NAMES = [...new Set([...getOpenNames(), ...getCloseNames()])].filter(
+  (name) => /^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(name),
+);
+const TOOL_MARKER_RE = new RegExp(`^</?(?:${MARKER_NAMES.join("|")})\\b`, "i");
 
 // ─── XML Helpers ───────────────────────────────────────────────────────────────
 
@@ -91,6 +109,20 @@ function findToolEndOutsideJsonString(buffer: string): ToolEndMatch | null {
   for (let i = occurrences.length - 1; i >= 0; i--) {
     if (closeTagContentIsParseable(buffer, occurrences[i].index)) {
       return occurrences[i];
+    }
+  }
+
+  for (const occurrence of occurrences) {
+    const prefix = buffer.substring(0, occurrence.index).trim();
+    if (isJsonPayloadTruncated(prefix)) continue;
+    const after = buffer
+      .substring(occurrence.index + occurrence.tag.length)
+      .trimStart();
+    if (
+      (TOOL_MARKER_RE.test(after) && !after.startsWith("</")) ||
+      splitTopLevelJsonObjects(prefix).length > 1
+    ) {
+      return occurrence;
     }
   }
 
@@ -262,6 +294,15 @@ function tryParseJsonToolPayload(content: string): boolean {
   if (balanced !== content) candidates.push(balanced);
   const balancedRepaired = balanceClosingBrackets(repaired);
   if (balancedRepaired !== content) candidates.push(balancedRepaired);
+
+  const normalized = normalizeJsonStringEscapes(content);
+  if (normalized !== content) {
+    candidates.push(normalized);
+    const normalizedRepaired = repairCommonMalformedToolJson(normalized);
+    if (normalizedRepaired !== normalized) candidates.push(normalizedRepaired);
+    const balancedNormalized = balanceClosingBrackets(normalized);
+    if (balancedNormalized !== normalized) candidates.push(balancedNormalized);
+  }
   return candidates.some((candidate) => tryParse(candidate));
 }
 
@@ -1160,8 +1201,22 @@ function parseToolArgumentsStrict(raw: string): unknown {
   try {
     return JSON.parse(repairCommonMalformedToolJson(raw));
   } catch {
-    return null;
+    // fall through to escape normalization
   }
+  const normalized = normalizeJsonStringEscapes(raw);
+  if (normalized !== raw) {
+    try {
+      const parsed = JSON.parse(normalized);
+      metrics.increment("toolcalls.escape_repaired");
+      return parsed;
+    } catch {}
+    try {
+      const parsed = JSON.parse(repairCommonMalformedToolJson(normalized));
+      metrics.increment("toolcalls.escape_repaired");
+      return parsed;
+    } catch {}
+  }
+  return null;
 }
 
 function repairMissingArrayClose(input: string): string {
@@ -1388,6 +1443,12 @@ export class StreamingToolParser {
     }
   }
 
+  private incrementalScanBytes = 0;
+
+  getIncrementalScanByteCount(): number {
+    return this.incrementalScanBytes;
+  }
+
   private startIncrementalToolCall(): void {
     if (!this.incrementalToolCalls) return;
     this.activeIncrementalToolCall = {
@@ -1398,6 +1459,14 @@ export class StreamingToolParser {
       emittedArgumentsLength: 0,
       startEmitted: false,
       disabled: false,
+      emittedArgumentsText: "",
+      valueSource: "",
+      scanOffset: 0,
+      scanStack: [],
+      scanInString: false,
+      scanStarted: false,
+      scanComplete: false,
+      scanInvalid: false,
     };
   }
 
@@ -1497,6 +1566,14 @@ export class StreamingToolParser {
     this.pendingToolCallDeltas = [];
   }
 
+  private abortIncrementalToolCall(): void {
+    this.discardPendingToolCallDeltas();
+    if (this.activeIncrementalToolCall) {
+      this.activeIncrementalToolCall.disabled = true;
+      this.activeIncrementalToolCall.startEmitted = false;
+    }
+  }
+
   private finalizeSuccessfulToolCall(
     tc: ParsedToolCall,
     result: ParserResult,
@@ -1568,9 +1645,10 @@ export class StreamingToolParser {
       // The incremental deltas already carry this call's name/arguments; the
       // client merges them by index. Do NOT emit a complete call chunk again
       // or the arguments would be appended twice and corrupted.
+      const integrity = this.reconcileIncrementalArguments(incremental, tc);
       this.flushPendingToolCallDeltas(result);
       this.emittedToolCallCount++;
-      this.successfulToolCallsCount++;
+      if (integrity === "ok") this.successfulToolCallsCount++;
       this.pendingLeadIn = "";
       incremental.startEmitted = false;
       incremental.disabled = true;
@@ -1582,6 +1660,126 @@ export class StreamingToolParser {
     this.emittedToolCallCount++;
     this.successfulToolCallsCount++;
     this.pendingLeadIn = "";
+  }
+
+  private reconcileIncrementalArguments(
+    incremental: ActiveIncrementalToolCall,
+    tc: ParsedToolCall,
+  ): "ok" | "violation" {
+    const ledger = incremental.emittedArgumentsText;
+    let canonical = "";
+    try {
+      canonical = JSON.stringify(tc.arguments) ?? "";
+    } catch {}
+
+    if (ledger === canonical) return "ok";
+
+    if (canonical.startsWith(ledger)) {
+      const suffix = canonical.slice(ledger.length);
+      if (suffix) {
+        this.pendingToolCallDeltas.push({
+          index: incremental.index,
+          function: { arguments: suffix },
+        });
+        incremental.emittedArgumentsText += suffix;
+      }
+      return "ok";
+    }
+
+    const fullValue = this.normalizedArgumentsValueText(incremental);
+    if (
+      fullValue !== null &&
+      fullValue.length > ledger.length &&
+      fullValue.startsWith(ledger)
+    ) {
+      const suffix = fullValue.slice(ledger.length);
+      this.pendingToolCallDeltas.push({
+        index: incremental.index,
+        function: { arguments: suffix },
+      });
+      incremental.emittedArgumentsText += suffix;
+      return "ok";
+    }
+
+    if (ledger && this.isParseableJsonObject(ledger)) return "ok";
+
+    const closing = this.closeDivergentLedger(ledger);
+    if (closing) {
+      this.pendingToolCallDeltas.push({
+        index: incremental.index,
+        function: { arguments: closing },
+      });
+      incremental.emittedArgumentsText += closing;
+    }
+    metrics.increment("toolcalls.integrity_violation");
+    logger.warn(
+      "[parser] Tool-call arguments diverged from the finalized call; closed the emitted span",
+      {
+        toolName: tc.name,
+        index: incremental.index,
+        emittedLength: ledger.length,
+        reason:
+          "emitted arguments are not a prefix of the finalized serialization",
+      },
+    );
+    this.recordMalformedToolCall(ledger, {
+      category: "truncated",
+      failureReason:
+        "incremental arguments diverged from the finalized call (integrity guard)",
+      recoveryAttempts: ["reconcileIncrementalArguments"],
+    });
+    if (typeof tc.arguments === "object" && tc.arguments !== null) {
+      (tc.arguments as Record<string, unknown>)._truncated = true;
+      (tc.arguments as Record<string, unknown>)._truncation_warning =
+        getTruncationNoticeForTool(tc.name).trim();
+    }
+    return "violation";
+  }
+
+  private normalizedArgumentsValueText(
+    incremental: ActiveIncrementalToolCall,
+  ): string | null {
+    if (incremental.argumentsValueStart === null || !incremental.valueSource) {
+      return null;
+    }
+    const scan = scanJsonValueEnd(
+      incremental.valueSource,
+      incremental.argumentsValueStart,
+    );
+    if (!scan || !scan.complete) return null;
+    return normalizeJsonStringEscapes(
+      incremental.valueSource.substring(
+        incremental.argumentsValueStart,
+        scan.end,
+      ),
+    );
+  }
+
+  private isParseableJsonObject(text: string): boolean {
+    try {
+      const parsed = JSON.parse(text);
+      return typeof parsed === "object" && parsed !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  private closeDivergentLedger(ledger: string): string {
+    if (!ledger) return "{}";
+    const attempt = (extra: string): string | null => {
+      const closing = extra + computeMissingJsonClosingTokens(ledger);
+      try {
+        const parsed = JSON.parse(ledger + closing);
+        if (parsed && typeof parsed === "object") return closing;
+      } catch {}
+      return null;
+    };
+    return (
+      attempt("") ??
+      attempt("null") ??
+      attempt('"_":null') ??
+      computeMissingJsonClosingTokens(ledger)
+    );
   }
 
   private tryRecoverIncrementalToolCall(
@@ -1599,7 +1797,8 @@ export class StreamingToolParser {
 
     const snapshot = inspectIncrementalJsonToolObject(content);
     const argsStart = incremental.argumentsValueStart;
-    const argsEnd = snapshot?.argumentsValueEnd ?? content.length;
+    const argsEnd = snapshot?.argumentsValueEnd ?? null;
+    if (argsEnd === null) return null;
     const rawArgs = content.substring(argsStart, argsEnd).trim();
     if (!rawArgs) return null;
 
@@ -1645,45 +1844,140 @@ export class StreamingToolParser {
       return;
     }
 
-    const snapshot = inspectIncrementalJsonToolObject(content);
-    if (!snapshot) return;
+    incremental.valueSource = content;
 
-    if (snapshot.name && !incremental.name) {
-      if (!this.isDeclaredToolName(snapshot.name)) {
-        incremental.disabled = true;
-        return;
+    if (incremental.argumentsValueStart === null || !incremental.name) {
+      const snapshot = inspectIncrementalJsonToolObject(content);
+      if (!snapshot) return;
+
+      if (snapshot.name && !incremental.name) {
+        if (!this.isDeclaredToolName(snapshot.name)) {
+          incremental.disabled = true;
+          return;
+        }
+        // Store the RESOLVED name (fuzzy matching already verified the raw
+        // name maps to a declared tool). Comparing the raw spelling against the
+        // resolved name in finalizeSuccessfulToolCall would mismatch (e.g.
+        // emitted `editFile` vs declared `edit_file`) and re-emit a complete
+        // tool-call chunk on top of the streamed deltas — the duplicate the
+        // client sees.
+        incremental.name =
+          this.resolveDeclaredToolName(snapshot.name) ?? snapshot.name;
       }
-      // Store the RESOLVED name (fuzzy matching already verified the raw
-      // name maps to a declared tool). Comparing the raw spelling against the
-      // resolved name in finalizeSuccessfulToolCall would mismatch (e.g.
-      // emitted `editFile` vs declared `edit_file`) and re-emit a complete
-      // tool-call chunk on top of the streamed deltas — the duplicate the
-      // client sees.
-      incremental.name =
-        this.resolveDeclaredToolName(snapshot.name) ?? snapshot.name;
+
+      if (
+        incremental.argumentsValueStart === null &&
+        snapshot.argumentsValueStart !== null
+      ) {
+        incremental.argumentsValueStart = snapshot.argumentsValueStart;
+        incremental.scanOffset = snapshot.argumentsValueStart;
+      }
     }
 
-    if (
-      incremental.argumentsValueStart === null &&
-      snapshot.argumentsValueStart !== null
-    ) {
-      incremental.argumentsValueStart = snapshot.argumentsValueStart;
-    }
-
-    if (!incremental.name) return;
+    if (!incremental.name || incremental.argumentsValueStart === null) return;
+    if (incremental.scanComplete || incremental.scanInvalid) return;
 
     const argsStart = incremental.argumentsValueStart;
-    const argsEnd =
-      argsStart === null
-        ? null
-        : (snapshot.argumentsValueEnd ?? content.length);
-    const nextArgumentsChunk =
-      argsStart === null || argsEnd === null
-        ? ""
-        : content.substring(
-            argsStart + incremental.emittedArgumentsLength,
-            argsEnd,
-          );
+    const scanStart = incremental.scanOffset;
+    const stack = incremental.scanStack;
+    let inString = incremental.scanInString;
+    let started = incremental.scanStarted;
+    let complete = false;
+    let invalid = false;
+    let out = "";
+    let i = scanStart;
+
+    while (i < content.length && !complete && !invalid) {
+      const ch = content[i];
+      if (ch === "<" && TOOL_MARKER_RE.test(content.substring(i, i + 32))) break;
+      if (inString) {
+        if (ch === "\\") {
+          if (i + 1 >= content.length) break;
+          if (content[i + 1] === "u") {
+            const hex = content.substring(i + 2, i + 6);
+            if (hex.length < 4 && /^[0-9a-fA-F]*$/.test(hex)) break;
+          }
+          out += normalizeJsonEscapeAt(content, i + 1);
+          i += 2;
+          continue;
+        }
+        if (ch === '"') {
+          inString = false;
+          out += ch;
+          i++;
+          if (started && stack.length === 0) complete = true;
+          continue;
+        }
+        if (ch === "\n") out += "\\n";
+        else if (ch === "\r") out += "\\r";
+        else if (ch === "\t") out += "\\t";
+        else if (ch.charCodeAt(0) < 32)
+          out += "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0");
+        else out += ch;
+        i++;
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+        started = true;
+        out += ch;
+        i++;
+        continue;
+      }
+      if (ch === "{" || ch === "[") {
+        stack.push(ch);
+        started = true;
+        out += ch;
+        i++;
+        continue;
+      }
+      if (ch === "}" || ch === "]") {
+        const top = stack[stack.length - 1];
+        if ((top === "{" && ch === "}") || (top === "[" && ch === "]")) {
+          stack.pop();
+          out += ch;
+          i++;
+          if (stack.length === 0) complete = true;
+          continue;
+        }
+        invalid = true;
+        break;
+      }
+      if (!started) {
+        if (/\s/.test(ch)) {
+          out += ch;
+          i++;
+          continue;
+        }
+        invalid = true;
+        break;
+      }
+      out += ch;
+      i++;
+    }
+
+    this.incrementalScanBytes += i - scanStart;
+    incremental.scanOffset = i;
+    incremental.scanInString = inString;
+    incremental.scanStarted = started;
+    incremental.scanComplete = complete;
+    incremental.scanInvalid = invalid;
+    incremental.emittedArgumentsLength = i - argsStart;
+
+    if (out && out !== content.substring(scanStart, i)) {
+      metrics.increment("toolcalls.escape_repaired");
+      if (isToolcallDebugEnabled()) {
+        logger.debug(
+          "[parser] normalized invalid JSON escapes in tool-call arguments",
+          {
+            toolName: incremental.name,
+            index: incremental.index,
+            rawLength: i - scanStart,
+            emittedLength: out.length,
+          },
+        );
+      }
+    }
 
     if (!incremental.startEmitted) {
       this.pendingToolCallDeltas.push({
@@ -1692,22 +1986,22 @@ export class StreamingToolParser {
         type: "function",
         function: {
           name: incremental.name,
-          arguments: nextArgumentsChunk,
+          arguments: out,
         },
       });
       incremental.startEmitted = true;
-      incremental.emittedArgumentsLength += nextArgumentsChunk.length;
+      incremental.emittedArgumentsText += out;
       return;
     }
 
-    if (nextArgumentsChunk) {
+    if (out) {
       this.pendingToolCallDeltas.push({
         index: incremental.index,
         function: {
-          arguments: nextArgumentsChunk,
+          arguments: out,
         },
       });
-      incremental.emittedArgumentsLength += nextArgumentsChunk.length;
+      incremental.emittedArgumentsText += out;
     }
   }
 
@@ -2026,7 +2320,7 @@ export class StreamingToolParser {
             },
           );
         }
-        this.emitIncrementalToolCallDeltas(this.buffer);
+        this.emitIncrementalToolCallDeltas(stripTrailingStrayCloses(this.buffer));
         // The repair chain (missing value quotes / array closes) also applies
         // here: when the close-tag scan defers on an unparseable candidate, the
         // buffer reaches flush and tryRecoverToolCall would otherwise skip the
@@ -2390,6 +2684,58 @@ export class StreamingToolParser {
       }
     }
 
+    if (t.startsWith("{")) {
+      const objects = splitTopLevelJsonObjects(t);
+      if (objects.length > 1) {
+        metrics.increment("toolcalls.block_split");
+        if (isToolcallDebugEnabled()) {
+          logger.debug(
+            "[parser] split concatenated top-level tool-call objects",
+            { objectCount: objects.length },
+          );
+        }
+        let handled = 0;
+        for (const obj of objects) {
+          let tcs = this.parseToolContent(obj);
+          if (tcs.length === 0) {
+            const recovered = this.lastChanceRecoverToolCall(obj);
+            if (recovered) tcs = [recovered];
+          }
+          if (tcs.length === 0) {
+            this.abortIncrementalToolCall();
+            this.recordMalformedToolCall(obj, {
+              category: "malformed",
+              failureReason: "concatenated object could not be parsed",
+            });
+            continue;
+          }
+          for (const tc of tcs) {
+            const resolvedName = this.resolveDeclaredToolName(tc.name);
+            if (resolvedName) tc.name = resolvedName;
+            if (!this.isDeclaredToolName(tc.name)) {
+              this.abortIncrementalToolCall();
+              this.recordMalformedToolCall(obj, {
+                undeclaredNames: [tc.name],
+                category: "undeclared",
+              });
+              continue;
+            }
+            this.finalizeSuccessfulToolCall(tc, result);
+            handled++;
+          }
+        }
+        if (
+          handled === 0 &&
+          this.emittedToolCallCount === 0 &&
+          this.pendingLeadIn.trim().length > 0
+        ) {
+          result.text += this.pendingLeadIn;
+        }
+        this.pendingLeadIn = "";
+        return;
+      }
+    }
+
     // 3) Try JSON object format (single or multiple)
     if (t.startsWith("{") || t.includes('"name"')) {
       if (isToolcallDebugEnabled()) {
@@ -2538,6 +2884,7 @@ export class StreamingToolParser {
       return;
     }
 
+    this.abortIncrementalToolCall();
     const droppedToolName = this.extractToolNameFromTruncated(t);
     const recoveryAttempts = [
       "directParse",
@@ -2861,11 +3208,10 @@ export class StreamingToolParser {
             incremental.name === tc.name &&
             incremental.startEmitted
           ) {
-            const rawArgs =
-              incremental.argumentsValueStart !== null
-                ? this.buffer.substring(incremental.argumentsValueStart)
-                : "";
-            const closingTokens = computeMissingJsonClosingTokens(rawArgs, notice);
+            const closingTokens = computeMissingJsonClosingTokens(
+              incremental.emittedArgumentsText,
+              notice,
+            );
             if (closingTokens) {
               this.pendingToolCallDeltas.push({
                 index: incremental.index,
@@ -2873,6 +3219,7 @@ export class StreamingToolParser {
                   arguments: closingTokens,
                 },
               });
+              incremental.emittedArgumentsText += closingTokens;
               incremental.emittedArgumentsLength += closingTokens.length;
             }
           }
@@ -3296,4 +3643,21 @@ function findMatchingClosingBrace(text: string, startIdx: number): number {
   }
 
   return -1;
+}
+
+function splitTopLevelJsonObjects(text: string): string[] {
+  const objects: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    if (/\s/.test(text[i])) {
+      i++;
+      continue;
+    }
+    if (text[i] !== "{") return [];
+    const end = findMatchingClosingBrace(text, i);
+    if (end === -1) return [];
+    objects.push(text.substring(i, end + 1));
+    i = end + 1;
+  }
+  return objects;
 }

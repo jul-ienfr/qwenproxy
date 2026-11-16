@@ -2,6 +2,69 @@ import { logger } from "../core/logger.js";
 
 const isDebug = process.env.TOOLCALL_DEBUG === "1";
 
+const VALID_JSON_ESCAPES = ["n", "r", "t", "u", "b", "f", '"', "\\", "/"];
+
+export function normalizeJsonEscapeAt(input: string, i: number): string {
+  const char = input[i];
+  if (VALID_JSON_ESCAPES.includes(char)) {
+    if (char === "u") {
+      const next4 = input.substring(i + 1, i + 5);
+      return /^[0-9a-fA-F]{4}$/.test(next4) ? "\\" + char : "\\\\" + char;
+    }
+    if (char === "n" || char === "r" || char === "t") {
+      // Local check: only double-escape if the 2 chars before this
+      // backslash form a Windows drive letter + colon (e.g. C:\, D:/).
+      // Scanning the whole input causes false positives with URLs
+      // like https:// or paths embedded elsewhere in the string.
+      const isWinPath = i >= 2 && /[a-zA-Z]:/.test(input.substring(i - 2, i));
+      const nextChar = input[i + 1] || "";
+      return isWinPath && /^[a-zA-Z0-9]/.test(nextChar)
+        ? "\\\\" + char
+        : "\\" + char;
+    }
+    return "\\" + char;
+  }
+  return "\\\\" + char;
+}
+
+export function normalizeJsonStringEscapes(input: string): string {
+  let out = "";
+  let inString = false;
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i];
+    if (inString) {
+      if (char === "\\") {
+        if (i + 1 >= input.length) {
+          out += "\\\\";
+          continue;
+        }
+        out += normalizeJsonEscapeAt(input, i + 1);
+        i++;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+        out += char;
+        continue;
+      }
+      if (char === "\n") out += "\\n";
+      else if (char === "\r") out += "\\r";
+      else if (char === "\t") out += "\\t";
+      else if (char.charCodeAt(0) < 32)
+        out += "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0");
+      else out += char;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      out += char;
+      continue;
+    }
+    out += char;
+  }
+  return out;
+}
+
 function sanitizeAndBalance(input: string): {
   result: string;
   openBraces: number;
@@ -20,28 +83,7 @@ function sanitizeAndBalance(input: string): {
   for (let i = 0; i < input.length; i++) {
     const char = input[i];
     if (escaped) {
-      const validEscapes = ["n", "r", "t", "u", '"', "\\", "/"];
-      if (validEscapes.includes(char)) {
-        if (char === "u") {
-          const next4 = input.substring(i + 1, i + 5);
-          out += /^[0-9a-fA-F]{4}$/.test(next4) ? "\\" + char : "\\\\" + char;
-        } else if (["n", "r", "t"].includes(char)) {
-          // Local check: only double-escape if the 2 chars before this
-          // backslash form a Windows drive letter + colon (e.g. C:\, D:/).
-          // Scanning the whole input causes false positives with URLs
-          // like https:// or paths embedded elsewhere in the string.
-          const isWinPath = i >= 2 && /[a-zA-Z]:/.test(input.substring(i - 2, i));
-          const nextChar = input[i + 1] || "";
-          out +=
-            isWinPath && /^[a-zA-Z0-9]/.test(nextChar)
-              ? "\\\\" + char
-              : "\\" + char;
-        } else {
-          out += "\\" + char;
-        }
-      } else {
-        out += "\\\\" + char;
-      }
+      out += normalizeJsonEscapeAt(input, i);
       escaped = false;
       continue;
     }

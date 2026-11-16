@@ -142,6 +142,7 @@ GUIDELINES:
 2. Arguments Format: "arguments" must be a valid JSON object matching the function's parameter schema. Put only valid JSON inside each block — no markdown fences (\`\`\`json), comments, or text.
 3. Parallel Execution: When multiple operations are needed, emit consecutive ${TOOL_CALL_OPEN} blocks (at most 4 per turn). Each block must be complete and self-contained (never nested, interleaved, or omitted).
 4. Direct Invocation: Stop generation after the tool call block so the tools can be executed. Never output raw JSON without ${TOOL_CALL_OPEN} tags.
+5. JSON String Escaping: inside every JSON string a backslash MUST be doubled (\\\\) and a double quote escaped (\\"). Only \\" \\\\ \\/ \\b \\f \\n \\r \\t \\uXXXX are legal escapes; never \\l or \\U. Windows paths MUST double every backslash, e.g. "C:\\\\Users\\\\me\\\\file.txt".
 `;
 
   // Cache result (with LRU-style eviction)

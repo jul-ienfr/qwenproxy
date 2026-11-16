@@ -12,6 +12,14 @@ commands installed in `.opencode/commands/` and `.dsh/skills/`.
 **Backlog status (2026-11-10)**: every spec is implemented except **011**, which
 is deferred because its free-Qwen-Code-quota precondition no longer exists.
 
+**Defect fix (2026-11-16)**: spec **015** (tool-call arguments JSON integrity) is
+implemented after a client rejected a `write` call with `JSON Parse error: Invalid
+escape character l`. It is a correctness fix to the streaming tool-call path, not
+a feature gap; symptom, cause, fix and verification are recorded in
+[research.md](015-tool-call-json-integrity/research.md). Verified: typecheck clean,
+`test:mock` 1211/1211, new integrity suites 23/23, regression set 160/160
+(latest run includes the post-review split-branch hardening; `.tmp/015-splitfix.log`).
+
 ## Index
 
 | # | Specification | Priority | Depends on | Status |
@@ -30,6 +38,7 @@ is deferred because its free-Qwen-Code-quota precondition no longer exists.
 | 012 | [OpenAPI contract and docs](012-openapi-contract-and-docs/spec.md) | P2 | — | Implemented (contract tests + offline docs) |
 | 013 | [Externalized-context cache](013-externalized-context-cache/spec.md) | P2 | 001 for account isolation | Implemented (prefix reuse + TTL/LRU) |
 | 014 | [Desktop tray and webview](014-desktop-tray-webview/spec.md) | P3 | 003 for dashboard | Implemented (tray + webview + auto-login; interactive smoke verified) |
+| 015 | [Tool-call arguments JSON integrity](015-tool-call-json-integrity/spec.md) | P1 | — | Implemented (defect fix; incident 2026-11-16) |
 
 ## Recommended implementation order
 

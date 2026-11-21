@@ -9,16 +9,56 @@ weaker in this fork. The evidence and priority rationale live in
 per feature when the feature is scheduled for implementation, using the Spec Kit
 commands installed in `.opencode/commands/` and `.dsh/skills/`.
 
-**Backlog status (2026-11-10)**: every spec is implemented except **011**, which
-is deferred because its free-Qwen-Code-quota precondition no longer exists.
+**Backlog status (2026-11-16)**: every *capability* spec is implemented except
+**011**, which is deferred because its free-Qwen-Code-quota precondition no longer
+exists. **016** is a hardening epic, not a capability, and is **planned, not
+implemented**.
 
 **Defect fix (2026-11-16)**: spec **015** (tool-call arguments JSON integrity) is
 implemented after a client rejected a `write` call with `JSON Parse error: Invalid
 escape character l`. It is a correctness fix to the streaming tool-call path, not
 a feature gap; symptom, cause, fix and verification are recorded in
-[research.md](015-tool-call-json-integrity/research.md). Verified: typecheck clean,
-`test:mock` 1211/1211, new integrity suites 23/23, regression set 160/160
+[research.md](015-tool-call-json-integrity/research.md). Verified at the time:
+typecheck clean, new integrity suites 23/23, regression set 160/160
 (latest run includes the post-review split-branch hardening; `.tmp/015-splitfix.log`).
+
+> **Baseline correction (audit 2026-11-16, repaired by 016 T001–T008)**: the
+> `test:mock` **1211/1211** figure previously recorded here no longer reproduced
+> on `a9da064`: the audit run measured **1210 tests, 1209 pass, 1 fail**
+> (250 626 ms). The failure was `server-lifecycle.test.ts` raising `Unable to
+> deserialize cloned data due to invalid or unsupported version.` with every
+> frame inside `node:internal/test_runner/runner` — a test-runner
+> reporting-channel defect, **not** a product assertion. Two consecutive
+> reproduction runs were green (**1212/1212** each), proving the failure
+> **intermittent**, not order-dependent; product console output is now silenced
+> inside that test file (assertions unchanged, 3/3 in isolation).
+> Separately, **10 test files (43 assertions)** appeared in no runner list at
+> all, including the entire multi-user key / quota / migration surface of specs
+> 001–002. The gate is now derived from a single manifest
+> (`scripts/run-tests.mjs`): `npm test` is hermetic (mock only, live opt-in) and
+> executes **172 files / 1321 tests, 1321 pass, 0 fail** (186 946 ms), including
+> the 10 formerly orphaned suites, the manifest regression suite, and the eight
+> suites added by 016 (authority, escape table, hot-path budgets, extractor
+> equivalence, process-guard exit policy, quota load retry, shutdown ordering).
+> Evidence: [docs/AUDIT-2026-11-16.md](../docs/AUDIT-2026-11-16.md) §7 and
+> [016 research.md D2/D3](016-engineering-hardening/research.md).
+
+**Hardening epic (2026-11-16)**: spec **016** (engineering hardening) is drafted
+with plan, research, two contracts, 68 tasks and a quickstart, derived from an
+exhaustive audit ([docs/AUDIT-2026-11-16.md](../docs/AUDIT-2026-11-16.md)). It
+closes one **critical** security defect (DNS rebinding → full admin on a default
+loopback install), removes quadratic cost from the streaming hot path, makes
+shutdown/crash/quota transitions recoverable, encrypts Qwen session secrets at
+rest, and makes module boundaries and the test gate mechanically enforceable.
+**Status: In progress — Phases 1–7 complete; Phase 8 complete except T064 (boundary
+ratchet at 0 forbidden edges, 8 of 8 repaired, 2 import cycles tracked; package entry
+point; CI gates for lint, dependency audit, boundaries and build; `noUnusedLocals`
+enabled after 45 dead symbols removed; Biome lint added). Phase 9 T065 done (p99 +
+event-loop delay). Gate: 1332/1332 green, `npm run lint:ci` clean on 365 files,
+boundary check 0 forbidden / 2 known cycles / 0 new, `npm run build` green. Every
+budget in `contracts/hot-path-budget.md` (B1–B9) has a counter-backed assertion.
+Remaining: `noUncheckedIndexedAccess` (636 errors), T064 (file splits), and
+T066–T068.**
 
 ## Index
 
@@ -39,6 +79,7 @@ a feature gap; symptom, cause, fix and verification are recorded in
 | 013 | [Externalized-context cache](013-externalized-context-cache/spec.md) | P2 | 001 for account isolation | Implemented (prefix reuse + TTL/LRU) |
 | 014 | [Desktop tray and webview](014-desktop-tray-webview/spec.md) | P3 | 003 for dashboard | Implemented (tray + webview + auto-login; interactive smoke verified) |
 | 015 | [Tool-call arguments JSON integrity](015-tool-call-json-integrity/spec.md) | P1 | — | Implemented (defect fix; incident 2026-11-16) |
+| 016 | [Engineering hardening](016-engineering-hardening/spec.md) | P1 | 015 (parser invariants preserved) | Draft (audit-driven epic; 7 stories, 68 tasks; **not implemented**) |
 
 ## Recommended implementation order
 

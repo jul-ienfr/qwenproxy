@@ -4,7 +4,7 @@
 **Plan**: [plan.md](plan.md)
 **Spec**: [spec.md](spec.md)
 
-## Phase 1 â€” Cache module
+## Phase 1 — Cache module
 
 - [x] T001 Add `src/services/externalized-context-cache.ts` with lookup/store,
   longest-prefix match, TTL, LRU, per-key single-flight, invalidation and stats.
@@ -13,7 +13,7 @@
 - [x] T003 Add `QWEN_EXTERNALIZE_CACHE_ENABLED`, `..._TTL_SECONDS` and
   `..._MAX_ENTRIES` to `src/core/config.ts` (defaults true/3600/64).
 
-## Phase 2 â€” Metrics and integration
+## Phase 2 — Metrics and integration
 
 - [x] T004 Register `externalized_context.cache.*` counters/gauge in
   `src/core/metrics.ts`.
@@ -27,7 +27,7 @@
 - [x] T008 Keep the legacy upload-every-turn path when the cache or
   externalization is disabled.
 
-## Phase 3 â€” Tests and documentation
+## Phase 3 — Tests and documentation
 
 - [x] T009 Add `src/tests/externalized-context-cache.test.ts`: empty cache,
   prefix hit, divergent miss, longest-prefix preference, account isolation,
@@ -38,7 +38,7 @@
   and `docs/FEATURE-GAPS.md` status.
 - [x] T012 Update `specs/README.md` status for spec 013.
 
-## Phase 4 â€” Verification
+## Phase 4 — Verification
 
 - [x] T013 `npm run typecheck`.
 - [x] T014 Run the focused cache suite.

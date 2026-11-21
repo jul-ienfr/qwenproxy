@@ -22,7 +22,39 @@ export function estimateTokenCountFloat(...parts: string[]): number {
   return tokens;
 }
 
+const PART_CACHE_MAX_ENTRIES = 32;
+const PART_CACHE_MAX_LENGTH = 262_144;
+
+const partTokenCache = new Map<string, number>();
+let estimateCacheHits = 0;
+let estimateCacheMisses = 0;
+
+export function getTokenEstimateCounters(): {
+  hits: number;
+  misses: number;
+  size: number;
+} {
+  return {
+    hits: estimateCacheHits,
+    misses: estimateCacheMisses,
+    size: partTokenCache.size,
+  };
+}
+
+export function resetTokenEstimateCounters(): void {
+  estimateCacheHits = 0;
+  estimateCacheMisses = 0;
+  partTokenCache.clear();
+}
+
 function estimatePart(text: string): number {
+  const cached = partTokenCache.get(text);
+  if (cached !== undefined) {
+    estimateCacheHits++;
+    return cached;
+  }
+  estimateCacheMisses++;
+
   let tokens = 0;
   let i = 0;
   const n = text.length;
@@ -87,6 +119,16 @@ function estimatePart(text: string): number {
       tokens += 1.0;
       i += codePoint > 0xffff ? 2 : 1;
     }
+  }
+
+  if (n > 0 && n <= PART_CACHE_MAX_LENGTH) {
+    if (partTokenCache.size >= PART_CACHE_MAX_ENTRIES) {
+      const oldest = partTokenCache.keys().next().value;
+      if (oldest !== undefined) {
+        partTokenCache.delete(oldest);
+      }
+    }
+    partTokenCache.set(text, tokens);
   }
 
   return tokens;

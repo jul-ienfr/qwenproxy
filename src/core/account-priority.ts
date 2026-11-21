@@ -4,7 +4,6 @@ import {
   readFileSync,
   writeFileSync,
 } from "fs";
-import { join, resolve } from "path";
 
 interface PriorityData {
   accountOrder: string[];

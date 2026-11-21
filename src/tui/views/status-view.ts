@@ -744,11 +744,6 @@ export class StatusView implements TuiView {
     const deltaDetail = innerLeftW < 44
       ? `(${deltasCount}d / ${fullCount}f)`
       : `(${deltasCount} delta / ${fullCount} full)`;
-    const ramPct = data?.systemMemoryPct || 0;
-    const ramBarColor = ramPct >= 80 ? theme.red : ramPct >= 60 ? theme.yellow : theme.cyan;
-    const ramBar = renderProgressBar(ramPct, 7, ramBarColor);
-    const ramStr = `${data?.rssMb || 0} MB [${ramBar}] ${ramPct}%`;
-
     let connsStr = "0 ativas";
     if (data?.activeStreams && data.activeStreams > 0) {
       connsStr = theme.yellow(`⚡ ${data.activeStreams} ativa(s)`);

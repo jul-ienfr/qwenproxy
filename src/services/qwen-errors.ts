@@ -143,8 +143,7 @@ export class QwenNetworkError extends RetryableQwenStreamError {
  * RetryableQwenStreamError inherits the rate-limit base class for legacy retry
  * handling, so its inherited `code` must not be used as the actual category.
  */
-export function getQwenErrorCode(error: unknown): string | undefined {
-  if (!error || typeof error !== "object") return undefined;
+export function getQwenErrorCode(error: unknown): string | undefined {  if (!error || typeof error !== "object") return undefined;
 
   const typed = error as {
     upstreamCode?: unknown;
@@ -173,4 +172,37 @@ export function getQwenErrorCode(error: unknown): string | undefined {
   }
 
   return typeof typed.code === "string" && typed.code ? typed.code : undefined;
+}
+
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message || "";
+  return String(err ?? "");
+}
+
+/**
+ * WAF / anti-bot challenge detection. A pure predicate over the error's code and
+ * message: it classifies an upstream refusal, so it belongs with the error
+ * taxonomy rather than with the retry transport that consumes it.
+ */
+export function isAntiBotError(err: unknown): boolean {
+  const code = getQwenErrorCode(err) ?? "";
+  const codeLower = code.toLowerCase();
+  const message = errMessage(err).toLowerCase();
+  if (err instanceof RetryableQwenStreamError) {
+    return codeLower === "waf_challenge" || message.includes("anti-bot");
+  }
+  return (
+    code === "FAIL_SYS_USER_VALIDATE" ||
+    code === "RGV587_ERROR" ||
+    codeLower === "waf_challenge" ||
+    message.includes("fail_sys_user_validate") ||
+    message.includes("rgv587_error") ||
+    message.includes("_____tmd_____") ||
+    message.includes("tmd anti-bot") ||
+    message.includes("captcha") ||
+    message.includes("security verification") ||
+    message.includes("verify you are human") ||
+    message.includes("human verification") ||
+    message.includes("denyfromx5")
+  );
 }

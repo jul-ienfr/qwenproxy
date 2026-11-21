@@ -570,6 +570,10 @@ export class RedisPersistence {
     await this.writeQueue.catch(() => undefined);
   }
 
+  isApplyingRemote(): boolean {
+    return this.applyingRemote;
+  }
+
   /** Apply one event locally. Exposed for deterministic tests. */
   applyRemote(event: RedisPersistenceEvent): void {
     if (event.origin === this.instanceId) return;
@@ -966,7 +970,7 @@ export function publishRedisEvent(
 }
 
 export function isApplyingRemoteRedisEvent(): boolean {
-  return activePersistence !== null && (activePersistence as any).applyingRemote;
+  return activePersistence?.isApplyingRemote() ?? false;
 }
 
 export async function initRedisPersistence(options: {

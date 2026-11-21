@@ -1,15 +1,12 @@
-import { afterEach, beforeEach, test } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   saveAuthSession,
   getValidAuthSession,
   deleteAuthSession,
-  getDatabase,
-  closeDatabase,
 } from "../core/database.ts";
 
 test("auth-session-persistence: saves and retrieves a valid auth session", () => {
-  const db = getDatabase();
   const accountId = "test-acc-valid-1";
 
   deleteAuthSession(accountId);

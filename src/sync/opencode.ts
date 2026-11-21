@@ -51,7 +51,7 @@ function findKeyObjectSpan(content: string, key: string): { start: number; end: 
   let inString = false;
   let inLineComment = false;
   let inBlockComment = false;
-  let escape = false;
+  let escaped = false;
 
   for (let i = braceIndex; i < content.length; i++) {
     const ch = content[i];
@@ -69,10 +69,10 @@ function findKeyObjectSpan(content: string, key: string): { start: number; end: 
       continue;
     }
     if (inString) {
-      if (escape) {
-        escape = false;
+      if (escaped) {
+        escaped = true;
       } else if (ch === "\\") {
-        escape = true;
+        escaped = true;
       } else if (ch === '"') {
         inString = false;
       }

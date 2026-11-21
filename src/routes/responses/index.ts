@@ -1,7 +1,6 @@
 import { Hono, type Context } from "hono";
 import { config } from "../../core/config.ts";
 import { getInternalOrigin } from "../../core/internal-origin.ts";
-import { logger } from "../../core/logger.ts";
 import { getUserIdentity } from "../../core/request-user.ts";
 import { buildInternalSessionScopeHeaders } from "../../core/request-owner.ts";
 import { extractSseError, statusForSseError } from "../../utils/sse-error.ts";
@@ -50,7 +49,6 @@ function storeOwnerId(c: Context): string {
  * POST /v1/responses - Create a response (OpenAI Responses API format)
  */
 app.post("/v1/responses", async (c) => {
-  const requestStartedAt = Date.now();
 
   // Parse and validate request
   let body: unknown;
@@ -440,8 +438,6 @@ app.post("/v1/responses", async (c) => {
           storeOwnerId(c),
         );
       }
-
-      const duration = Date.now() - requestStartedAt;
 
       return c.json(responsesResponse);
     }

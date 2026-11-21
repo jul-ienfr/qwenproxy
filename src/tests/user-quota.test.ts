@@ -72,7 +72,9 @@ test("quota: legacy and admin identities bypass limits", () => {
     }
     const releases = [acquireUserStream(user), acquireUserStream(user)];
     assert.ok(releases.every(Boolean));
-    releases.forEach((release) => release!());
+    releases.forEach((release) => {
+      release!();
+    });
   }
 });
 

@@ -7,8 +7,9 @@ dist/
 
 # Environment
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
+!.env.test
 
 # Persistent runtime data (DB, profiles, benchmarks, diagnostics)
 data/

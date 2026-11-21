@@ -81,7 +81,6 @@ export class ChatView implements TuiView {
   private cursorPos = 0;
   private scrollOffset = 0; // 0 = follow bottom (newest messages)
   private lastWidth = 80;
-  private lastHeight = 24;
   private lastMaxOffset = 0;
   private lastVisibleCapacity = 0;
   private hoveredHeaderBtn: "model" | "effort" | "mode" | null = null;
@@ -905,7 +904,6 @@ export class ChatView implements TuiView {
 
   public render(width: number, height: number, snapshot?: ProxyStatusSnapshot | null): string[] {
     this.lastWidth = width;
-    this.lastHeight = height;
     if (snapshot !== undefined) {
       this.lastSnapshot = snapshot ?? null;
     }
@@ -915,7 +913,6 @@ export class ChatView implements TuiView {
     // 1. Model Header with F2 Shortcut
     const currentModel = this.availableModels[this.selectedModelIndex] || "qwen3.8-max";
     const currentInfo = classifyModel(currentModel);
-    const totalModels = this.availableModels.length;
     const isReasoning = currentInfo.supportsReasoning;
 
     const modelLabel = `[ ${currentModel} ]`;

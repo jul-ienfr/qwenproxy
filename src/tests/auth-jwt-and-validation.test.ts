@@ -2,9 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 
-import { parseJwtExpiry, isTokenExpiringSoon } from "../services/auth-playwright.ts";
+import { parseJwtExpiry } from "../services/auth-playwright.ts";
 import { isAuthTokenValidFrom, isPageLoggedIn, hasValidAuthToken } from "../services/playwright.ts";
 import { wipeAccountSessionFiles } from "../core/accounts.ts";
 import { getProfilesDir, getAccountProfilePath } from "../core/paths.ts";

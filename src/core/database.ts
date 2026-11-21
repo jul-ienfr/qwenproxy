@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import crypto from "node:crypto";
 import path from "path";
 import fs from "fs";
-import { encrypt, isEncrypted } from "./crypto-utils.ts";
+import { decrypt, encrypt, isEncrypted } from "./crypto-utils.ts";
 import { config } from "./config.ts";
 
 /**
@@ -16,7 +16,6 @@ import {
   getDataDir,
   getDbDir,
   getDbPath,
-  isRunningUnderNodeTest,
 } from "./paths.ts";
 
 const DATA_DIR = getDataDir();
@@ -42,7 +41,11 @@ export function getDatabase(): Database.Database {
   // Ensure data directory exists with proper permissions
   try {
     if (!fs.existsSync(DB_DIR)) {
-      fs.mkdirSync(DB_DIR, { recursive: true, mode: 0o755 });
+      fs.mkdirSync(DB_DIR, { recursive: true, mode: 0o700 });
+    } else if (process.platform !== "win32") {
+      try {
+        fs.chmodSync(DB_DIR, 0o700);
+      } catch {}
     }
     const migrateLegacyDatabase = (
       legacyPath: string,
@@ -106,6 +109,12 @@ export function getDatabase(): Database.Database {
     throw err;
   }
 
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(DB_PATH, 0o600);
+    } catch {}
+  }
+
   // Enable WAL mode for better concurrent read performance (ideal for VPS)
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
@@ -116,6 +125,7 @@ export function getDatabase(): Database.Database {
   runMigrations(db);
   migrateFromJson(db);
   encryptPlaintextPasswords(db);
+  encryptPlaintextAuthSessions(db);
 
   return db;
 }
@@ -424,6 +434,68 @@ function encryptPlaintextPasswords(db: Database.Database): void {
   }
 }
 
+function sealSecret(value: string | null): string | null {
+  if (!value) return value;
+  return isEncrypted(value) ? value : encrypt(value);
+}
+
+function encryptPlaintextAuthSessions(db: Database.Database): number {
+  const rows = db
+    .prepare(
+      "SELECT account_id, cookie, bx_ua, bx_umidtoken, refresh_token FROM qwen_auth_sessions",
+    )
+    .all() as Array<{
+    account_id: string;
+    cookie: string | null;
+    bx_ua: string | null;
+    bx_umidtoken: string | null;
+    refresh_token: string | null;
+  }>;
+  const update = db.prepare(
+    `UPDATE qwen_auth_sessions
+     SET cookie = ?, bx_ua = ?, bx_umidtoken = ?, refresh_token = ?, updated_at = datetime('now')
+     WHERE account_id = ?`,
+  );
+
+  const needsSealing = (value: string | null): boolean =>
+    Boolean(value) && !isEncrypted(value as string);
+
+  let migrated = 0;
+  const migrate = db.transaction(() => {
+    for (const row of rows) {
+      if (
+        !needsSealing(row.cookie) &&
+        !needsSealing(row.bx_ua) &&
+        !needsSealing(row.bx_umidtoken) &&
+        !needsSealing(row.refresh_token)
+      ) {
+        continue;
+      }
+      update.run(
+        sealSecret(row.cookie),
+        sealSecret(row.bx_ua),
+        sealSecret(row.bx_umidtoken),
+        sealSecret(row.refresh_token),
+        row.account_id,
+      );
+      migrated++;
+    }
+  });
+
+  migrate();
+
+  if (migrated > 0) {
+    console.log(
+      `[Database] Encrypted auth secrets for ${migrated} session(s)`,
+    );
+  }
+  return migrated;
+}
+
+export function migrateAuthSessionSecrets(): number {
+  return encryptPlaintextAuthSessions(getDatabase());
+}
+
 /**
  * Auto-migrate existing accounts.json into SQLite on first run.
  * The legacy JSON file is moved to data/db/accounts.json.bak after successful migration.
@@ -537,11 +609,11 @@ export function saveAuthSession(
   `);
   stmt.run(
     accountId,
-    session.cookie,
+    encrypt(session.cookie),
     session.userAgent,
     session.bxV || config.auth.bxV,
-    session.bxUa || "",
-    session.bxUmidtoken || "",
+    encrypt(session.bxUa || ""),
+    encrypt(session.bxUmidtoken || ""),
     session.secChUa || null,
     session.secChUaMobile || null,
     session.secChUaPlatform || null,
@@ -549,10 +621,16 @@ export function saveAuthSession(
     session.userId || null,
     accountId,
     session.tokenExpiresAt || null,
-    session.refreshToken || null,
+    session.refreshToken ? encrypt(session.refreshToken) : null,
     accountId,
     session.capturedAt ?? Date.now(),
   );
+}
+
+function readStoredSecret(value: unknown): string {
+  const raw = typeof value === "string" ? value : "";
+  if (!raw) return "";
+  return isEncrypted(raw) ? decrypt(raw) : raw;
 }
 
 export function getValidAuthSession(
@@ -576,7 +654,24 @@ export function getValidAuthSession(
     return null;
   }
 
-  if (!row.refresh_token && row.token_expires_at) {
+  let cookie: string;
+  let bxUa: string;
+  let bxUmidtoken: string;
+  let refreshToken: string | undefined;
+  try {
+    cookie = readStoredSecret(row.cookie);
+    bxUa = readStoredSecret(row.bx_ua);
+    bxUmidtoken = readStoredSecret(row.bx_umidtoken);
+    refreshToken = readStoredSecret(row.refresh_token) || undefined;
+  } catch (error) {
+    console.warn(
+      `⚠️  [Database] Unreadable auth session for account ${accountId}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+
+  if (!refreshToken && row.token_expires_at) {
     const tokenExpMs = Number(row.token_expires_at) * 1000;
     // Safety margin of 5 minutes before token expires (only when no refresh_token exists)
     if (tokenExpMs <= Date.now() + 5 * 60 * 1000) {
@@ -585,24 +680,24 @@ export function getValidAuthSession(
   }
 
   // Ensure critical fields are non-empty
-  if (!row.cookie || !row.user_agent || !row.bx_v || !row.bx_ua || !row.bx_umidtoken) {
+  if (!cookie || !row.user_agent || !row.bx_v || !bxUa || !bxUmidtoken) {
     return null;
   }
 
   return {
     accountId: row.account_id,
-    cookie: row.cookie,
+    cookie,
     userAgent: row.user_agent,
     bxV: row.bx_v,
-    bxUa: row.bx_ua,
-    bxUmidtoken: row.bx_umidtoken,
+    bxUa,
+    bxUmidtoken,
     secChUa: row.sec_ch_ua || undefined,
     secChUaMobile: row.sec_ch_ua_mobile || undefined,
     secChUaPlatform: row.sec_ch_ua_platform || undefined,
     version: row.version || undefined,
     userId: row.user_id || undefined,
     tokenExpiresAt: row.token_expires_at ? Number(row.token_expires_at) : undefined,
-    refreshToken: row.refresh_token || undefined,
+    refreshToken,
     capturedAt,
   };
 }

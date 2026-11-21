@@ -225,7 +225,7 @@ export class AccountsView implements TuiView {
 
       if (process.env.NODE_TEST_CONTEXT) {
         try {
-          const newAcc = addAccount(email, "");
+          addAccount(email, "");
           this.resetAddModalState();
           await this.refresh();
           this.setStatusMessage(theme.green(`✓ Conta ${email} salva via código OTP!`));
@@ -271,7 +271,7 @@ export class AccountsView implements TuiView {
 
     if (process.env.NODE_TEST_CONTEXT) {
       try {
-        const newAcc = addAccount(email, password);
+        addAccount(email, password);
         this.resetAddModalState();
         await this.refresh();
         this.setStatusMessage(theme.green(`✓ Conta ${email} salva! Conectando...`));

@@ -277,28 +277,9 @@ export function isQuotaLikeError(err: unknown): boolean {
   );
 }
 
-export function isAntiBotError(err: unknown): boolean {
-  const code = errCode(err);
-  const codeLower = code.toLowerCase();
-  const message = errMessage(err).toLowerCase();
-  if (err instanceof RetryableQwenStreamError) {
-    return codeLower === "waf_challenge" || message.includes("anti-bot");
-  }
-  return (
-    code === "FAIL_SYS_USER_VALIDATE" ||
-    code === "RGV587_ERROR" ||
-    codeLower === "waf_challenge" ||
-    message.includes("fail_sys_user_validate") ||
-    message.includes("rgv587_error") ||
-    message.includes("_____tmd_____") ||
-    message.includes("tmd anti-bot") ||
-    message.includes("captcha") ||
-    message.includes("security verification") ||
-    message.includes("verify you are human") ||
-    message.includes("human verification") ||
-    message.includes("denyfromx5")
-  );
-}
+import { isAntiBotError } from "../../services/qwen-errors.ts";
+
+export { isAntiBotError };
 
 function classifyQuotaCooldown(message: string): {
   accountCooldownMs?: number;

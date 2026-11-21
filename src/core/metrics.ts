@@ -32,6 +32,11 @@ export class Metrics extends EventEmitter {
       // Core request metrics
       ["requests.total", "counter", "Total requests processed"],
       ["requests.errors", "counter", "Total request errors"],
+      [
+        "requests.authority_rejected",
+        "counter",
+        "Requests rejected for an untrusted Host authority",
+      ],
       ["requests.delta", "counter", "Thread-native delta requests"],
       ["requests.full", "counter", "Full context replay or initial requests"],
       ["latency.request", "histogram", "Request latency (ms)"],

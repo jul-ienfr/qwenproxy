@@ -79,7 +79,6 @@ import {
   isThinkingPhase,
   isAnswerPhase,
   extractThinkingContent,
-  formatThinkingSummaryContent,
   shouldSuppressStreamAbort,
   isAbortError,
   createUsageAccumulator,

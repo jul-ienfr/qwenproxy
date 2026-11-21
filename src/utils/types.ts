@@ -1,5 +1,47 @@
-import type { JsonSchema, FunctionToolDefinition } from "../tools/types.ts";
-export type { JsonSchema, FunctionToolDefinition };
+/**
+ * JSON Schema definition following the OpenAI function calling spec.
+ */
+export interface JsonSchema {
+  type: string;
+  properties?: Record<string, JsonSchema>;
+  items?: JsonSchema;
+  required?: string[];
+  enum?: unknown[];
+  const?: unknown;
+  default?: unknown;
+  description?: string;
+  additionalProperties?: boolean | JsonSchema;
+  anyOf?: JsonSchema[];
+  oneOf?: JsonSchema[];
+  allOf?: JsonSchema[];
+  not?: JsonSchema;
+  if?: JsonSchema;
+  then?: JsonSchema;
+  else?: JsonSchema;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  format?: string;
+  minItems?: number;
+  maxItems?: number;
+  uniqueItems?: boolean;
+  nullable?: boolean;
+}
+
+/**
+ * OpenAI-compatible function tool definition.
+ */
+export interface FunctionToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: JsonSchema;
+    strict?: boolean;
+  };
+}
 
 /** Tool choice options */
 export type ToolChoice =
@@ -110,4 +152,40 @@ export interface ChatCompletionChunk {
   model: string;
   choices: Choice[];
   usage?: Usage;
+}
+
+/**
+ * Qwen file format for images
+ */
+export interface QwenFileEntry {
+  type: string;
+  file: {
+    created_at: number;
+    data: Record<string, unknown>;
+    filename: string;
+    hash: string | null;
+    id: string;
+    user_id: string;
+    meta: { name: string; size: number; content_type: string };
+    update_at: number;
+    lastModified: number;
+    name: string;
+    webkitRelativePath: string;
+    size: number;
+    type: string;
+  };
+  id: string;
+  url: string;
+  name: string;
+  collection_name: string;
+  progress: number;
+  status: string;
+  greenNet: string;
+  size: number;
+  error: string;
+  itemId: string;
+  file_type: string;
+  showType: string;
+  file_class: string;
+  uploadTaskId: string;
 }

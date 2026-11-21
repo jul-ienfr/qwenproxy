@@ -19,8 +19,13 @@ import {
 } from "../core/admin-session.ts";
 import {
   identityErrorMessage,
+  LOCAL_ADMIN_IDENTITY,
   resolveIdentity,
 } from "../core/auth-identity.ts";
+import {
+  isLoopbackAddress,
+  requestPeerAddress,
+} from "../core/trusted-hosts.ts";
 import { getUserIdentity } from "../core/request-user.ts";
 import { getServerLogHistory, subscribeServerLogStream } from "../core/server-log-buffer.ts";
 import { loadModelsWithVariants } from "../api/models.ts";
@@ -163,6 +168,16 @@ adminDashboardApp.post("/api/session", async (c) => {
   if (resolution.identity.role !== "admin") {
     recordLoginFailure(throttleKey);
     return adminJsonError(c, 403, "Admin role required");
+  }
+  if (resolution.identity.id === LOCAL_ADMIN_IDENTITY.id) {
+    const peer = requestPeerAddress(c);
+    if (peer && !isLoopbackAddress(peer)) {
+      return adminJsonError(
+        c,
+        403,
+        "Local admin access requires a loopback connection",
+      );
+    }
   }
   clearLoginFailures(throttleKey);
 

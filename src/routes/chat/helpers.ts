@@ -7,12 +7,51 @@ export interface DeltaResult {
   contentSuffix: string;
 }
 
-function buildDeltaResult(delta: string, matchedContent: string): DeltaResult {
+let suffixCopyChars = 0;
+let escapeDecodePasses = 0;
+let sseScanChars = 0;
+
+export function resetHotPathCounters(): void {
+  suffixCopyChars = 0;
+  escapeDecodePasses = 0;
+  sseScanChars = 0;
+}
+
+export function getSuffixCopyChars(): number {
+  return suffixCopyChars;
+}
+
+export function getEscapeDecodePasses(): number {
+  return escapeDecodePasses;
+}
+
+export function getSseScanChars(): number {
+  return sseScanChars;
+}
+
+export function decodeSseContentBody(body: string): string {
+  escapeDecodePasses += 1;
+  return JSON.parse(`"${body}"`) as string;
+}
+
+const SUFFIX_WINDOW = 32;
+
+function suffixAfterAppend(previousSuffix: string, added: string): string {
+  if (added.length >= SUFFIX_WINDOW) return added.slice(-SUFFIX_WINDOW);
+  return previousSuffix.slice(-(SUFFIX_WINDOW - added.length)) + added;
+}
+
+function buildDeltaResult(
+  delta: string,
+  matchedContent: string,
+  contentSuffix: string,
+): DeltaResult {
+  suffixCopyChars += contentSuffix.length;
   return {
     delta,
     matchedContent,
     contentLength: matchedContent.length,
-    contentSuffix: matchedContent.slice(-32),
+    contentSuffix,
   };
 }
 
@@ -20,20 +59,24 @@ export function getIncrementalDelta(
   oldStr: string,
   newStr: string,
   previousLength = oldStr.length,
-  previousSuffix = oldStr.slice(-32),
+  previousSuffix = oldStr.slice(-SUFFIX_WINDOW),
 ): DeltaResult {
   if (!oldStr) {
-    return buildDeltaResult(newStr, newStr);
+    return buildDeltaResult(newStr, newStr, newStr.slice(-SUFFIX_WINDOW));
   }
   if (newStr === oldStr) {
-    return buildDeltaResult("", oldStr);
+    return buildDeltaResult("", oldStr, previousSuffix);
   }
 
   // Fast path for cumulative Qwen chunks: validate the old boundary using a
   // short suffix instead of scanning the whole previous content with startsWith.
   // Using 32-byte window (O(1)) since Qwen streams with incremental_output=true.
   if (newStr.length > previousLength && previousLength > 0) {
-    const checkLen = Math.min(32, previousLength, previousSuffix.length);
+    const checkLen = Math.min(
+      SUFFIX_WINDOW,
+      previousLength,
+      previousSuffix.length,
+    );
     const expectedSuffix = previousSuffix.slice(-checkLen);
     const actualSuffix = newStr.slice(
       previousLength - checkLen,
@@ -41,12 +84,20 @@ export function getIncrementalDelta(
     );
 
     if (expectedSuffix === actualSuffix) {
-      return buildDeltaResult(newStr.slice(previousLength), newStr);
+      return buildDeltaResult(
+        newStr.slice(previousLength),
+        newStr,
+        newStr.slice(-SUFFIX_WINDOW),
+      );
     }
   }
 
   if (newStr.length >= oldStr.length && newStr.startsWith(oldStr)) {
-    return buildDeltaResult(newStr.substring(oldStr.length), newStr);
+    return buildDeltaResult(
+      newStr.substring(oldStr.length),
+      newStr,
+      newStr.slice(-SUFFIX_WINDOW),
+    );
   }
 
   // Heuristic to detect if newStr is cumulative or incremental. Compare in
@@ -75,11 +126,19 @@ export function getIncrementalDelta(
 
   const threshold = Math.min(scanWindow, 4);
   if (commonPrefixLen >= threshold) {
-    return buildDeltaResult(newStr.substring(commonPrefixLen), newStr);
+    return buildDeltaResult(
+      newStr.substring(commonPrefixLen),
+      newStr,
+      newStr.slice(-SUFFIX_WINDOW),
+    );
   }
 
   // Treat as strictly incremental to avoid false-positive corruptions
-  return buildDeltaResult(newStr, oldStr + newStr);
+  return buildDeltaResult(
+    newStr,
+    oldStr + newStr,
+    suffixAfterAppend(previousSuffix, newStr),
+  );
 }
 
 export function formatThinkingSummaryContent(delta: any): string {
@@ -320,4 +379,227 @@ export function buildUsage(accumulator: UsageAccumulator): Usage {
   }
 
   return usage;
+}
+
+export const SSE_PENDING_WRITE_LIMIT_BYTES = 64 * 1024;
+
+export interface SseWriteBufferOptions {
+  flushBytes: number;
+  flushMs: number;
+  pendingLimitBytes: number;
+  isCancelled: () => boolean;
+}
+
+export interface SseWriteBuffer {
+  write(data: string): void;
+  flush(): void;
+  drain(): Promise<void>;
+  settled(): Promise<void>;
+  dispose(): void;
+}
+
+export function createSseWriteBuffer(
+  sink: (data: string) => Promise<void>,
+  options: SseWriteBufferOptions,
+): SseWriteBuffer {
+  let buffer = "";
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pendingBytes = 0;
+  let chain: Promise<void> = Promise.resolve();
+  let writeError: unknown = null;
+
+  const clearTimer = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const flush = () => {
+    if (options.isCancelled()) {
+      buffer = "";
+      clearTimer();
+      return;
+    }
+    clearTimer();
+    if (buffer) {
+      const data = buffer;
+      buffer = "";
+      pendingBytes += data.length;
+      chain = chain.then(() => sink(data)).then(
+        () => {
+          pendingBytes -= data.length;
+        },
+        (err) => {
+          pendingBytes -= data.length;
+          if (writeError === null) writeError = err;
+        },
+      );
+    }
+  };
+
+  const write = (data: string) => {
+    if (options.isCancelled()) return;
+    buffer += data;
+    if (buffer.length >= options.flushBytes) {
+      flush();
+    } else if (!timer) {
+      timer = setTimeout(flush, options.flushMs);
+    }
+  };
+
+  const drain = async () => {
+    for (;;) {
+      if (writeError !== null) {
+        const err = writeError;
+        writeError = null;
+        throw err;
+      }
+      if (pendingBytes <= options.pendingLimitBytes || options.isCancelled()) {
+        return;
+      }
+      await chain;
+    }
+  };
+
+  const settled = async () => {
+    for (;;) {
+      if (writeError !== null) {
+        const err = writeError;
+        writeError = null;
+        throw err;
+      }
+      if (pendingBytes === 0 || options.isCancelled()) {
+        return;
+      }
+      await chain;
+    }
+  };
+
+  const dispose = () => {
+    clearTimer();
+    buffer = "";
+  };
+
+  return { write, flush, drain, settled, dispose };
+}
+
+const SSE_CONTENT_LINE =
+  /^\{"response_id":"[^"]*","choices":\[\{"delta":\{"content":"((?:[^"\\]|\\.)*)"\}\}\]\}$/;
+const SSE_CONTENT_TAIL = '"}}]}';
+const SSE_JUNCTION_WINDOW = 32;
+
+export interface SseContentExtraction {
+  content: string;
+  contentLength: number;
+  contentSuffix: string;
+  delta: string;
+  appended: boolean;
+}
+
+export interface SseContentExtractor {
+  extract(line: string, emittedLength: number): SseContentExtraction | null;
+  reset(): void;
+}
+
+export function createSseContentExtractor(): SseContentExtractor {
+  let head: string | null = null;
+  let bodyLength = 0;
+  let bodyHead = "";
+  let bodyTail = "";
+  let content = "";
+  let contentLength = 0;
+  let contentSuffix = "";
+
+  const reset = () => {
+    head = null;
+    bodyLength = 0;
+    bodyHead = "";
+    bodyTail = "";
+    content = "";
+    contentLength = 0;
+    contentSuffix = "";
+  };
+
+  const fullExtract = (line: string): SseContentExtraction | null => {
+    sseScanChars += line.length;
+    const match = line.match(SSE_CONTENT_LINE);
+    if (!match) return null;
+    const body = match[1];
+    sseScanChars += body.length;
+    let decoded: string;
+    try {
+      decoded = decodeSseContentBody(body);
+    } catch {
+      reset();
+      return null;
+    }
+    head = line.slice(0, line.length - body.length - SSE_CONTENT_TAIL.length);
+    bodyLength = body.length;
+    bodyHead = body.slice(0, SSE_JUNCTION_WINDOW);
+    bodyTail = body.slice(-SSE_JUNCTION_WINDOW);
+    content = decoded;
+    contentLength = decoded.length;
+    contentSuffix = decoded.slice(-SUFFIX_WINDOW);
+    return {
+      content,
+      contentLength,
+      contentSuffix,
+      delta: "",
+      appended: false,
+    };
+  };
+
+  const extract = (
+    line: string,
+    emittedLength: number,
+  ): SseContentExtraction | null => {
+    if (head === null || emittedLength !== contentLength) {
+      return fullExtract(line);
+    }
+    const bodyStart = head.length;
+    const bodyEnd = line.length - SSE_CONTENT_TAIL.length;
+    const previousEnd = bodyStart + bodyLength;
+    if (bodyEnd <= previousEnd) return fullExtract(line);
+    sseScanChars += head.length + SSE_CONTENT_TAIL.length;
+    if (!line.startsWith(head) || !line.endsWith(SSE_CONTENT_TAIL)) {
+      return fullExtract(line);
+    }
+    const window = Math.min(SSE_JUNCTION_WINDOW, bodyLength);
+    sseScanChars += window * 2;
+    if (
+      line.slice(bodyStart, bodyStart + window) !== bodyHead ||
+      line.slice(previousEnd - window, previousEnd) !== bodyTail
+    ) {
+      return fullExtract(line);
+    }
+    const span = line.slice(previousEnd, bodyEnd);
+    sseScanChars += span.length;
+    let decoded: string;
+    try {
+      decoded = decodeSseContentBody(span);
+    } catch {
+      return fullExtract(line);
+    }
+    content = content + decoded;
+    contentLength += decoded.length;
+    contentSuffix = suffixAfterAppend(contentSuffix, decoded);
+    bodyLength += span.length;
+    if (bodyHead.length < SSE_JUNCTION_WINDOW) {
+      bodyHead = (bodyHead + span).slice(0, SSE_JUNCTION_WINDOW);
+    }
+    bodyTail =
+      span.length >= SSE_JUNCTION_WINDOW
+        ? span.slice(-SSE_JUNCTION_WINDOW)
+        : (bodyTail + span).slice(-SSE_JUNCTION_WINDOW);
+    return {
+      content,
+      contentLength,
+      contentSuffix,
+      delta: decoded,
+      appended: true,
+    };
+  };
+
+  return { extract, reset };
 }

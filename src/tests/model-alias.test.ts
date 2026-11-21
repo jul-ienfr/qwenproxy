@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  ALWAYS_AVAILABLE_MODELS,
+  DEFAULT_FALLBACK_MODELS,
+  listAlwaysAvailableModels,
   mapClientModelToQwen,
   mapKnownModelAlias,
   parseModelSuffix,
@@ -139,4 +142,28 @@ test("parseModelSuffix normalises search and reasoning in one pass", () => {
     mapClientModelToQwen("qwen3.7-plus-search-thinking"),
     "qwen3.7-plus",
   );
+});
+test("Qwen 4 spellings resolve to qwen4-max and are always advertised", () => {
+  assert.equal(mapKnownModelAlias("qwen4"), "qwen4-max");
+  assert.equal(mapKnownModelAlias("Qwen 4"), "qwen4-max");
+  assert.equal(mapKnownModelAlias("qwen-4"), "qwen4-max");
+  assert.equal(mapKnownModelAlias("qn4"), "qwen4-max");
+  assert.equal(mapClientModelToQwen("qwen4-high"), "qwen4-max");
+  assert.equal(mapClientModelToQwen("qwen-4"), "qwen4-max");
+  assert.equal(mapClientModelToQwen("qwen4-max"), "qwen4-max");
+
+  assert.ok(ALWAYS_AVAILABLE_MODELS.includes("qwen4-max"));
+  assert.ok(DEFAULT_FALLBACK_MODELS.includes("qwen4-max"));
+
+  const previous = process.env.QWEN_EXTRA_MODELS;
+  process.env.QWEN_EXTRA_MODELS = "qwen4-plus, qwen4-turbo";
+  try {
+    const ids = listAlwaysAvailableModels();
+    assert.ok(ids.includes("qwen4-max"));
+    assert.ok(ids.includes("qwen4-plus"));
+    assert.ok(ids.includes("qwen4-turbo"));
+  } finally {
+    if (previous === undefined) delete process.env.QWEN_EXTRA_MODELS;
+    else process.env.QWEN_EXTRA_MODELS = previous;
+  }
 });

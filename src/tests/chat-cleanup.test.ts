@@ -6,8 +6,6 @@ process.env.TEST_MOCK_QWEN_AUTH = "true";
 import { deleteAllQwenChats } from "../services/qwen.ts";
 import {
   deleteChatsForAccount,
-  deleteChatsForAccountId,
-  deleteChatsForConfiguredAccounts,
 } from "../services/chat-cleanup.ts";
 
 test("deleteAllQwenChats sends DELETE to the Qwen chats endpoint", async () => {

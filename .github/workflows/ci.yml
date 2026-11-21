@@ -32,11 +32,23 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint:ci
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Import boundaries
+        run: npm run check:boundaries
+
       - name: Mock tests
         run: npm run test:mock
         env:
           CI: true
           TEST_MOCK_QWEN_AUTH: true
+
+      - name: Build package
+        run: npm run build
 
   standalone:
     name: Standalone (${{ matrix.target }})
@@ -144,6 +156,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [check, standalone]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: write
       packages: write

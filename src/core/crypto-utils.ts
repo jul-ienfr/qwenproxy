@@ -1,6 +1,5 @@
 import crypto from "crypto";
 import fs from "fs";
-import path from "path";
 
 import { getDbDir, getEncryptionKeyPath } from "./paths.ts";
 

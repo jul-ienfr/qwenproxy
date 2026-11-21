@@ -15,14 +15,14 @@ import {
   UpstreamRateLimit,
   ContentPolicyError,
 } from "../core/errors.ts";
-import { isAntiBotError } from "../routes/chat/retry-policy.ts";
+import { isAntiBotError } from "./qwen-errors.ts";
 import { recoverBaxiaCaptcha } from "./captcha-coordinator.ts";
 import { startBaxiaCaptchaWatcher } from "./captcha-solver.ts";
 import { withAccountPage } from "./playwright.ts";
 import {
   uploadBufferAsQwenFile,
   type QwenFileEntry,
-} from "../routes/upload.ts";
+} from "./qwen-file-upload.ts";
 
 /**
  * Heuristic for a WAF/captcha challenge page body returned by Qwen instead of JSON.

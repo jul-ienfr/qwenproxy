@@ -1305,6 +1305,10 @@ async function tryCreateStreamWithRetry(
 		}
 		let attemptError: any = null;
 		let accountLease: AccountLease | null = null;
+		// Declared outside the try so the catch can disarm it: a failed attempt
+		// used to leave a 120s timer armed, firing an abort on a signal nobody
+		// observes anymore.
+		let acquireDeadlineTimer: NodeJS.Timeout | undefined;
 		const acquireStartedAt = Date.now();
 
 		try {
@@ -1496,6 +1500,10 @@ async function tryCreateStreamWithRetry(
 						once: true,
 					});
 				}
+				// Declared before the try: the deadline can win the race while the
+				// sync is still running, and the finally must await it before
+				// releasing the personalization lock.
+				let syncPromise: Promise<boolean> | null = null;
 				try {
 					// Let the hash-based cache in syncQwenRequestPersonalization decide
 					// whether to actually POST. A new chat does not imply the account's
@@ -1503,17 +1511,17 @@ async function tryCreateStreamWithRetry(
 					// should bypass the cache.
 					const instruction =
 						params.requestPersonalizationInstruction ?? "";
-					let personalizationApplied = false;
-					let syncFailure: string | null = null;
-					try {
+				let personalizationApplied = false;
+				let syncFailure: string | null = null;
+				try {
 						// Hard deadline for the whole sync (browser ops each have
 						// their own 60s timeout; several sequential stuck ops can
 						// hold the personalization mutex for minutes). A normal
 						// sync takes ~2s; beyond 30s the account page is stuck —
 						// fail fast so the retry loop switches accounts.
-						let syncSettled = false;
-						let personalizationDeadlineTimer: NodeJS.Timeout | undefined;
-						const syncPromise = syncQwenRequestPersonalization(
+					let syncSettled = false;
+					let personalizationDeadlineTimer: NodeJS.Timeout | undefined;
+					syncPromise = syncQwenRequestPersonalization(
 							instruction,
 							currentAccountId === "global"
 								? undefined
@@ -1589,6 +1597,16 @@ async function tryCreateStreamWithRetry(
 					}
 				} finally {
 					combinedSignal.removeEventListener("abort", onPersonalizationAbort);
+					// The deadline can win the race while the browser operation is
+					// still running. Releasing the mutex here would let a second
+					// request sync the same account concurrently, so wait for the
+					// in-flight sync to settle first (absorbing its rejection: the
+					// outcome is already handled above).
+					try {
+						await syncPromise?.catch(() => undefined);
+					} catch {
+						// Defensive: the sync outcome is already handled above.
+					}
 					releasePersonalization();
 				}
 
@@ -1617,9 +1635,8 @@ async function tryCreateStreamWithRetry(
 				// fails fast and retryable instead of blocking the request for minutes
 				// with zero log output.
 				const acquireDeadlineMs = config.concurrency.acquireDeadlineMs;
-				let acquireDeadlineTimer: NodeJS.Timeout | undefined;
-				const acquireDeadline = new Promise<never>((_, reject) => {
-					const checkDeadline = async () => {
+				acquireDeadlineTimer = undefined;
+				const acquireDeadline = new Promise<never>((_, reject) => {					const checkDeadline = async () => {
 						try {
 							const { isCaptchaRecoveryActive } = await import(
 								"../../services/captcha-coordinator.ts"
@@ -1834,6 +1851,14 @@ async function tryCreateStreamWithRetry(
 		} catch (err: any) {
 			attemptError = err;
 			lastAttemptError = err;
+			// Disarm the acquire deadline on the failure path. The success path
+			// already clears it; without this, a failed attempt kept a timer armed
+			// for up to ACQUIRE_DEADLINE_MS (120s) firing an abort on a signal that
+			// nothing observes anymore.
+			if (acquireDeadlineTimer) {
+				clearTimeout(acquireDeadlineTimer);
+				acquireDeadlineTimer = undefined;
+			}
 			if (
 				/ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED|ECONNREFUSED|ENOTFOUND/i.test(
 					String(err?.message ?? ""),

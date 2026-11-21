@@ -10,6 +10,10 @@ import type { Context } from "hono";
 import { config } from "../core/config.ts";
 import { getRuntimeApiKey, isPlaceholderApiKey } from "../core/local-auth.ts";
 import {
+  isLoopbackAddress,
+  requestPeerAddress,
+} from "../core/trusted-hosts.ts";
+import {
   extractProvidedApiKeys,
   GLOBAL_ADMIN_IDENTITY,
   identityErrorMessage,
@@ -189,6 +193,16 @@ export function authenticateAdminRequest(c: Context): AdminAuthResult {
     // proxy-minted key was supplied.
     const local = resolveIdentity([]);
     if (local.identity) {
+      const peer = requestPeerAddress(c);
+      if (peer && !isLoopbackAddress(peer)) {
+        return {
+          response: adminJsonError(
+            c,
+            403,
+            "Local admin access requires a loopback connection",
+          ),
+        };
+      }
       // The legacy no-key identity has no CSRF token to verify, so still reject
       // browser cross-origin mutations; otherwise any web page could drive the
       // operator's dashboard through the browser.

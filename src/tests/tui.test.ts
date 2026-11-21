@@ -649,7 +649,7 @@ test("TUI LogsView: click bounds precisely match every filter chip without shift
   const chipsInfo = (view as any).getChips(2);
 
   // Click each chip exactly in its bounding box on row 4 (where the box title is rendered)
-  for (const [idx, c] of chipsInfo.chips.entries()) {
+  for (const [, c] of chipsInfo.chips.entries()) {
     const midCol = Math.floor((c.startCol + c.endCol) / 2);
     const testRow = 4;
     const handled = await view.handleKey({

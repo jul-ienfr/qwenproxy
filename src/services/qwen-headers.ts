@@ -51,7 +51,6 @@ export function getQwenBxVersion(): string {
 
 export const QWEN_WEB_VERSION = config.qwen.webVersion;
 export const DEFAULT_QWEN_USER_AGENT = getDefaultQwenUserAgent(151);
-const QWEN_TIMEZONE_HEADER = new Date().toString().split(" (")[0];
 export interface BuildQwenHeadersOptions {
   cookie: string;
   userAgent?: string;

@@ -23,7 +23,7 @@ function jsonRequest(body: unknown, init: RequestInit = {}): RequestInit {
   return { ...init, headers, body: JSON.stringify(body) };
 }
 
-function valueOf(
+function settingValue(
   settings: Array<{ key: string; value: unknown }>,
   key: string,
 ): unknown {
@@ -108,7 +108,7 @@ test("settings: invalid chat modes are rejected", async () => {
 });
 
 test("settings: a rejected batch rolls back earlier values", async () => {
-  const before = valueOf(listSettings(), "rate_limit_requests");
+  const before = settingValue(listSettings(), "rate_limit_requests");
   const response = await app.request(
     "/admin/api/settings",
     jsonRequest(
@@ -124,7 +124,7 @@ test("settings: a rejected batch rolls back earlier values", async () => {
   );
   assert.equal(response.status, 400);
   assert.equal(
-    valueOf(listSettings(), "rate_limit_requests"),
+    settingValue(listSettings(), "rate_limit_requests"),
     before,
     "the earlier field must not stay applied after the batch is rejected",
   );
@@ -152,18 +152,18 @@ test("settings: valid values are hot-applied and returned", async () => {
   const body = (await response.json()) as {
     settings: Array<{ key: string; value: unknown }>;
   };
-  assert.equal(valueOf(body.settings, "rate_limit_requests"), 1234);
-  assert.equal(valueOf(body.settings, "rate_limit_tokens"), 5678);
-  assert.equal(valueOf(body.settings, "user_default_rpm"), 7);
-  assert.equal(valueOf(body.settings, "user_default_concurrency"), 2);
-  assert.equal(valueOf(body.settings, "chat_request_log"), true);
-  assert.equal(valueOf(body.settings, "chat_mode"), "stateless-temp");
+  assert.equal(settingValue(body.settings, "rate_limit_requests"), 1234);
+  assert.equal(settingValue(body.settings, "rate_limit_tokens"), 5678);
+  assert.equal(settingValue(body.settings, "user_default_rpm"), 7);
+  assert.equal(settingValue(body.settings, "user_default_concurrency"), 2);
+  assert.equal(settingValue(body.settings, "chat_request_log"), true);
+  assert.equal(settingValue(body.settings, "chat_mode"), "stateless-temp");
 
   const reread = await app.request("/admin/api/settings");
   const rereadBody = (await reread.json()) as {
     settings: Array<{ key: string; value: unknown }>;
   };
-  assert.equal(valueOf(rereadBody.settings, "chat_mode"), "stateless-temp");
+  assert.equal(settingValue(rereadBody.settings, "chat_mode"), "stateless-temp");
 });
 
 test("settings: audit records the change without values", async () => {

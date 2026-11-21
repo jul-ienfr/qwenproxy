@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   clearFingerprintCache,
   getFingerprintProfile,
-  updateChromeMajor,
 } from "../services/fingerprint.ts";
 
 test("fingerprint profile is deterministic per account", () => {

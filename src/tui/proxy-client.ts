@@ -143,8 +143,6 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
       };
     });
   }
-  const online = lastOnlineState;
-  const overallStatus = lastOverallStatus;
 
   // Concurrency stats
   let activeStreams = 0;

@@ -170,8 +170,6 @@ const ALIYUN_WAF_BLOCK_SELECTORS = [
   ALIYUN_WAF_CAPTCHA_SELECTOR,
   ALIYUN_WAF_CAPTCHA_WIDGET,
 ] as const;
-const ALIYUN_PUZZLE_BACKGROUND_SELECTOR = "#aliyunCaptcha-img";
-const ALIYUN_PUZZLE_PIECE_SELECTOR = "#aliyunCaptcha-puzzle";
 const ALIYUN_PUZZLE_SLIDER_SELECTOR = "#aliyunCaptcha-sliding-slider";
 const ALIYUN_PUZZLE_TRACK_SELECTOR = "#aliyunCaptcha-sliding-body";
 

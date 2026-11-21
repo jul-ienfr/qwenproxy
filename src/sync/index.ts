@@ -376,7 +376,6 @@ export function inspectClientSyncStatus(
     }
 
     if (id === "opencode") {
-      let isSynced = false;
       try {
         const data = JSON.parse(raw);
         const provider = data?.provider?.qwenproxy;
@@ -389,11 +388,6 @@ export function inspectClientSyncStatus(
         const isSynced = Boolean(url && isMatchingLocalHost(url, port));
         return { id, installed: true, synced: isSynced };
       }
-      return {
-        id,
-        installed: true,
-        synced: isSynced,
-      };
     }
 
     if (id === "omp") {

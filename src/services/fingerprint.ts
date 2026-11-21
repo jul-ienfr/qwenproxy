@@ -129,14 +129,6 @@ const WEBGL_PROFILES = [
   },
 ] as const;
 
-const LANGUAGE_PROFILES = [
-  ["pt-BR", "pt", "en-US", "en"],
-  ["pt-BR", "pt", "en-US", "en", "es"],
-  ["pt-BR", "en-US", "en", "pt"],
-  ["pt-BR", "pt", "en"],
-  ["pt-BR", "pt;q=0.9", "en-US;q=0.8", "en;q=0.7"],
-] as const;
-
 const HARDWARE_CONCURRENCIES = [4, 6, 8, 8, 8, 12, 16, 16, 24, 32] as const;
 const DEVICE_MEMORIES = [4, 8, 8, 8, 16, 16, 32] as const;
 

@@ -25,6 +25,8 @@ const envSchema = z
       .default("7936"),
     HOST: z.string().default("127.0.0.1"),
     INTERNAL_HOST: z.string().default("127.0.0.1"),
+    TRUSTED_HOSTS: z.string().default(""),
+    SHUTDOWN_GRACE_MS: z.string().default("10000"),
     USER_AGENT: z
       .string()
       .default(
@@ -120,8 +122,8 @@ const envSchema = z
     RAM_CRITICAL: z.string().default("95"),
     WS_WARNING: z.string().default("50"),
     WS_CRITICAL: z.string().default("100"),
-    RETRY_BASE_DELAY_MS: z.string().default(process.env.TEST_MOCK_QWEN_AUTH === "true" ? "50" : "1000"),
-    RETRY_MAX_DELAY_MS: z.string().default(process.env.TEST_MOCK_QWEN_AUTH === "true" ? "200" : "10000"),
+    RETRY_BASE_DELAY_MS: z.string().default("1000"),
+    RETRY_MAX_DELAY_MS: z.string().default("10000"),
     RETRY_MAX_ATTEMPTS: z.string().default("3"),
     RETRY_MAX_ACCOUNT_SWITCHES: z.string().default("2"),
     RETRY_ON_UNKNOWN_UPSTREAM: z.string().default("true"),
@@ -242,6 +244,10 @@ export const config = {
     port: parseInt(env.PORT),
     host: env.HOST,
     internalHost: env.INTERNAL_HOST,
+    trustedHosts: env.TRUSTED_HOSTS.split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+    shutdownGraceMs: parseInt(env.SHUTDOWN_GRACE_MS),
     rateLimit: {
       requests: parseInt(env.RATE_LIMIT_REQUESTS),
       tokens: parseInt(env.RATE_LIMIT_TOKENS),

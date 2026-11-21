@@ -21,6 +21,7 @@ import type {
 } from "./token-estimation-metrics.ts";
 import { getDatabase } from "../core/database.ts";
 import { mapClientModelToQwen } from "../core/model-alias.ts";
+import { recordDiscoveredModel } from "../core/discovered-models.ts";
 import {
   MAX_PAYLOAD_SIZE,
   replaceModelMetadata,
@@ -79,7 +80,6 @@ import {
 import {
   clearAllSessionsForAccount,
   removeSessionByChatId,
-  isChatSessionActive,
   getSessionParent,
   updateSessionParent,
 } from "./qwen-thread-state.ts";
@@ -3133,6 +3133,14 @@ async function createQwenStreamInternal(
   const model = options?.chatTypeOverride
     ? modelId
     : mapClientModelToQwen(modelId);
+  // A completion Qwen accepts proves the id is usable even when `/api/models`
+  // omits it. Record it so `/v1/models` advertises it from the next request on.
+  // Specialized modes use virtual ids that are already advertised.
+  const rememberSuccessfulModel = () => {
+    if (!options?.chatTypeOverride && model) {
+      recordDiscoveredModel(model);
+    }
+  };
   const searchEnabled = options?.search === true;
   // Qwen only performs search with its `search` chat type; `auto_search: true`
   // with `t2t` was live-verified to answer without searching. Specialized
@@ -3725,6 +3733,7 @@ async function createQwenStreamInternal(
           response.body &&
           recoveredContentType.includes("text/event-stream")
         ) {
+          rememberSuccessfulModel();
           return {
             stream: wrapUpstreamStream(response.body, controller),
             headers: activeHeaders,
@@ -3775,6 +3784,7 @@ async function createQwenStreamInternal(
               activeHeaders = fresh.headers;
               response = await fetchCompletion(activeHeaders);
               if (response.ok && response.body) {
+                rememberSuccessfulModel();
                 return {
                   stream: wrapUpstreamStream(response.body, controller),
                   headers: activeHeaders,
@@ -3814,6 +3824,7 @@ async function createQwenStreamInternal(
       );
     }
 
+    rememberSuccessfulModel();
     return {
       stream: wrapUpstreamStream(response.body, controller),
       headers: activeHeaders,

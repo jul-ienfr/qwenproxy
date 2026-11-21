@@ -5,7 +5,7 @@ import path from "node:path";
 import os from "node:os";
 
 import { StatusView } from "../tui/views/status-view.ts";
-import { updateEnvVariable, persistServerPort, persistCustomApiKey } from "../core/local-auth.ts";
+import { updateEnvVariable } from "../core/local-auth.ts";
 import { stripAnsi } from "../tui/theme.ts";
 
 StatusView.prototype.refresh = async () => {};

@@ -94,9 +94,9 @@ test("stall: browser stream ended before response headers is treated as network-
   );
 });
 
-test("stall: isBenignTeardownError recognizes empty object rejections and benign closures", async () => {
+test("stall: isBenignTeardownError requires browser/CDP evidence and is fail-closed", async () => {
   const { isBenignTeardownError } = await import("../core/process-guard.ts");
-  assert.strictEqual(isBenignTeardownError({}), true);
+  assert.strictEqual(isBenignTeardownError({}), false);
   assert.strictEqual(isBenignTeardownError(new Error("Target page, context or browser has been closed")), true);
   assert.strictEqual(isBenignTeardownError(new Error("Protocol error: Session closed")), true);
   assert.strictEqual(isBenignTeardownError(new Error("Real unexpected error")), false);

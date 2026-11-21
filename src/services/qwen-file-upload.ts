@@ -1,0 +1,628 @@
+import { Readable } from "stream";
+import { v4 as uuidv4 } from "uuid";
+import { isAuthMockEnabled } from "./auth-playwright.ts";
+import { buildQwenRequestHeaders } from "./qwen-headers.ts";
+import { qwenUrl } from "./qwen-url.ts";
+import { config } from "../core/config.ts";
+import {
+  fetchRemoteMedia,
+  readResponseWithByteCap,
+} from "../core/safe-remote-url.ts";
+import type { QwenFileEntry } from "../utils/types.ts";
+
+export type { QwenFileEntry };
+
+// Cache the heavy ali-oss module so we import it once, not on every upload.
+let cachedOSSModule: any = null;
+async function getOSSModule() {
+  if (!cachedOSSModule) {
+    cachedOSSModule = (await import("ali-oss")).default;
+  }
+  return cachedOSSModule;
+}
+
+interface STSResponse {
+  success: boolean;
+  request_id: string;
+  data: {
+    access_key_id: string;
+    access_key_secret: string;
+    security_token: string;
+    file_url: string;
+    file_path: string;
+    file_id: string;
+    bucketname: string;
+    region: string;
+    endpoint: string;
+  };
+}
+
+interface FileTypeInfo {
+  mime: string;
+  showType: "image" | "video" | "audio" | "file";
+  fileClass: "vision" | "video" | "audio" | "file";
+  qwenFileType: "image" | "video" | "audio" | "file";
+}
+
+const DEFAULT_FILE_TYPE_INFO: FileTypeInfo = {
+  mime: "application/octet-stream",
+  showType: "file",
+  fileClass: "file",
+  qwenFileType: "file",
+};
+
+const FILE_TYPE_MAP: Record<string, FileTypeInfo> = {
+  png: {
+    mime: "image/png",
+    showType: "image",
+    fileClass: "vision",
+    qwenFileType: "image",
+  },
+  jpg: {
+    mime: "image/jpeg",
+    showType: "image",
+    fileClass: "vision",
+    qwenFileType: "image",
+  },
+  jpeg: {
+    mime: "image/jpeg",
+    showType: "image",
+    fileClass: "vision",
+    qwenFileType: "image",
+  },
+  gif: {
+    mime: "image/gif",
+    showType: "image",
+    fileClass: "vision",
+    qwenFileType: "image",
+  },
+  webp: {
+    mime: "image/webp",
+    showType: "image",
+    fileClass: "vision",
+    qwenFileType: "image",
+  },
+  mp4: {
+    mime: "video/mp4",
+    showType: "video",
+    fileClass: "video",
+    qwenFileType: "video",
+  },
+  mov: {
+    mime: "video/quicktime",
+    showType: "video",
+    fileClass: "video",
+    qwenFileType: "video",
+  },
+  avi: {
+    mime: "video/x-msvideo",
+    showType: "video",
+    fileClass: "video",
+    qwenFileType: "video",
+  },
+  webm: {
+    mime: "video/webm",
+    showType: "video",
+    fileClass: "video",
+    qwenFileType: "video",
+  },
+  mkv: {
+    mime: "video/x-matroska",
+    showType: "video",
+    fileClass: "video",
+    qwenFileType: "video",
+  },
+  mp3: {
+    mime: "audio/mpeg",
+    showType: "audio",
+    fileClass: "audio",
+    qwenFileType: "audio",
+  },
+  wav: {
+    mime: "audio/wav",
+    showType: "audio",
+    fileClass: "audio",
+    qwenFileType: "audio",
+  },
+  ogg: {
+    mime: "audio/ogg",
+    showType: "audio",
+    fileClass: "audio",
+    qwenFileType: "audio",
+  },
+  flac: {
+    mime: "audio/flac",
+    showType: "audio",
+    fileClass: "audio",
+    qwenFileType: "audio",
+  },
+  m4a: {
+    mime: "audio/mp4",
+    showType: "audio",
+    fileClass: "audio",
+    qwenFileType: "audio",
+  },
+  aac: {
+    mime: "audio/aac",
+    showType: "audio",
+    fileClass: "audio",
+    qwenFileType: "audio",
+  },
+  pdf: {
+    mime: "application/pdf",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  doc: {
+    mime: "application/msword",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  docx: {
+    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  xls: {
+    mime: "application/vnd.ms-excel",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  xlsx: {
+    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  ppt: {
+    mime: "application/vnd.ms-powerpoint",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  pptx: {
+    mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  txt: {
+    mime: "text/plain",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  md: {
+    mime: "text/markdown",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  csv: {
+    mime: "text/csv",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  json: {
+    mime: "application/json",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  xml: {
+    mime: "application/xml",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  html: {
+    mime: "text/html",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+  zip: {
+    mime: "application/zip",
+    showType: "file",
+    fileClass: "file",
+    qwenFileType: "file",
+  },
+};
+
+export const SUPPORTED_MIME_TYPES = new Set(
+  Object.values(FILE_TYPE_MAP).map((typeInfo) => typeInfo.mime),
+);
+
+function getFileExtension(filename: string): string {
+  return filename.split(".").pop()?.toLowerCase() || "";
+}
+
+export function detectFileType(filename: string): FileTypeInfo {
+  return FILE_TYPE_MAP[getFileExtension(filename)] || DEFAULT_FILE_TYPE_INFO;
+}
+
+export function getExtensionFromMime(mime: string): string | undefined {
+  for (const [ext, typeInfo] of Object.entries(FILE_TYPE_MAP)) {
+    if (typeInfo.mime === mime) {
+      return ext;
+    }
+  }
+  return undefined;
+}
+
+export function getMaxUploadSize(fileType: string): number {
+  if (fileType.startsWith("video/")) return 100 * 1024 * 1024;
+  if (fileType.startsWith("audio/")) return 50 * 1024 * 1024;
+  return 20 * 1024 * 1024;
+}
+
+function getFilenameFromUrl(url: string, mime?: string): string {
+  let filename = "";
+
+  try {
+    filename = decodeURIComponent(new URL(url).pathname.split("/").pop() || "");
+  } catch {
+    filename = url.split("/").pop()?.split("?")[0] || "";
+  }
+
+  if (!filename) {
+    filename = "file";
+  }
+
+  if (!filename.includes(".")) {
+    const ext = mime ? getExtensionFromMime(mime) : undefined;
+    if (ext) {
+      filename = `${filename}.${ext}`;
+    }
+  }
+
+  return filename || "file.bin";
+}
+
+export async function downloadRemoteMedia(url: string): Promise<{
+  buffer: Buffer;
+  filename: string;
+  mime: string;
+}> {
+  const headMimeGuess = detectFileType(getFilenameFromUrl(url)).mime;
+  const maxSize = getMaxUploadSize(headMimeGuess);
+  // Downloads go through the SSRF-safe fetch: DNS is validated by the
+  // connection's lookup hook, so a rebinding resolver cannot point the socket
+  // at a private address after the check.
+  const response = await fetchRemoteMedia(url, {
+    headers: {
+      "User-Agent": config.auth.userAgent,
+      Accept: "image/*,*/*;q=0.8",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Remote media download failed: ${response.status}`);
+  }
+
+  const headerMime =
+    response.headers.get("content-type")?.split(";")[0].trim() || "";
+  const filename = getFilenameFromUrl(url, headerMime || undefined);
+  const detectedMime =
+    headerMime && SUPPORTED_MIME_TYPES.has(headerMime)
+      ? headerMime
+      : detectFileType(filename).mime;
+
+  if (!SUPPORTED_MIME_TYPES.has(detectedMime)) {
+    try {
+      await response.body?.cancel();
+    } catch {}
+    throw new Error(
+      `Unsupported remote media type: ${headerMime || detectedMime || "unknown"}`,
+    );
+  }
+
+  const buffer = await readResponseWithByteCap(
+    response,
+    getMaxUploadSize(detectedMime) || maxSize,
+  );
+
+  return {
+    buffer,
+    filename,
+    mime: detectedMime,
+  };
+}
+
+/**
+ * Get STS token from Qwen for file upload
+ */
+export async function getSTSToken(
+  filename: string,
+  filesize: number,
+  filetype: string,
+  headers: Record<string, string>,
+  accountId?: string,
+): Promise<STSResponse["data"]> {
+  const doFetch = (reqHeaders: Record<string, string>) =>
+    fetch(qwenUrl("/api/v2/files/getstsToken"), {
+      method: "POST",
+      headers: buildQwenRequestHeaders({
+        cookie: reqHeaders.cookie,
+        userAgent: reqHeaders["user-agent"],
+        bxUa: reqHeaders["bx-ua"],
+        bxUmidtoken: reqHeaders["bx-umidtoken"],
+        bxV: reqHeaders["bx-v"],
+      }),
+      body: JSON.stringify({ filename, filesize: String(filesize), filetype }),
+    });
+
+  let data: any = null;
+  const { loadAccounts } = await import("../core/accounts.ts");
+  const resolvedId = accountId ?? loadAccounts()[0]?.id;
+
+  if (!isAuthMockEnabled() && resolvedId) {
+    try {
+      const { requestQwenTextInBrowser, buildCapturedQwenHeaders } =
+        await import("../services/qwen.ts");
+      const browserRes = await requestQwenTextInBrowser(
+        resolvedId,
+        "POST",
+        "/api/v2/files/getstsToken",
+        buildCapturedQwenHeaders(headers, { referer: qwenUrl("/") }),
+        JSON.stringify({ filename, filesize: String(filesize), filetype }),
+      );
+      if (browserRes.ok) {
+        data = await browserRes.json().catch(() => null);
+      }
+    } catch {}
+  }
+
+  if (!data?.success) {
+    const response = await doFetch(headers);
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(
+        `STS token request failed: ${response.status} ${errorText.substring(0, 200)}`,
+      );
+    }
+    data = await response.json().catch(() => null);
+  }
+  const codeLower = (data?.data?.code || data?.code || "").toLowerCase();
+  const detailsLower = (typeof data?.data?.details === "string" ? data.data.details : typeof data?.message === "string" ? data.message : "").toLowerCase();
+  const is401 =
+    data?.success === false &&
+    (codeLower === "unauthorized" ||
+      detailsLower.includes("401") ||
+      detailsLower.includes("token has expired") ||
+      detailsLower.includes("unauthorized"));
+
+  if (is401) {
+    try {
+      const { refreshAccountToken } = await import("../services/playwright.ts");
+      const { getBasicHeaders } = await import("../services/auth-playwright.ts");
+      const { loadAccounts } = await import("../core/accounts.ts");
+      const resolvedId = accountId ?? loadAccounts()[0]?.id;
+      if (resolvedId) {
+        console.warn(
+          `[Upload] STS token 401 — refreshing session with re-auth and retrying...`,
+        );
+        const refreshResult = await refreshAccountToken(resolvedId);
+        if (refreshResult.success) {
+          const fresh = await getBasicHeaders(resolvedId);
+          headers.cookie = fresh.cookie;
+          headers["user-agent"] = fresh.userAgent;
+          headers["bx-v"] = fresh.bxV;
+          if (fresh.bxUa) headers["bx-ua"] = fresh.bxUa;
+          if (fresh.bxUmidtoken) headers["bx-umidtoken"] = fresh.bxUmidtoken;
+          const retryRes = await doFetch(headers);
+          if (retryRes.ok) {
+            data = await retryRes.json().catch(() => null);
+          }
+        }
+      }
+    } catch (refreshErr) {
+      console.warn(
+        `[Upload] Re-auth for STS token failed: ${refreshErr instanceof Error ? refreshErr.message : String(refreshErr)}`,
+      );
+    }
+  }
+
+  if (!data?.success || !data?.data) {
+    throw new Error(
+      `STS token invalid: ${JSON.stringify(data).substring(0, 200)}`,
+    );
+  }
+
+  return data.data;
+}
+
+/** Minimal OSS client surface used by upload helpers (easy to mock in tests). */
+export interface OssUploadClient {
+  putStream: (
+    name: string,
+    stream: Readable,
+    options?: {
+      contentLength?: number;
+      headers?: Record<string, string>;
+    },
+  ) => Promise<unknown>;
+  multipartUpload: (
+    name: string,
+    file: Buffer | string,
+    options?: {
+      partSize?: number;
+      headers?: Record<string, string>;
+    },
+  ) => Promise<unknown>;
+}
+
+/**
+ * Stream-friendly OSS body upload:
+ * - small/medium: putStream (avoids ali-oss put() extra buffering path)
+ * - large: multipartUpload (better reliability for big media)
+ */
+export async function uploadBufferToOssClient(
+  client: OssUploadClient,
+  filePath: string,
+  buffer: Buffer,
+  contentType: string,
+  multipartThresholdBytes: number = config.oss.multipartThresholdBytes,
+): Promise<"putStream" | "multipart"> {
+  const headers = { "Content-Type": contentType };
+
+  if (buffer.length >= multipartThresholdBytes) {
+    const partSize = Math.min(
+      5 * 1024 * 1024,
+      Math.max(256 * 1024, Math.floor(buffer.length / 4)),
+    );
+    await client.multipartUpload(filePath, buffer, {
+      partSize,
+      headers,
+    });
+    return "multipart";
+  }
+
+  await client.putStream(filePath, Readable.from(buffer), {
+    contentLength: buffer.length,
+    headers,
+  });
+  return "putStream";
+}
+
+/**
+ * Upload file to Alibaba Cloud OSS using STS credentials
+ */
+export async function uploadToOSS(
+  fileBuffer: ArrayBuffer | Buffer,
+  stsData: STSResponse["data"],
+  filename: string,
+): Promise<string> {
+  if (isAuthMockEnabled()) {
+    return stsData.file_url.split("?")[0];
+  }
+  const {
+    access_key_id,
+    access_key_secret,
+    security_token,
+    file_url,
+    file_path,
+    bucketname,
+    region,
+    endpoint,
+  } = stsData;
+
+  const OSS = await getOSSModule();
+  const client = new OSS({
+    region,
+    accessKeyId: access_key_id,
+    accessKeySecret: access_key_secret,
+    stsToken: security_token,
+    bucket: bucketname,
+    endpoint: `https://${endpoint}`,
+    secure: true,
+    refreshSTSToken: async () => ({
+      accessKeyId: access_key_id,
+      accessKeySecret: access_key_secret,
+      stsToken: security_token,
+    }),
+    refreshSTSTokenInterval: 300000,
+  }) as unknown as OssUploadClient;
+
+  const buffer = Buffer.isBuffer(fileBuffer)
+    ? fileBuffer
+    : Buffer.from(fileBuffer);
+  const contentType = detectFileType(filename).mime;
+
+  await uploadBufferToOssClient(client, file_path, buffer, contentType);
+
+  return file_url.split("?")[0];
+}
+
+/**
+ * Upload a UTF-8 text document to Qwen OSS and return the file entry used by
+ * the chat completions payload. This is the transport for large-context
+ * externalization: the full agent history is attached as a file instead of
+ * being inlined into the prompt, avoiding Qwen's ~128 KiB WAF/captcha tripwire.
+ */
+export async function uploadTextAsQwenFile(
+  filename: string,
+  content: string,
+  headers: Record<string, string>,
+  accountId?: string,
+): Promise<QwenFileEntry> {
+  return uploadBufferAsQwenFile(
+    filename,
+    Buffer.from(content, "utf8"),
+    headers,
+    accountId,
+  );
+}
+
+/**
+ * Upload an arbitrary buffer (image, video, text) to Qwen OSS and return the
+ * file entry used by the completions payload. `mime` overrides extension-based
+ * detection, which matters for client uploads that carry a generic filename.
+ */
+export async function uploadBufferAsQwenFile(
+  filename: string,
+  buffer: Buffer,
+  headers: Record<string, string>,
+  accountId?: string,
+  mime?: string,
+): Promise<QwenFileEntry> {
+  const size = buffer.length;
+  const byMime = mime
+    ? Object.values(FILE_TYPE_MAP).find((info) => info.mime === mime)
+    : undefined;
+  const typeInfo = byMime ?? detectFileType(filename);
+  const stsData = await getSTSToken(
+    filename,
+    size,
+    typeInfo.qwenFileType,
+    headers,
+    accountId,
+  );
+  const fileUrl = await uploadToOSS(buffer, stsData, filename);
+  const now = Date.now();
+  return {
+    type: typeInfo.showType,
+    file: {
+      created_at: now,
+      data: {},
+      filename,
+      hash: null,
+      id: stsData.file_id,
+      user_id: "proxy-user",
+      meta: {
+        name: filename,
+        size,
+        content_type: typeInfo.mime,
+      },
+      update_at: now,
+      lastModified: now,
+      name: filename,
+      webkitRelativePath: "",
+      size,
+      type: typeInfo.mime,
+    },
+    id: stsData.file_id,
+    url: fileUrl,
+    name: filename,
+    collection_name: "",
+    progress: 100,
+    status: "uploaded",
+    greenNet: "success",
+    size,
+    error: "",
+    itemId: uuidv4(),
+    file_type: typeInfo.mime,
+    showType: typeInfo.showType,
+    file_class: typeInfo.fileClass,
+    uploadTaskId: uuidv4(),
+  };
+}
+
+/**
+ * Handle image upload endpoint
+ * POST /v1/upload
+ */

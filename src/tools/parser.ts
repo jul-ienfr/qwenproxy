@@ -87,7 +87,25 @@ interface ToolEndMatch {
  * while still using either singular or plural closing tags, so both forms are
  * accepted here.
  */
+let parserScanChars = 0;
+let parserEndChecks = 0;
+
+export function resetParserCounters(): void {
+  parserScanChars = 0;
+  parserEndChecks = 0;
+}
+
+export function getParserScanChars(): number {
+  return parserScanChars;
+}
+
+export function getParserEndChecks(): number {
+  return parserEndChecks;
+}
+
 function findToolEndOutsideJsonString(buffer: string): ToolEndMatch | null {
+  parserEndChecks += 1;
+  parserScanChars += buffer.length;
   const lower = buffer.toLowerCase();
   const main = scanCloseTagOutsideStringsAndFences(lower);
 
@@ -1328,6 +1346,16 @@ function getToolDefinitionProperties(
 export class StreamingToolParser {
   private buffer = "";
   private insideTool = false;
+  private scanCursorValid = false;
+  private scanLower = "";
+  private scanPos = 0;
+  private scanInString = false;
+  private scanFenceLen = 0;
+  private scanMain: ToolEndMatch | null = null;
+  private scanOccurrences: ToolEndMatch[] = [];
+  private scanOccPos = 0;
+  private scanParse = new Map<number, boolean>();
+  private scanPrefix = new Map<number, { truncated: boolean; multi: boolean }>();
   private currentOpenTag = TOOL_START_LITERAL;
   private currentCloseTag = TOOL_END;
   private emittedToolCallCount = 0;
@@ -2118,6 +2146,162 @@ export class StreamingToolParser {
     return words.length >= 3 && t.length > 20;
   }
 
+  private resetIncrementalScan(): void {
+    this.scanCursorValid = false;
+    this.scanLower = "";
+    this.scanPos = 0;
+    this.scanInString = false;
+    this.scanFenceLen = 0;
+    this.scanMain = null;
+    this.scanOccurrences = [];
+    this.scanOccPos = 0;
+    this.scanParse.clear();
+    this.scanPrefix.clear();
+  }
+
+  private syncIncrementalScan(): void {
+    if (this.scanCursorValid && this.scanLower.length === this.buffer.length) {
+      return;
+    }
+    this.scanLower = this.buffer.toLowerCase();
+    this.scanPos = 0;
+    this.scanInString = false;
+    this.scanFenceLen = 0;
+    this.scanMain = null;
+    this.scanOccurrences = [];
+    this.scanOccPos = 0;
+    this.scanParse.clear();
+    this.scanPrefix.clear();
+    this.scanCursorValid = true;
+  }
+
+  private scanCloseTagsIncremental(): void {
+    const total = this.scanLower.length;
+    if (total <= this.scanPos) return;
+    parserScanChars += total - this.scanPos;
+    let i = this.scanPos;
+    let inString = this.scanInString;
+    let fence = this.scanFenceLen;
+
+    for (; i < total; i++) {
+      const ch = this.scanLower[i];
+      if (inString) {
+        if (ch.charCodeAt(0) === 92) {
+          i++;
+          continue;
+        }
+        if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === "`") {
+        let run = 1;
+        while (i + run < total && this.scanLower[i + run] === "`") run++;
+        if (fence === 0) fence = run;
+        else if (run >= fence) fence = 0;
+        i += run - 1;
+        continue;
+      }
+      if (fence > 0) continue;
+      if (!this.scanMain) {
+        const closeLen = matchToolCloseAt(this.scanLower, i);
+        if (closeLen !== null) {
+          this.scanMain = {
+            index: i,
+            tag: this.scanLower.substring(i, i + closeLen),
+          };
+        }
+      }
+    }
+
+    this.scanPos = total;
+    this.scanInString = inString;
+    this.scanFenceLen = fence;
+  }
+
+  private scanOccurrencesIncremental(): void {
+    const from = Math.max(0, this.scanOccPos - 40);
+    for (const name of getCloseNames()) {
+      const tag = "</" + name.toLowerCase() + ">";
+      let pos = from;
+      for (;;) {
+        const idx = this.scanLower.indexOf(tag, pos);
+        if (idx === -1) break;
+        let known = false;
+        for (const occ of this.scanOccurrences) {
+          if (occ.index === idx) {
+            known = true;
+            break;
+          }
+        }
+        if (!known) {
+          this.scanOccurrences.push({ index: idx, tag });
+          this.scanOccurrences.sort((a, b) => a.index - b.index);
+        }
+        pos = idx + tag.length;
+      }
+    }
+    this.scanOccPos = this.scanLower.length;
+  }
+
+  private closeTagParseable(index: number): boolean {
+    const cached = this.scanParse.get(index);
+    if (cached !== undefined) return cached;
+    const value = closeTagContentIsParseable(this.buffer, index);
+    this.scanParse.set(index, value);
+    return value;
+  }
+
+  private closeTagPrefixFacts(index: number): {
+    truncated: boolean;
+    multi: boolean;
+  } {
+    const cached = this.scanPrefix.get(index);
+    if (cached) return cached;
+    const prefix = this.buffer.substring(0, index).trim();
+    const facts = {
+      truncated: isJsonPayloadTruncated(prefix),
+      multi: splitTopLevelJsonObjects(prefix).length > 1,
+    };
+    this.scanPrefix.set(index, facts);
+    return facts;
+  }
+
+  private findToolEndIncremental(): ToolEndMatch | null {
+    parserEndChecks += 1;
+    this.syncIncrementalScan();
+    this.scanCloseTagsIncremental();
+    this.scanOccurrencesIncremental();
+
+    if (this.scanMain && this.closeTagParseable(this.scanMain.index)) {
+      return this.scanMain;
+    }
+
+    for (let i = this.scanOccurrences.length - 1; i >= 0; i--) {
+      const occ = this.scanOccurrences[i];
+      if (this.closeTagParseable(occ.index)) return occ;
+    }
+
+    for (const occ of this.scanOccurrences) {
+      const facts = this.closeTagPrefixFacts(occ.index);
+      if (facts.truncated) continue;
+      const after = this.buffer
+        .substring(occ.index + occ.tag.length)
+        .trimStart();
+      if (
+        (TOOL_MARKER_RE.test(after) && !after.startsWith("</")) ||
+        facts.multi
+      ) {
+        return occ;
+      }
+    }
+
+    return null;
+  }
+
   feed(chunk: string): ParserResult {
     if (isToolcallDebugEnabled()) {
       logger.debug("[parser] feed() called", {
@@ -2130,6 +2314,18 @@ export class StreamingToolParser {
     }
 
     this.buffer += chunk;
+    if (this.insideTool) {
+      if (
+        this.scanCursorValid &&
+        this.scanLower.length + chunk.length === this.buffer.length
+      ) {
+        this.scanLower += chunk.toLowerCase();
+      } else {
+        this.scanCursorValid = false;
+      }
+    } else {
+      this.scanCursorValid = false;
+    }
     const result: ParserResult = {
       text: "",
       toolCalls: [],
@@ -2229,7 +2425,7 @@ export class StreamingToolParser {
         }
       } else {
         // Inside tool: look for a supported closing tag outside JSON strings.
-        const endMatch = findToolEndOutsideJsonString(this.buffer);
+        const endMatch = this.findToolEndIncremental();
         if (endMatch) {
           const endIdx = endMatch.index;
           const content = this.buffer.substring(0, endIdx);
@@ -2485,6 +2681,7 @@ export class StreamingToolParser {
     }
 
     this.buffer = "";
+    this.resetIncrementalScan();
     this.insideTool = false;
     this.currentOpenTag = TOOL_START_LITERAL;
     this.currentCloseTag = TOOL_END;
@@ -3616,16 +3813,16 @@ export class StreamingToolParser {
 function findMatchingClosingBrace(text: string, startIdx: number): number {
   let depth = 0;
   let inString = false;
-  let escape = false;
+  let escaped = false;
   let quoteChar = "";
 
   for (let j = startIdx; j < text.length; j++) {
     const ch = text[j];
     if (inString) {
-      if (escape) {
-        escape = false;
+      if (escaped) {
+        escaped = false;
       } else if (ch === "\\") {
-        escape = true;
+        escaped = true;
       } else if (ch === quoteChar) {
         inString = false;
       }

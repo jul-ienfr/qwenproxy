@@ -4,7 +4,7 @@
  */
 
 import fs from "node:fs";
-import { stripAnsi } from "../tui/theme.ts";
+import { stripAnsi } from "../utils/ansi.ts";
 import { getServerLogFilePath, ensureDataDirs, isRunningUnderNodeTest } from "./paths.ts";
 
 export interface ServerLogMessage {

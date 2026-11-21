@@ -4,6 +4,10 @@ import assert from "node:assert/strict";
 process.env.TEST_MOCK_QWEN_AUTH = "true";
 
 import { app } from "../api/server.ts";
+import {
+  recordDiscoveredModel,
+  resetDiscoveredModelsForTests,
+} from "../core/discovered-models.ts";
 
 const modelsPayload = {
   data: [
@@ -221,5 +225,31 @@ test("models endpoint falls back gracefully to default models when upstream auth
     assert.ok(body.data.some((m: any) => m.id === "qwen-test-model" || m.id === "qwen3.8-max"));
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("models endpoint advertises Qwen 4 and runtime-discovered models", async () => {
+  resetDiscoveredModelsForTests(true);
+  const originalFetch = installModelsFetchMock();
+  try {
+    recordDiscoveredModel("qwen5-preview");
+    const res = await app.fetch(new Request("http://localhost/v1/models"));
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as any;
+    const qwen4 = body.data.find((model: any) => model.id === "qwen4-max");
+    assert.ok(qwen4, "qwen4-max must be advertised even when the live catalog omits it");
+    assert.equal(qwen4.owned_by, "qwen");
+    assert.equal(qwen4.is_active, true);
+
+    const discovered = body.data.find(
+      (model: any) => model.id === "qwen5-preview",
+    );
+    assert.ok(
+      discovered,
+      "a model accepted upstream must be advertised on the next catalog request",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    resetDiscoveredModelsForTests(true);
   }
 });

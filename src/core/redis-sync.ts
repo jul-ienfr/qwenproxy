@@ -22,7 +22,7 @@ import {
   RESPONSE_RETENTION_MS,
   applyRemoteStoredResponse,
   applyRemoteStoredResponseDelete,
-} from "../routes/responses/state.ts";
+} from "./response-store.ts";
 import type {
   RedisEventHandlers,
   RedisLocalSnapshot,

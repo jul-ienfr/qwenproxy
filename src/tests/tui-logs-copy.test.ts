@@ -62,7 +62,7 @@ test("ServerLogBuffer: prevents duplicate logs when called consecutively in the 
 });
 
 test("ServerManager + hookServerConsoleForLogging: logs are never duplicated in log history", async () => {
-  const { recordServerLog, getServerLogHistory, hookServerConsoleForLogging } = await import("../core/server-log-buffer.ts");
+  const { getServerLogHistory, hookServerConsoleForLogging } = await import("../core/server-log-buffer.ts");
   const sm = ServerManager.getInstance();
   sm.interceptLogs();
   hookServerConsoleForLogging();

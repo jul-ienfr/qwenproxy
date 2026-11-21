@@ -1,4 +1,5 @@
 import { mapClientModelToQwen } from "./model-alias.ts";
+import { logger } from "./logger.ts";
 import {
   deleteAllModelLimitsFromDb,
   deleteModelLimit,
@@ -26,6 +27,18 @@ export interface ModelLimitEntry {
 
 const modelLimits = new Map<string, ModelLimitEntry>();
 let loadedFromDb = false;
+let nextLoadAttemptAt = 0;
+const LOAD_RETRY_MS = 5000;
+
+export interface PersistedModelLimitRow {
+  account_id: string;
+  model: string;
+  until: number;
+  reason: string;
+  updated_at: number;
+}
+
+type PersistedLimitLoader = () => PersistedModelLimitRow[];
 
 const KEY_SEPARATOR = "::";
 
@@ -39,10 +52,33 @@ function limitKey(accountId: string, normalizedModel: string): string {
   return `${accountId}${KEY_SEPARATOR}${normalizedModel}`;
 }
 
+export function ensureModelLimitsLoaded(
+  loader?: PersistedLimitLoader,
+): boolean {
+  if (loadedFromDb) return true;
+  const now = Date.now();
+  if (now < nextLoadAttemptAt) return false;
+  const loaded = loader ? loadModelLimits(loader) : loadModelLimits();
+  if (loaded) {
+    loadedFromDb = true;
+  } else {
+    nextLoadAttemptAt = now + LOAD_RETRY_MS;
+  }
+  return loaded;
+}
+
 function ensureLoaded(): void {
-  if (loadedFromDb) return;
-  loadedFromDb = true;
-  loadModelLimits();
+  ensureModelLimitsLoaded();
+}
+
+export function isModelLimitStateLoaded(): boolean {
+  return loadedFromDb;
+}
+
+export function resetModelLimitLoadStateForTests(): void {
+  loadedFromDb = false;
+  nextLoadAttemptAt = 0;
+  modelLimits.clear();
 }
 
 export function markAccountModelLimited(
@@ -155,10 +191,12 @@ export function listModelLimits(): ModelLimitEntry[] {
   return out;
 }
 
-export function loadModelLimits(): void {
+export function loadModelLimits(
+  loader: PersistedLimitLoader = listPersistedModelLimits,
+): boolean {
   try {
     const now = Date.now();
-    for (const row of listPersistedModelLimits()) {
+    for (const row of loader()) {
       if (row.until <= now) continue;
       modelLimits.set(limitKey(row.account_id, row.model), {
         accountId: row.account_id,
@@ -168,7 +206,11 @@ export function loadModelLimits(): void {
         updatedAt: row.updated_at,
       });
     }
-  } catch {
-    /* DB persistence is best-effort */
+    return true;
+  } catch (error) {
+    logger.warn("[model-limits] Failed to load persisted model limits", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
   }
 }

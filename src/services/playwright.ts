@@ -66,7 +66,7 @@ function autoInstallPlaywrightChromium(): void {
 
   try {
     void (async () => {
-      const { cleanPlaywrightBrowsers } = await import("../clean-cache.ts");
+      const { cleanPlaywrightBrowsers } = await import("./browser-cache.ts");
       await cleanPlaywrightBrowsers(true);
     })();
   } catch {}
@@ -581,11 +581,6 @@ const profileResetQueue = new Map<string, Promise<void>>();
 let profileResetChain: Promise<void> = Promise.resolve();
 let closingAllPlaywright = false;
 
-type KillableProcess = {
-  killed?: boolean;
-  kill: (signal?: NodeJS.Signals | number) => boolean;
-};
-
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const HEADER_CAPTURE_SETTLE_MS = 1500;
 const PLAYWRIGHT_MUTEX_WAIT_MS = 60_000;
@@ -694,14 +689,6 @@ function withTimeout<T>(
       timer.unref?.();
     }),
   ]);
-}
-
-function getBrowserProcess(context: BrowserContext): KillableProcess | null {
-  const browser = context.browser();
-  const maybeBrowser = browser as unknown as {
-    process?: () => KillableProcess | null;
-  };
-  return maybeBrowser.process?.() ?? null;
 }
 
 function touchAccountActivity(accountId: string): void {
@@ -4338,23 +4325,6 @@ export function isAuthTokenValidFrom(
   return expiresAt > Date.now() + safetyMarginMs;
 }
 
-/**
- * Check if the shortest-lived cookie (acw_tc) is still valid.
- * This is the 24-min cookie that gates some requests.
- */
-function isShortestCookieValidFrom(cookies: CookieSnapshot): boolean {
-  const acwCookie = cookies.find(
-    (c) => c.name === "acw_tc" && c.domain.includes("qwen.ai"),
-  );
-
-  if (!acwCookie) return true; // If missing, assume OK (will be refreshed by browser)
-
-  if (acwCookie.expires === -1) return true;
-
-  const expiresAt = acwCookie.expires * 1000;
-  return expiresAt > Date.now() + 60 * 1000; // 1-min safety margin
-}
-
 async function refreshHeadersInternal(
   accountId: string,
   timeoutMs = config.timeouts.headers,
@@ -4369,7 +4339,6 @@ async function refreshHeadersInternal(
   try {
     // Check if session is expired before capturing headers
     const page = accountPages.get(accountId);
-    let reauthExecuted = false;
     if (page) {
       const executeReauth = async () => {
         console.warn(
@@ -4386,7 +4355,6 @@ async function refreshHeadersInternal(
               `Re-login for ${accountId} did not restore an authenticated session`,
             );
           }
-          reauthExecuted = true;
         } else {
           unmarkAccountHeadersReady(accountId);
           throw new Error(

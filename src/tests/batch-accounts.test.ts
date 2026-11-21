@@ -13,7 +13,6 @@ import {
   invalidateAccountsCache,
   removeAccount,
   isPlaceholderAccountEmail,
-  removeAccountFromEnv,
 } from "../core/accounts.ts";
 import { closeDatabase, getDatabase } from "../core/database.ts";
 

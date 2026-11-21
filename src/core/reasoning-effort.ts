@@ -9,8 +9,6 @@
  * Qwen upstream only has a boolean + Thinking|Fast — no true medium gradient.
  */
 
-import { stripFastSuffix } from "./model-registry.ts";
-
 export type NormalizedEffort = "low" | "medium" | "high";
 
 /** Human-facing / provider aliases → normalized. */

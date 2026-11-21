@@ -137,8 +137,23 @@ function parseEnvAccounts(): QwenAccount[] {
 let lastSyncedEnv = "";
 let lastSyncTime = 0;
 const SYNC_INTERVAL = 30_000;
+let envSyncWriteCount = 0;
+
+export function getEnvSyncWriteCount(): number {
+  return envSyncWriteCount;
+}
+
+export function resetEnvSyncWriteCount(): void {
+  envSyncWriteCount = 0;
+}
 
 function syncEnvAccounts(): void {
+  const envAccounts = process.env.QWEN_ACCOUNTS || "";
+  const now = Date.now();
+  if (envAccounts === lastSyncedEnv && now - lastSyncTime < SYNC_INTERVAL)
+    return;
+
+  envSyncWriteCount++;
   const db = getDatabase();
   // Automatically purge any dummy placeholder accounts that may have been seeded from .env.example
   try {
@@ -149,11 +164,6 @@ function syncEnvAccounts(): void {
          OR lower(email) LIKE 'email2@%'
     `).run();
   } catch {}
-
-  const envAccounts = process.env.QWEN_ACCOUNTS || "";
-  const now = Date.now();
-  if (envAccounts === lastSyncedEnv && now - lastSyncTime < SYNC_INTERVAL)
-    return;
 
   lastSyncedEnv = envAccounts;
   lastSyncTime = now;
@@ -241,23 +251,31 @@ function getCachedAccounts(): QwenAccount[] {
 
   accountsCache = rows
     .filter((row) => !isPlaceholderAccountEmail(row.email))
-    .map((row) => {
+    .map((row): QwenAccount | null => {
       let password = "";
+      let credentialError = false;
       try {
         password = decrypt(row.password);
       } catch {
-        password = "";
+        credentialError = true;
       }
       let proxy: string | null = null;
       if (row.proxy) {
         try {
           proxy = isEncrypted(row.proxy) ? decrypt(row.proxy) : row.proxy;
         } catch {
-          proxy = row.proxy;
+          credentialError = true;
         }
       }
+      if (credentialError) {
+        console.warn(
+          `⚠️  [Accounts] Stored credentials could not be decrypted; excluding account ${row.id} from rotation`,
+        );
+        return null;
+      }
       return { ...row, password, proxy };
-    });
+    })
+    .filter((account): account is QwenAccount => account !== null);
   accountsCacheTime = now;
   return accountsCache;
 }

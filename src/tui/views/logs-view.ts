@@ -3,13 +3,11 @@
  * Real-time event log viewer with level filtering (All, Warnings, Errors).
  */
 
-import fs from "node:fs";
 import type { TuiView } from "../types.ts";
 import type { KeyEvent } from "../screen.ts";
 import { theme, drawBox, stringWidth, truncate, pad, stripAnsi, setClipboardText } from "../theme.ts";
 import { ServerManager } from "../server-manager.ts";
 import { loadTuiSettings, saveTuiSettings } from "../settings.ts";
-import { getServerLogFilePath, isRunningUnderNodeTest } from "../../core/paths.ts";
 export class LogsView implements TuiView {
   public readonly id = "logs";
   public readonly title = "Logs";
@@ -40,7 +38,6 @@ export class LogsView implements TuiView {
   private lastVisibleCount = 0;
   private lastTotalCount = 0;
   private lastWidth = 80;
-  private lastHeight = 24;
   private lastMaxOffset = 0;
   private lastVisibleCapacity = 0;
   private isScrollbarHovered = false;
@@ -357,7 +354,6 @@ export class LogsView implements TuiView {
     const visibleCapacity = Math.max(1, contentH - 4);
     const maxOffset = Math.max(0, total - visibleCapacity);
     this.lastWidth = width;
-    this.lastHeight = height;
     this.lastMaxOffset = maxOffset;
     this.lastVisibleCapacity = visibleCapacity;
     this.scrollOffset = Math.max(0, Math.min(this.scrollOffset, maxOffset));

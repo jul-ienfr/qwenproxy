@@ -1,7 +1,8 @@
 import { createHash } from "crypto";
 import { Hono } from "hono";
 import { fetchQwenModels, getAnyCachedQwenModels } from "../services/qwen.js";
-import { DEFAULT_FALLBACK_MODELS } from "../core/model-alias.ts";
+import { DEFAULT_FALLBACK_MODELS, listAlwaysAvailableModels } from "../core/model-alias.ts";
+import { listDiscoveredModels } from "../core/discovered-models.ts";
 import { getModelMappingState } from "../core/model-mapping.ts";
 import { loadAccounts } from "../core/accounts.ts";
 import { getAccountCooldownInfo } from "../core/account-manager.ts";
@@ -231,12 +232,38 @@ export async function loadModelsWithVariants(): Promise<{
       is_active: true,
     }));
 
+  // Models that Qwen accepts for completions before its `/api/models` catalog
+  // lists them. `ALWAYS_AVAILABLE_MODELS` holds live-verified ids and
+  // `QWEN_EXTRA_MODELS` lets an operator expose one without a code change;
+  // ids learned from successful completions are merged on top. This is what
+  // makes a newly released model selectable as soon as it works upstream.
+  const knownIds = new Set([
+    ...existingIds,
+    ...specializedModels.map((model) => model.id.toLowerCase()),
+  ]);
+  const extraModels: PublicModel[] = [];
+  for (const id of [...listAlwaysAvailableModels(), ...listDiscoveredModels()]) {
+    const normalized = id.toLowerCase();
+    if (knownIds.has(normalized)) continue;
+    knownIds.add(normalized);
+    const capabilities = getModelCapabilities(id, accountId);
+    extraModels.push({
+      id,
+      object: "model",
+      created: MEDIA_MODELS_CREATED_AT,
+      owned_by: "qwen",
+      context_window: getModelContextWindow(id, accountId),
+      is_active: true,
+      supports_search: capabilities.supportsSearch,
+    });
+  }
+
   // Runtime aliases are first-class catalog entries: clients can discover
   // them and read the target's context window/capabilities. The `/v1/models`
   // ETag is derived from this list, so a mapping change invalidates it.
   const advertised = new Set(
-    [...expandedWithMedia, ...mediaModels, ...specializedModels].map((model) =>
-      model.id.toLowerCase(),
+    [...expandedWithMedia, ...mediaModels, ...specializedModels, ...extraModels].map(
+      (model) => model.id.toLowerCase(),
     ),
   );
   const aliasModels: PublicModel[] = getModelMappingState()
@@ -260,6 +287,7 @@ export async function loadModelsWithVariants(): Promise<{
       ...expandedWithMedia,
       ...mediaModels,
       ...specializedModels,
+      ...extraModels,
       ...aliasModels,
     ],
     accountId,

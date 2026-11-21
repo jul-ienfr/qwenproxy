@@ -8,7 +8,7 @@ function parseJsonWithComments(raw: string): Record<string, any> {
   let inString = false;
   let inLineComment = false;
   let inBlockComment = false;
-  let escape = false;
+  let escaped = false;
 
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i];
@@ -30,10 +30,10 @@ function parseJsonWithComments(raw: string): Record<string, any> {
     }
     if (inString) {
       result += ch;
-      if (escape) {
-        escape = false;
+      if (escaped) {
+        escaped = true;
       } else if (ch === "\\") {
-        escape = true;
+        escaped = true;
       } else if (ch === '"') {
         inString = false;
       }

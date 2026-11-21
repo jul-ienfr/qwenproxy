@@ -12,9 +12,41 @@ import {
 
 export type ReasoningMode = "auto" | "thinking" | "fast";
 
+/**
+ * Qwen model ids that the proxy has live-verified but that may be missing from
+ * the account-scoped `/api/models` catalog (preview or staggered rollouts).
+ *
+ * Qwen's live catalog remains the primary source for `/v1/models`; these ids
+ * are advertised in addition to it so a newly usable model is selectable
+ * before Qwen lists it. Models learned at runtime (a completion that Qwen
+ * accepted for an unlisted id) are added on top by `discovered-models.ts`.
+ */
+export const ALWAYS_AVAILABLE_MODELS = [
+  // Verified live: chat.qwen.ai accepts qwen4-max completions while its
+  // /api/models catalog still omits it.
+  "qwen4-max",
+];
+
+/**
+ * Extra always-available ids configured by operators, e.g.
+ * `QWEN_EXTRA_MODELS=qwen4-plus,qwen4-turbo`. Comma/space separated.
+ */
+export function listAlwaysAvailableModels(): string[] {
+  const configured = (process.env.QWEN_EXTRA_MODELS ?? "")
+    .split(/[\s,]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const unique = new Set<string>();
+  for (const id of [...ALWAYS_AVAILABLE_MODELS, ...configured]) {
+    if (id) unique.add(id);
+  }
+  return [...unique];
+}
+
 export const DEFAULT_FALLBACK_MODELS = [
   "qwen3.8-max",
   "qwen3.7-plus",
+  "qwen4-max",
   "qwen4.0-max-preview",
   "qwen3.8-omni-flash",
   "qwen3.7-max",
@@ -143,6 +175,10 @@ export function parseModelSuffix(model: string): {
 export function mapKnownModelAlias(model: string): string {
   if (!model) return model;
   const lower = model.toLowerCase();
+  // "Qwen 4" / "QN4" / "qwen-4" are convenience spellings for the flagship
+  // Qwen 4 id. Keep this before the generic `qwen*` passthrough below.
+  const compact = lower.replace(/[\s_-]+/g, "");
+  if (compact === "qwen4" || compact === "qn4") return "qwen4-max";
   if (lower.startsWith("qwen")) return model;
 
   // Gemini tiers must be handled before the generic "mini" substring check

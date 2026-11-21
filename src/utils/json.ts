@@ -1,4 +1,4 @@
-import { logger } from "../core/logger.js";
+import { logger } from "./logger.ts";
 
 const isDebug = process.env.TOOLCALL_DEBUG === "1";
 

@@ -142,7 +142,6 @@ async function main() {
   let targetAccount: string | null = null;
   let activeAccount = TARGET_ACCOUNT;
   let cutoffError: string | null = null;
-  let cutoffTurn = 0;
 
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     const prompt = generateLargePrompt(PROMPT_KB, turn);
@@ -256,7 +255,6 @@ async function main() {
     }
 
     if (cutoffDetected) {
-      cutoffTurn = turn;
       cutoffError = cutoffMessage;
       console.log(`\n\n🚨 PARADA REAL: COTA DIÁRIA DA ALIBABA ESGOTADA NO TURNO #${turn}!`);
       console.log(`   Conta:   ${turnAccount}`);
@@ -312,12 +310,6 @@ async function main() {
   const hoursUntilMidnight = (msUntilMidnight / 3600000).toFixed(1);
 
   // Time in Brasília timezone (UTC-3)
-  const resetBrasiliaTime = nextMidnightUtc.toLocaleTimeString("pt-BR", {
-    timeZone: "America/Sao_Paulo",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
   const alibabaHint = cutoffError ? extractWaitHint(cutoffError) : null;
 
   console.log("\n================================================================");

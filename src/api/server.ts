@@ -35,6 +35,11 @@ import {
   getRuntimeApiKey,
   isLoopbackHost,
 } from "../core/local-auth.ts";
+import {
+  authorityLogLabel,
+  getRequestAuthorities,
+  isTrustedAuthority,
+} from "../core/trusted-hosts.ts";
 import { seedEnvUsers } from "../core/users.ts";
 import type { UserIdentity } from "../core/users.ts";
 import {
@@ -311,6 +316,29 @@ function getCorsOrigin(requestOrigin?: string): string {
   }
   return "";
 }
+
+app.use("*", async (c, next) => {
+  const authorities = getRequestAuthorities(c);
+  if (
+    authorities.length === 0 ||
+    authorities.some((authority) => !isTrustedAuthority(authority))
+  ) {
+    metrics.increment("requests.authority_rejected");
+    console.warn(
+      `⚠️  [Server] Untrusted request authority | ${c.req.method} ${authorityLogLabel(authorities[0] ?? "")}`,
+    );
+    return c.json(
+      {
+        error: {
+          type: "permission_error",
+          message: "Request authority is not trusted",
+        },
+      },
+      403,
+    );
+  }
+  await next();
+});
 
 app.use("*", async (c, next) => {
   const corsOrigin = getCorsOrigin(c.req.header("Origin"));
@@ -1070,15 +1098,14 @@ async function cleanupServerResources(): Promise<void> {
     }
   }
 
-  const { closeAllPlaywright } = await import("../services/playwright.ts");
-  await closeAllPlaywright();
-
   const activeServer = server;
   server = undefined;
   if (activeServer?.close) {
-    // Drain in-flight requests BEFORE flushing: a request finishing during the
-    // drain can still call updateLogicalThreadState, and its debounced write
-    // must land in SQLite while the DB is still open.
+    // Drain in-flight requests BEFORE any teardown that a live request still
+    // depends on: an in-flight SSE stream needs its Playwright page, and a
+    // request finishing during the drain can still call
+    // updateLogicalThreadState, whose debounced write must land in SQLite
+    // while the DB is still open.
     await new Promise<void>((resolve) => {
       try {
         if (activeServer.close.length > 0) {
@@ -1092,6 +1119,9 @@ async function cleanupServerResources(): Promise<void> {
       }
     });
   }
+
+  const { closeAllPlaywright } = await import("../services/playwright.ts");
+  await closeAllPlaywright();
 
   const { flushLogicalThreadState } = await import("../services/qwen.ts");
   try {
@@ -1118,7 +1148,22 @@ async function handleSignal(signal: string): Promise<never> {
   console.log(
     `🛑 [Server] Shutdown | ${signal}`,
   );
-  await stopServer();
+  const graceMs = Math.max(1000, config.server.shutdownGraceMs || 10000);
+  const forced = setTimeout(() => {
+    console.error(
+      `⏱️  [Server] Forced shutdown after ${graceMs}ms | ${signal}`,
+    );
+    process.exit(1);
+  }, graceMs);
+  try {
+    await stopServer();
+  } catch (error) {
+    console.error(
+      `❌ [Server] Shutdown failed:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  clearTimeout(forced);
   process.exit(0);
 }
 

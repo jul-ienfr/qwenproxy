@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 
 import { config } from "../core/config.ts";
 import { metrics } from "../core/metrics.js";
-import type { QwenFileEntry } from "../routes/upload.ts";
+import type { QwenFileEntry } from "../utils/types.ts";
 
 /**
  * In-memory cache of Qwen text attachments produced by large-context
